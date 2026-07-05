@@ -1,24 +1,30 @@
-import { StarMapData, Star, TradeLine } from './types';
+import { StarMapData, System, TradeLine, generateSysId, to2dp } from './types';
 
 /**
  * Parse a YAML-like starmap code block from a note.
  *
  * Expected format:
  * ```starmap
- * stars:
- *   - name: "Alpha"
- *     x: 12.5
- *     y: -3.2
- *     note: "Lore/Alpha"
+ * systems:
+ *   - sysid: "QXMVPA"
+ *     name: "Alpha"
+ *     x: 0.00
+ *     y: 0.00
+ *     z: 0.00
  *     color: "#ffcc00"
- *     size: 3
- *   - name: "Beta"
- *     x: -8.1
- *     y: 15.7
- *     note: "Lore/Beta"
+ *     size: 4
+ *     type: "Yellow Dwarf"
+ *     faction: "Terran Federation"
+ *
+ *   - sysid: "BGHJKL"
+ *     name: "Beta"
+ *     x: 15.00
+ *     y: -8.00
+ *     z: 3.20
+ *
  * tradeLines:
- *   - from: "Alpha"
- *     to: "Beta"
+ *   - from: "QXMVPA"
+ *     to: "BGHJKL"
  *     volume: "high"
  * ```
  */
@@ -32,20 +38,20 @@ export function parseStarMapData(content: string): StarMapData | null {
 }
 
 function parseBlock(block: string): StarMapData {
-  const stars: Star[] = [];
+  const systems: System[] = [];
   const tradeLines: TradeLine[] = [];
 
   const lines = block.split('\n').map(l => l.trimEnd());
 
-  let mode: 'stars' | 'tradeLines' | null = null;
-  let currentStar: Partial<Star> | null = null;
+  let mode: 'systems' | 'tradeLines' | null = null;
+  let currentSys: Partial<System> | null = null;
   let currentTrade: Partial<TradeLine> | null = null;
 
   for (const line of lines) {
     const trimmed = line.trim();
 
-    if (trimmed === 'stars:') {
-      mode = 'stars';
+    if (trimmed === 'systems:') {
+      mode = 'systems';
       continue;
     }
     if (trimmed === 'tradeLines:') {
@@ -53,27 +59,37 @@ function parseBlock(block: string): StarMapData {
       continue;
     }
 
-    if (mode === 'stars') {
-      if (trimmed.startsWith('- name:')) {
-        if (currentStar && currentStar.name) {
-          stars.push(finalizeStar(currentStar));
+    if (mode === 'systems') {
+      if (trimmed.startsWith('- sysid:')) {
+        if (currentSys && currentSys.sysid) {
+          systems.push(finalizeSystem(currentSys));
         }
-        currentStar = { name: extractValue(trimmed) };
-      } else if (currentStar) {
-        if (trimmed.startsWith('x:')) {
-          currentStar.x = parseFloat(extractValue(trimmed));
+        currentSys = { sysid: extractValue(trimmed) };
+      } else if (trimmed.startsWith('- name:')) {
+        // Allow omitting sysid — auto-generate one
+        if (currentSys && currentSys.name) {
+          systems.push(finalizeSystem(currentSys));
+        }
+        currentSys = { name: extractValue(trimmed), sysid: generateSysId() };
+      } else if (currentSys) {
+        if (trimmed.startsWith('name:')) {
+          currentSys.name = extractValue(trimmed);
+        } else if (trimmed.startsWith('sysid:')) {
+          currentSys.sysid = extractValue(trimmed);
+        } else if (trimmed.startsWith('x:')) {
+          currentSys.x = to2dp(parseFloat(extractValue(trimmed)));
         } else if (trimmed.startsWith('y:')) {
-          currentStar.y = parseFloat(extractValue(trimmed));
-        } else if (trimmed.startsWith('note:')) {
-          currentStar.note = extractValue(trimmed);
+          currentSys.y = to2dp(parseFloat(extractValue(trimmed)));
+        } else if (trimmed.startsWith('z:')) {
+          currentSys.z = to2dp(parseFloat(extractValue(trimmed)));
         } else if (trimmed.startsWith('color:')) {
-          currentStar.color = extractValue(trimmed);
+          currentSys.color = extractValue(trimmed);
         } else if (trimmed.startsWith('size:')) {
-          currentStar.size = parseInt(extractValue(trimmed), 10);
+          currentSys.size = parseInt(extractValue(trimmed), 10);
         } else if (trimmed.startsWith('faction:')) {
-          currentStar.faction = extractValue(trimmed);
+          currentSys.faction = extractValue(trimmed);
         } else if (trimmed.startsWith('type:')) {
-          currentStar.type = extractValue(trimmed);
+          currentSys.type = extractValue(trimmed);
         }
       }
     }
@@ -106,14 +122,14 @@ function parseBlock(block: string): StarMapData {
   }
 
   // Push last items
-  if (currentStar && currentStar.name) {
-    stars.push(finalizeStar(currentStar));
+  if (currentSys && currentSys.sysid) {
+    systems.push(finalizeSystem(currentSys));
   }
   if (currentTrade && currentTrade.from && currentTrade.to) {
     tradeLines.push(finalizeTrade(currentTrade));
   }
 
-  return { stars, tradeLines };
+  return { systems, tradeLines };
 }
 
 function extractValue(line: string): string {
@@ -127,15 +143,15 @@ function extractValue(line: string): string {
   return val;
 }
 
-function finalizeStar(s: Partial<Star>): Star {
+function finalizeSystem(s: Partial<System>): System {
   return {
-    id: s.name?.toLowerCase().replace(/\s+/g, '-') || `star-${Date.now()}`,
-    name: s.name || 'Unknown',
+    sysid: s.sysid || generateSysId(),
+    name: s.name,
     x: s.x ?? 0,
     y: s.y ?? 0,
+    z: s.z ?? 0,
     color: s.color || '#ffffff',
     size: s.size || 3,
-    note: s.note,
     faction: s.faction,
     type: s.type,
   };
