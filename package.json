@@ -1,0 +1,19 @@
+{
+  "name": "starforge-obsidian",
+  "version": "1.0.0",
+  "description": "An Obsidian plugin for creating interactive 2D star maps with trade routes and linked notes.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production"
+  },
+  "keywords": ["obsidian", "plugin", "starmap", "space"],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.21.5",
+    "obsidian": "^1.5.7",
+    "typescript": "^5.4.5"
+  }
+}
