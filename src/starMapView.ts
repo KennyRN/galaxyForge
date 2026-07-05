@@ -36,26 +36,87 @@ export class StarMapView extends ItemView {
     return 'starforge-logo';
   }
 
-  /** Allow the plugin to push settings updates into the view. */
   setBoundaryShape(shape: BoundaryShape): void {
     this.boundaryShape = shape;
     this.render();
   }
 
-  /** Get current data (for extension). */
   getData(): StarMapData {
     return this.data;
   }
 
-  /** Add new systems to the map and re-render. */
-  addSystems(newSystems: System[]): void {
+  getSourceFile(): TFile | null {
+    return this.sourceFile;
+  }
+
+  /**
+   * Add new systems to the map, write them back to the source file,
+   * and re-render.
+   */
+  async addSystems(newSystems: System[]): Promise<void> {
     this.data.systems.push(...newSystems);
+    await this.writeToSourceFile();
     this.render();
   }
 
-  /** Get the source file (for saving). */
-  getSourceFile(): TFile | null {
-    return this.sourceFile;
+  /**
+   * Serialise the current data back into a starmap code block
+   * and write it into the source file, replacing the existing block.
+   */
+  private async writeToSourceFile(): Promise<void> {
+    if (!this.sourceFile) return;
+
+    const content = await this.app.vault.read(this.sourceFile);
+    const starmapRegex = /```starmap\n[\s\S]*?```/;
+
+    const newBlock = this.serialiseToBlock();
+    const newContent = content.replace(starmapRegex, newBlock);
+
+    if (newContent !== content) {
+      await this.app.vault.modify(this.sourceFile, newContent);
+    }
+  }
+
+  /**
+   * Convert the current data back into a ```starmap code block.
+   */
+  private serialiseToBlock(): string {
+    const lines: string[] = ['```starmap'];
+
+    if (this.data.generatorSeed) {
+      lines.push(`generatorSeed: "${this.data.generatorSeed}"`);
+      lines.push('');
+    }
+
+    lines.push('systems:');
+    for (const sys of this.data.systems) {
+      lines.push(`  - sysid: "${sys.sysid}"`);
+      if (sys.name) lines.push(`    name: "${sys.name}"`);
+      lines.push(`    x: ${sys.x.toFixed(2)}`);
+      lines.push(`    y: ${sys.y.toFixed(2)}`);
+      lines.push(`    z: ${sys.z.toFixed(2)}`);
+      if (sys.color && sys.color !== '#ffffff') lines.push(`    color: "${sys.color}"`);
+      if (sys.size && sys.size !== 3) lines.push(`    size: ${sys.size}`);
+      if (sys.type) lines.push(`    type: "${sys.type}"`);
+      if (sys.faction) lines.push(`    faction: "${sys.faction}"`);
+    }
+
+    if (this.data.tradeLines.length > 0) {
+      lines.push('');
+      lines.push('tradeLines:');
+      for (const tl of this.data.tradeLines) {
+        lines.push(`  - from: "${tl.from}"`);
+        lines.push(`    to: "${tl.to}"`);
+        if (tl.color && tl.color !== '#44aa88') lines.push(`    color: "${tl.color}"`);
+        if (tl.width && tl.width !== 1.5) lines.push(`    width: ${tl.width}`);
+        if (tl.dashed) lines.push(`    dashed: true`);
+        if (tl.label) lines.push(`    label: "${tl.label}"`);
+        if (tl.volume) lines.push(`    volume: "${tl.volume}"`);
+      }
+    }
+
+    lines.push('```');
+    return lines.join('\n');
   }
 
   async onOpen(): Promise<void> {
@@ -206,8 +267,8 @@ export class StarMapView extends ItemView {
         this.app,
         sys,
         this.data.systems,
-        (newSystems) => {
-          this.addSystems(newSystems);
+        async (newSystems) => {
+          await this.addSystems(newSystems);
         }
       ).open();
     }
@@ -314,10 +375,6 @@ export class StarMapView extends ItemView {
     }
   }
 
-  /**
-   * Draw the explored region boundary (rectangle or circle)
-   * around all known systems.
-   */
   private drawExploredRegion(ctx: CanvasRenderingContext2D): void {
     if (this.data.systems.length === 0) return;
 
@@ -339,13 +396,11 @@ export class StarMapView extends ItemView {
     const radius = Math.sqrt(halfW * halfW + halfH * halfH);
 
     if (this.boundaryShape === 'circle') {
-      // Faint fill
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(68, 102, 170, 0.05)';
       ctx.fill();
 
-      // Inner dashed line
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(68, 102, 170, 0.3)';
@@ -353,7 +408,6 @@ export class StarMapView extends ItemView {
       ctx.setLineDash([6, 4]);
       ctx.stroke();
 
-      // Outer glow
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(68, 102, 170, 0.12)';
@@ -363,14 +417,12 @@ export class StarMapView extends ItemView {
 
       ctx.setLineDash([]);
 
-      // Label
       ctx.fillStyle = 'rgba(68, 102, 170, 0.5)';
       ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
       ctx.fillText('Explored Region', cx, cy - radius - 3);
     } else {
-      // Rectangle (default)
       const rect = {
         x: minX - padding,
         y: minY - padding,

@@ -50,10 +50,10 @@ export default class StarForgePlugin extends Plugin {
     });
 
     this.addCommand({
-      id: 'create-new-sector',
-      name: 'Create new adjacent sector',
+      id: 'expand-sector',
+      name: 'Expand current sector with new systems',
       callback: async () => {
-        await this.createNewSector();
+        await this.expandSector();
       },
     });
 
@@ -65,11 +65,10 @@ export default class StarForgePlugin extends Plugin {
   }
 
   /**
-   * Create a new sector note that abuts the current sector.
-   * The new sector's systems are offset so they sit just outside
-   * the current explored region boundary.
+   * Generate new systems that abut the current explored region
+   * and write them directly into the current note's starmap block.
    */
-  private async createNewSector(): Promise<void> {
+  private async expandSector(): Promise<void> {
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
       new Notice('Open a sector note first.');
@@ -105,9 +104,9 @@ export default class StarForgePlugin extends Plugin {
     ];
     const dir = dirs[Math.floor(Math.random() * dirs.length)];
 
-    // Generate 3-5 new systems in the new sector
+    // Generate 3-5 new systems in the new area
     const count = 3 + Math.floor(Math.random() * 3);
-    const lines: string[] = [];
+    const newSystems: string[] = [];
     const usedIds = new Set(data.systems.map((s) => s.sysid));
 
     for (let i = 0; i < count; i++) {
@@ -125,37 +124,46 @@ export default class StarForgePlugin extends Plugin {
       );
       const z = to2dp((Math.random() - 0.5) * 10);
 
-      lines.push(`  - sysid: "${sysid}"`);
-      lines.push(`    x: ${x.toFixed(2)}`);
-      lines.push(`    y: ${y.toFixed(2)}`);
-      lines.push(`    z: ${z.toFixed(2)}`);
+      newSystems.push(`  - sysid: "${sysid}"`);
+      newSystems.push(`    x: ${x.toFixed(2)}`);
+      newSystems.push(`    y: ${y.toFixed(2)}`);
+      newSystems.push(`    z: ${z.toFixed(2)}`);
     }
 
-    // Create the new sector note
-    const sectorName = `Sector-${generateSysId()}`;
-    const folderPath = 'Sectors';
-    const folder = this.app.vault.getAbstractFileByPath(folderPath);
-    if (!(folder instanceof TFolder)) {
-      await this.app.vault.createFolder(folderPath).catch(() => {});
+    // Insert the new systems into the starmap block before the tradeLines section
+    const starmapRegex = /```starmap\n[\s\S]*?```/;
+    const blockMatch = content.match(starmapRegex);
+    if (!blockMatch) return;
+
+    const oldBlock = blockMatch[0];
+    const tradeIdx = oldBlock.indexOf('tradeLines:');
+    let newBlock: string;
+
+    if (tradeIdx !== -1) {
+      // Insert before tradeLines
+      newBlock =
+        oldBlock.slice(0, tradeIdx) +
+        newSystems.join('\n') + '\n\n' +
+        oldBlock.slice(tradeIdx);
+    } else {
+      // No tradeLines — append before the closing ```
+      const closeIdx = oldBlock.lastIndexOf('```');
+      newBlock =
+        oldBlock.slice(0, closeIdx) +
+        '\n' + newSystems.join('\n') + '\n' +
+        oldBlock.slice(closeIdx);
     }
 
-    const filePath = `${folderPath}/${sectorName}.md`;
-    const starmapContent = [
-      `# ${sectorName}`,
-      '',
-      '```starmap',
-      'systems:',
-      ...lines,
-      '```',
-      '',
-      `Adjacent to: [[${activeFile.basename}]]`,
-    ].join('\n');
+    const newContent = content.replace(starmapRegex, newBlock);
+    await this.app.vault.modify(activeFile, newContent);
 
-    const newFile = await this.app.vault.create(filePath, starmapContent);
-    new Notice(`Created new sector: ${sectorName}`);
+    new Notice(`Added ${count} new system(s) to the sector.`);
 
+    // If the star map view is open, reload it
     const leaf = this.app.workspace.getLeaf(false);
-    await leaf.openFile(newFile);
+    if (leaf.view instanceof StarMapView) {
+      await leaf.view.loadFromFile(activeFile);
+    }
   }
 
   async activateView(file?: TFile): Promise<void> {
