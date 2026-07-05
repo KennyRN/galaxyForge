@@ -5,27 +5,18 @@ import { StarMapData, System, TradeLine, generateSysId, to2dp } from './types';
  *
  * Expected format:
  * ```starmap
+ * generatorSeed: "MYSEED"
+ *
  * systems:
  *   - sysid: "QXMVPA"
  *     name: "Alpha"
  *     x: 0.00
  *     y: 0.00
  *     z: 0.00
- *     color: "#ffcc00"
- *     size: 4
- *     type: "Yellow Dwarf"
- *     faction: "Terran Federation"
- *
- *   - sysid: "BGHJKL"
- *     name: "Beta"
- *     x: 15.00
- *     y: -8.00
- *     z: 3.20
  *
  * tradeLines:
  *   - from: "QXMVPA"
  *     to: "BGHJKL"
- *     volume: "high"
  * ```
  */
 export function parseStarMapData(content: string): StarMapData | null {
@@ -40,16 +31,19 @@ export function parseStarMapData(content: string): StarMapData | null {
 function parseBlock(block: string): StarMapData {
   const systems: System[] = [];
   const tradeLines: TradeLine[] = [];
+  let generatorSeed: string | undefined;
 
   const lines = block.split('\n').map(l => l.trimEnd());
 
-  let mode: 'systems' | 'tradeLines' | null = null;
+  let mode: 'systems' | 'tradeLines' | 'header' | null = 'header';
   let currentSys: Partial<System> | null = null;
   let currentTrade: Partial<TradeLine> | null = null;
 
   for (const line of lines) {
     const trimmed = line.trim();
+    if (!trimmed) continue; // skip blank lines
 
+    // Detect mode transitions
     if (trimmed === 'systems:') {
       mode = 'systems';
       continue;
@@ -59,6 +53,15 @@ function parseBlock(block: string): StarMapData {
       continue;
     }
 
+    // ---- Header fields (before systems:) ----
+    if (mode === 'header') {
+      if (trimmed.startsWith('generatorSeed:')) {
+        generatorSeed = extractValue(trimmed);
+      }
+      continue;
+    }
+
+    // ---- Systems ----
     if (mode === 'systems') {
       if (trimmed.startsWith('- sysid:')) {
         if (currentSys && currentSys.sysid) {
@@ -94,6 +97,7 @@ function parseBlock(block: string): StarMapData {
       }
     }
 
+    // ---- Trade Lines ----
     if (mode === 'tradeLines') {
       if (trimmed.startsWith('- from:')) {
         if (currentTrade && currentTrade.from && currentTrade.to) {
@@ -129,7 +133,7 @@ function parseBlock(block: string): StarMapData {
     tradeLines.push(finalizeTrade(currentTrade));
   }
 
-  return { systems, tradeLines };
+  return { generatorSeed, systems, tradeLines };
 }
 
 function extractValue(line: string): string {

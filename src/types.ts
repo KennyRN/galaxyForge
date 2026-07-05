@@ -22,6 +22,7 @@ export interface TradeLine {
 }
 
 export interface StarMapData {
+  generatorSeed?: string;  // optional seed for procedural system generation
   systems: System[];
   tradeLines: TradeLine[];
 }

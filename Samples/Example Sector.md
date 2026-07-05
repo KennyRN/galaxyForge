@@ -3,6 +3,8 @@
 > A small sample star map to demonstrate StarForge.
 
 ```starmap
+generatorSeed: "ALPHASEC"
+
 systems:
   - sysid: "QXMVPA"
     name: "Alpha"
