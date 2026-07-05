@@ -19,6 +19,7 @@ export class StarMapView extends ItemView {
   private hoveredSystem: System | null = null;
   private animationFrameId: number | null = null;
   private boundaryShape: BoundaryShape = 'rectangle';
+  private systemsFolder = 'Systems';
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -41,6 +42,10 @@ export class StarMapView extends ItemView {
     this.render();
   }
 
+  setSystemsFolder(folder: string): void {
+    this.systemsFolder = folder || 'Systems';
+  }
+
   getData(): StarMapData {
     return this.data;
   }
@@ -49,20 +54,12 @@ export class StarMapView extends ItemView {
     return this.sourceFile;
   }
 
-  /**
-   * Add new systems to the map, write them back to the source file,
-   * and re-render.
-   */
   async addSystems(newSystems: System[]): Promise<void> {
     this.data.systems.push(...newSystems);
     await this.writeToSourceFile();
     this.render();
   }
 
-  /**
-   * Serialise the current data back into a starmap code block
-   * and write it into the source file, replacing the existing block.
-   */
   private async writeToSourceFile(): Promise<void> {
     if (!this.sourceFile) return;
 
@@ -77,9 +74,6 @@ export class StarMapView extends ItemView {
     }
   }
 
-  /**
-   * Convert the current data back into a ```starmap code block.
-   */
   private serialiseToBlock(): string {
     const lines: string[] = ['```starmap'];
 
@@ -305,6 +299,7 @@ export class StarMapView extends ItemView {
   }
 
   private async openNoteFor(sys: System): Promise<void> {
+    // Search vault for a note with matching sysid in frontmatter
     const files = this.app.vault.getMarkdownFiles();
     for (const file of files) {
       const cache = this.app.metadataCache.getFileCache(file);
@@ -315,14 +310,14 @@ export class StarMapView extends ItemView {
       }
     }
 
-    const folderPath = 'Systems';
-    const folder = this.app.vault.getAbstractFileByPath(folderPath);
+    // No existing note — create one in the configured systems folder
+    const folder = this.app.vault.getAbstractFileByPath(this.systemsFolder);
     if (!(folder instanceof TFolder)) {
-      await this.app.vault.createFolder(folderPath).catch(() => {});
+      await this.app.vault.createFolder(this.systemsFolder).catch(() => {});
     }
 
     const fileName = `${sys.sysid}.md`;
-    const filePath = `${folderPath}/${fileName}`;
+    const filePath = `${this.systemsFolder}/${fileName}`;
     const displayName = sys.name || sys.sysid;
 
     const frontmatter = `---\nsysid: "${sys.sysid}"\n---\n\n# ${displayName}\n\nCoordinates: (${sys.x.toFixed(2)}, ${sys.y.toFixed(2)}, ${sys.z.toFixed(2)})\n`;

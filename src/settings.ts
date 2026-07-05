@@ -9,6 +9,9 @@ export interface StarForgeSettings {
   tradeLineOpacity: number;
   backgroundColor: string;
   boundaryShape: BoundaryShape;
+  starmapFolder: string;   // folder where starmap database notes live
+  systemsFolder: string;   // folder where individual system notes live
+  setupComplete: boolean;  // whether first-run setup has been done
 }
 
 export const DEFAULT_SETTINGS: StarForgeSettings = {
@@ -18,6 +21,9 @@ export const DEFAULT_SETTINGS: StarForgeSettings = {
   tradeLineOpacity: 0.7,
   backgroundColor: '#0a0a1a',
   boundaryShape: 'rectangle',
+  starmapFolder: '',
+  systemsFolder: 'Systems',
+  setupComplete: false,
 };
 
 export class StarForgeSettingTab extends PluginSettingTab {
@@ -33,6 +39,36 @@ export class StarForgeSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     containerEl.createEl('h2', { text: 'StarForge Settings' });
+
+    containerEl.createEl('h3', { text: 'Folders' });
+
+    new Setting(containerEl)
+      .setName('Star map database folder')
+      .setDesc('Folder where starmap notes (containing ```starmap blocks) are stored. Leave empty to allow any folder.')
+      .addText((text) =>
+        text
+          .setPlaceholder('e.g. StarMap')
+          .setValue((this.plugin as any).settings?.starmapFolder ?? '')
+          .onChange(async (value) => {
+            (this.plugin as any).settings.starmapFolder = value.trim();
+            await (this.plugin as any).saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('System notes folder')
+      .setDesc('Folder where individual system markdown files are created.')
+      .addText((text) =>
+        text
+          .setPlaceholder('Systems')
+          .setValue((this.plugin as any).settings?.systemsFolder ?? 'Systems')
+          .onChange(async (value) => {
+            (this.plugin as any).settings.systemsFolder = value.trim() || 'Systems';
+            await (this.plugin as any).saveSettings();
+          })
+      );
+
+    containerEl.createEl('h3', { text: 'Display' });
 
     new Setting(containerEl)
       .setName('Default zoom level')

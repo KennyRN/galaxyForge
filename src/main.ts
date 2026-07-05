@@ -3,6 +3,7 @@ import { StarMapView, STAR_MAP_VIEW_TYPE } from './starMapView';
 import { StarForgeSettings, StarForgeSettingTab, DEFAULT_SETTINGS } from './settings';
 import { generateSysId, to2dp } from './types';
 import { parseStarMapData } from './parser';
+import { SetupModal } from './setupModal';
 
 addIcon(
   'starforge-logo',
@@ -18,6 +19,19 @@ export default class StarForgePlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
+
+    // First-run setup
+    if (!this.settings.setupComplete) {
+      this.app.workspace.onLayoutReady(() => {
+        new SetupModal(this.app, async (result) => {
+          this.settings.starmapFolder = result.starmapFolder;
+          this.settings.systemsFolder = result.systemsFolder;
+          this.settings.setupComplete = true;
+          await this.saveSettings();
+          new Notice('StarForge setup complete!');
+        }).open();
+      });
+    }
 
     this.registerView(
       STAR_MAP_VIEW_TYPE,
@@ -64,10 +78,6 @@ export default class StarForgePlugin extends Plugin {
     this.app.workspace.detachLeavesOfType(STAR_MAP_VIEW_TYPE);
   }
 
-  /**
-   * Generate new systems that abut the current explored region
-   * and write them directly into the current note's starmap block.
-   */
   private async expandSector(): Promise<void> {
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
@@ -82,7 +92,6 @@ export default class StarForgePlugin extends Plugin {
       return;
     }
 
-    // Find the bounding box of existing systems
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
     for (const sys of data.systems) {
@@ -95,7 +104,6 @@ export default class StarForgePlugin extends Plugin {
     const sectorWidth = maxX - minX + 30;
     const sectorHeight = maxY - minY + 30;
 
-    // Pick a random direction: right, left, up, or down
     const dirs = [
       { dx: sectorWidth, dy: 0 },
       { dx: -sectorWidth, dy: 0 },
@@ -104,7 +112,6 @@ export default class StarForgePlugin extends Plugin {
     ];
     const dir = dirs[Math.floor(Math.random() * dirs.length)];
 
-    // Generate 3-5 new systems in the new area
     const count = 3 + Math.floor(Math.random() * 3);
     const newSystems: string[] = [];
     const usedIds = new Set(data.systems.map((s) => s.sysid));
@@ -130,7 +137,6 @@ export default class StarForgePlugin extends Plugin {
       newSystems.push(`    z: ${z.toFixed(2)}`);
     }
 
-    // Insert the new systems into the starmap block before the tradeLines section
     const starmapRegex = /```starmap\n[\s\S]*?```/;
     const blockMatch = content.match(starmapRegex);
     if (!blockMatch) return;
@@ -140,13 +146,11 @@ export default class StarForgePlugin extends Plugin {
     let newBlock: string;
 
     if (tradeIdx !== -1) {
-      // Insert before tradeLines
       newBlock =
         oldBlock.slice(0, tradeIdx) +
         newSystems.join('\n') + '\n\n' +
         oldBlock.slice(tradeIdx);
     } else {
-      // No tradeLines — append before the closing ```
       const closeIdx = oldBlock.lastIndexOf('```');
       newBlock =
         oldBlock.slice(0, closeIdx) +
@@ -159,7 +163,6 @@ export default class StarForgePlugin extends Plugin {
 
     new Notice(`Added ${count} new system(s) to the sector.`);
 
-    // If the star map view is open, reload it
     const leaf = this.app.workspace.getLeaf(false);
     if (leaf.view instanceof StarMapView) {
       await leaf.view.loadFromFile(activeFile);
@@ -174,6 +177,7 @@ export default class StarForgePlugin extends Plugin {
         await leaf.view.loadFromFile(file);
       }
       leaf.view.setBoundaryShape(this.settings.boundaryShape);
+      leaf.view.setSystemsFolder(this.settings.systemsFolder);
       return;
     }
 
@@ -185,6 +189,7 @@ export default class StarForgePlugin extends Plugin {
     setTimeout(async () => {
       if (leaf.view instanceof StarMapView) {
         leaf.view.setBoundaryShape(this.settings.boundaryShape);
+        leaf.view.setSystemsFolder(this.settings.systemsFolder);
         if (file) {
           await leaf.view.loadFromFile(file);
         }
