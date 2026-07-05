@@ -1,6 +1,6 @@
 import { Plugin, TFile, TFolder, addIcon, Notice } from 'obsidian';
 import { StarMapView, STAR_MAP_VIEW_TYPE } from './starMapView';
-import { StarForgeSettings, StarForgeSettingTab, DEFAULT_SETTINGS } from './settings';
+import { StarForgeSettings, StarForgeSettingTab, DEFAULT_SETTINGS, BoundaryShape } from './settings';
 import { generateSysId, to2dp } from './types';
 import { parseStarMapData } from './parser';
 import { SetupModal } from './setupModal';
@@ -161,10 +161,15 @@ export default class StarForgePlugin extends Plugin {
     const newContent = content.replace(starmapRegex, newBlock);
     await this.app.vault.modify(activeFile, newContent);
 
-    new Notice(`Added ${count} new system(s) to the sector.`);
+    // Switch boundary to composite and save setting
+    this.settings.boundaryShape = 'composite';
+    await this.saveSettings();
+
+    new Notice(`Added ${count} new system(s). Boundary switched to Composite.`);
 
     const leaf = this.app.workspace.getLeaf(false);
     if (leaf.view instanceof StarMapView) {
+      leaf.view.setBoundaryShape('composite');
       await leaf.view.loadFromFile(activeFile);
     }
   }

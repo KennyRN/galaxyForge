@@ -1,6 +1,6 @@
 import { PluginSettingTab, Setting, App, Plugin } from 'obsidian';
 
-export type BoundaryShape = 'rectangle' | 'circle';
+export type BoundaryShape = 'rectangle' | 'circle' | 'composite';
 
 export interface StarForgeSettings {
   defaultZoom: number;
@@ -9,9 +9,9 @@ export interface StarForgeSettings {
   tradeLineOpacity: number;
   backgroundColor: string;
   boundaryShape: BoundaryShape;
-  starmapFolder: string;   // folder where starmap database notes live
-  systemsFolder: string;   // folder where individual system notes live
-  setupComplete: boolean;  // whether first-run setup has been done
+  starmapFolder: string;
+  systemsFolder: string;
+  setupComplete: boolean;
 }
 
 export const DEFAULT_SETTINGS: StarForgeSettings = {
@@ -110,14 +110,15 @@ export class StarForgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Boundary shape')
-      .setDesc('Shape of the explored region boundary on the map.')
+      .setDesc('Shape of the explored region boundary on the map. Auto-switches to Composite when the map is extended.')
       .addDropdown((dropdown) =>
         dropdown
           .addOption('rectangle', 'Rectangle')
           .addOption('circle', 'Circle')
+          .addOption('composite', 'Composite')
           .setValue((this.plugin as any).settings?.boundaryShape ?? DEFAULT_SETTINGS.boundaryShape)
           .onChange(async (value) => {
-            (this.plugin as any).settings.boundaryShape = value as 'rectangle' | 'circle';
+            (this.plugin as any).settings.boundaryShape = value as BoundaryShape;
             await (this.plugin as any).saveSettings();
           })
       );

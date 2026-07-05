@@ -20,6 +20,8 @@ export class StarMapView extends ItemView {
   private animationFrameId: number | null = null;
   private boundaryShape: BoundaryShape = 'rectangle';
   private systemsFolder = 'Systems';
+  /** Callback to notify the plugin that the boundary should switch to composite. */
+  onExtensionApplied?: () => void;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -57,6 +59,8 @@ export class StarMapView extends ItemView {
   async addSystems(newSystems: System[]): Promise<void> {
     this.data.systems.push(...newSystems);
     await this.writeToSourceFile();
+    this.boundaryShape = 'composite';
+    if (this.onExtensionApplied) this.onExtensionApplied();
     this.render();
   }
 
@@ -299,7 +303,6 @@ export class StarMapView extends ItemView {
   }
 
   private async openNoteFor(sys: System): Promise<void> {
-    // Search vault for a note with matching sysid in frontmatter
     const files = this.app.vault.getMarkdownFiles();
     for (const file of files) {
       const cache = this.app.metadataCache.getFileCache(file);
@@ -310,7 +313,6 @@ export class StarMapView extends ItemView {
       }
     }
 
-    // No existing note — create one in the configured systems folder
     const folder = this.app.vault.getAbstractFileByPath(this.systemsFolder);
     if (!(folder instanceof TFolder)) {
       await this.app.vault.createFolder(this.systemsFolder).catch(() => {});
@@ -370,6 +372,12 @@ export class StarMapView extends ItemView {
     }
   }
 
+  /**
+   * Draw the explored region boundary.
+   * - rectangle: dashed rectangle
+   * - circle: dashed circle
+   * - composite: both rectangle and circle overlaid
+   */
   private drawExploredRegion(ctx: CanvasRenderingContext2D): void {
     if (this.data.systems.length === 0) return;
 
@@ -390,7 +398,31 @@ export class StarMapView extends ItemView {
     const halfH = (maxY - minY) / 2 + padding;
     const radius = Math.sqrt(halfW * halfW + halfH * halfH);
 
-    if (this.boundaryShape === 'circle') {
+    const rect = {
+      x: minX - padding,
+      y: minY - padding,
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    };
+
+    if (this.boundaryShape === 'rectangle' || this.boundaryShape === 'composite') {
+      ctx.fillStyle = 'rgba(68, 102, 170, 0.05)';
+      ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+
+      ctx.strokeStyle = 'rgba(68, 102, 170, 0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+      ctx.strokeStyle = 'rgba(68, 102, 170, 0.12)';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+      ctx.setLineDash([]);
+    }
+
+    if (this.boundaryShape === 'circle' || this.boundaryShape === 'composite') {
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(68, 102, 170, 0.05)';
@@ -411,39 +443,16 @@ export class StarMapView extends ItemView {
       ctx.stroke();
 
       ctx.setLineDash([]);
+    }
 
-      ctx.fillStyle = 'rgba(68, 102, 170, 0.5)';
-      ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
+    // Label
+    ctx.fillStyle = 'rgba(68, 102, 170, 0.5)';
+    ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    if (this.boundaryShape === 'circle') {
       ctx.fillText('Explored Region', cx, cy - radius - 3);
     } else {
-      const rect = {
-        x: minX - padding,
-        y: minY - padding,
-        width: maxX - minX + padding * 2,
-        height: maxY - minY + padding * 2,
-      };
-
-      ctx.fillStyle = 'rgba(68, 102, 170, 0.05)';
-      ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-
-      ctx.strokeStyle = 'rgba(68, 102, 170, 0.3)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-
-      ctx.strokeStyle = 'rgba(68, 102, 170, 0.12)';
-      ctx.lineWidth = 4;
-      ctx.setLineDash([8, 6]);
-      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-
-      ctx.setLineDash([]);
-
-      ctx.fillStyle = 'rgba(68, 102, 170, 0.5)';
-      ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
       ctx.fillText('Explored Region', rect.x + rect.width / 2, rect.y - 3);
     }
   }
