@@ -3,6 +3,7 @@ import { StarMapData, System, ViewportState } from './types';
 import { parseStarMapData } from './parser';
 import { ExtensionModal } from './extensionModal';
 import { BoundaryShape } from './settings';
+import { ViewFilterModal, analyseFilter, generateFillerSystems, generateExpansionSystems } from './viewFilterModal';
 
 export const STAR_MAP_VIEW_TYPE = 'starforge-view';
 
@@ -20,7 +21,17 @@ export class StarMapView extends ItemView {
   private animationFrameId: number | null = null;
   private boundaryShape: BoundaryShape = 'rectangle';
   private systemsFolder = 'Systems';
-  /** Callback to notify the plugin that the boundary should switch to composite. */
+
+  /**
+   * Optional filter: only render systems within this set.
+   * If null, all systems are shown.
+   */
+  private filterVisibleSysids: Set<string> | null = null;
+  /** The centre system of the current filter (for drawing the filter circle). */
+  private filterOrigin: System | null = null;
+  /** The filter circle radius. */
+  private filterRadius = 0;
+
   onExtensionApplied?: () => void;
 
   constructor(leaf: WorkspaceLeaf) {
@@ -54,6 +65,25 @@ export class StarMapView extends ItemView {
 
   getSourceFile(): TFile | null {
     return this.sourceFile;
+  }
+
+  /** Clear any active filter and show all systems. */
+  clearFilter(): void {
+    this.filterVisibleSysids = null;
+    this.filterOrigin = null;
+    this.filterRadius = 0;
+    this.render();
+  }
+
+  /**
+   * Apply a filter: only render systems within the given set.
+   * Also draws a filter circle on the map.
+   */
+  setFilter(origin: System, visibleSysids: Set<string>, radius: number): void {
+    this.filterOrigin = origin;
+    this.filterVisibleSysids = visibleSysids;
+    this.filterRadius = radius;
+    this.render();
   }
 
   async addSystems(newSystems: System[]): Promise<void> {
@@ -132,6 +162,11 @@ export class StarMapView extends ItemView {
     this.controlsEl.createEl('button', { text: '\u27F2' }).onclick = () => this.resetView();
     this.controlsEl.createEl('button', { text: '+' }).onclick = () => this.zoomIn();
     this.controlsEl.createEl('button', { text: '\u2212' }).onclick = () => this.zoomOut();
+    this.controlsEl.createEl('button', { text: '\u25C9' }).onclick = () => this.openFilterModal();
+    this.controlsEl.createEl('button', { text: '\u2715' }).onclick = () => {
+      this.clearFilter();
+      new Notice('Filter cleared.');
+    };
 
     const observer = new ResizeObserver(() => this.resizeCanvas());
     observer.observe(container);
@@ -161,6 +196,7 @@ export class StarMapView extends ItemView {
     const parsed = parseStarMapData(content);
     if (parsed) {
       this.data = parsed;
+      this.clearFilter();
       this.resetView();
     } else {
       new Notice('No starmap data found in this note.');
@@ -170,7 +206,82 @@ export class StarMapView extends ItemView {
   loadData(data: StarMapData): void {
     this.data = data;
     this.sourceFile = null;
+    this.clearFilter();
     this.resetView();
+  }
+
+  private openFilterModal(): void {
+    if (this.data.systems.length === 0) {
+      new Notice('No systems to filter.');
+      return;
+    }
+
+    new ViewFilterModal(this.app, this.data.systems, async (result) => {
+      const analysis = analyseFilter(
+        this.data.systems,
+        result.originSysid,
+        result.mode,
+        result.value
+      );
+      if (!analysis) {
+        new Notice('Could not analyse filter.');
+        return;
+      }
+
+      let needsRefresh = false;
+
+      // Check for unbounded space
+      if (analysis.hasUnboundedSpace && result.autoExpand) {
+        new Notice('Unbounded space detected. Generating expansion systems...');
+        const expansions = generateExpansionSystems(
+          analysis.originSys,
+          this.data.systems,
+          analysis.circleRadius
+        );
+        if (expansions.length > 0) {
+          this.data.systems.push(...expansions);
+          await this.writeToSourceFile();
+          needsRefresh = true;
+        }
+      } else if (analysis.hasUnboundedSpace && !result.autoExpand) {
+        new Notice('View extends beyond explored region. Enable auto-expand to fill.');
+      }
+
+      // Check for lopsided region
+      if (analysis.isLopsided && result.autoBalance) {
+        new Notice(`Region is lopsided. Generating ${analysis.fillerCount} filler system(s)...`);
+        const fillers = generateFillerSystems(
+          analysis.originSys,
+          this.data.systems,
+          analysis.maxDist
+        );
+        if (fillers.length > 0) {
+          this.data.systems.push(...fillers);
+          await this.writeToSourceFile();
+          needsRefresh = true;
+        }
+      } else if (analysis.isLopsided && !result.autoBalance) {
+        new Notice('Region is lopsided. Enable auto-balance to fill gaps.');
+      }
+
+      // Re-analyse after any additions
+      const finalAnalysis = analyseFilter(
+        this.data.systems,
+        result.originSysid,
+        result.mode,
+        result.value
+      );
+      if (!finalAnalysis) return;
+
+      // Apply the filter
+      const visibleSet = new Set(finalAnalysis.systemsInCircle.map((s) => s.sysid));
+      this.setFilter(finalAnalysis.originSys, visibleSet, finalAnalysis.circleRadius);
+
+      if (needsRefresh) {
+        this.boundaryShape = 'composite';
+        new Notice('Starmap expanded and filter applied.');
+      }
+    }).open();
   }
 
   private resizeCanvas(): void {
@@ -276,8 +387,12 @@ export class StarMapView extends ItemView {
     const worldX = (screenX - this.viewport.offsetX) / this.viewport.zoom;
     const worldY = (screenY - this.viewport.offsetY) / this.viewport.zoom;
 
-    for (let i = this.data.systems.length - 1; i >= 0; i--) {
-      const sys = this.data.systems[i];
+    const pool = this.filterVisibleSysids
+      ? this.data.systems.filter((s) => this.filterVisibleSysids!.has(s.sysid))
+      : this.data.systems;
+
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const sys = pool[i];
       const dx = worldX - sys.x;
       const dy = worldY - sys.y;
       const hitRadius = (sys.size || 3) + 4;
@@ -352,6 +467,7 @@ export class StarMapView extends ItemView {
     ctx.scale(this.viewport.zoom, this.viewport.zoom);
 
     this.drawExploredRegion(ctx);
+    this.drawFilterCircle(ctx);
     this.drawTradeLines(ctx);
     this.drawSystems(ctx);
 
@@ -372,12 +488,6 @@ export class StarMapView extends ItemView {
     }
   }
 
-  /**
-   * Draw the explored region boundary.
-   * - rectangle: dashed rectangle
-   * - circle: dashed circle
-   * - composite: both rectangle and circle overlaid
-   */
   private drawExploredRegion(ctx: CanvasRenderingContext2D): void {
     if (this.data.systems.length === 0) return;
 
@@ -445,7 +555,6 @@ export class StarMapView extends ItemView {
       ctx.setLineDash([]);
     }
 
-    // Label
     ctx.fillStyle = 'rgba(68, 102, 170, 0.5)';
     ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
     ctx.textAlign = 'center';
@@ -457,8 +566,38 @@ export class StarMapView extends ItemView {
     }
   }
 
+  /**
+   * Draw the filter circle (if a filter is active).
+   */
+  private drawFilterCircle(ctx: CanvasRenderingContext2D): void {
+    if (!this.filterOrigin || this.filterRadius <= 0) return;
+
+    ctx.beginPath();
+    ctx.arc(this.filterOrigin.x, this.filterOrigin.y, this.filterRadius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(100, 200, 255, 0.04)';
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(100, 200, 255, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Label
+    const label = `Filter: ${this.filterOrigin.name || this.filterOrigin.sysid}`;
+    ctx.fillStyle = 'rgba(100, 200, 255, 0.6)';
+    ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(label, this.filterOrigin.x, this.filterOrigin.y - this.filterRadius - 3);
+  }
+
   private drawSystems(ctx: CanvasRenderingContext2D): void {
-    for (const sys of this.data.systems) {
+    const pool = this.filterVisibleSysids
+      ? this.data.systems.filter((s) => this.filterVisibleSysids!.has(s.sysid))
+      : this.data.systems;
+
+    for (const sys of pool) {
       const radius = sys.size || 3;
       const color = sys.color || '#ffffff';
 
@@ -491,7 +630,11 @@ export class StarMapView extends ItemView {
 
   private drawTradeLines(ctx: CanvasRenderingContext2D): void {
     const sysMap = new Map<string, System>();
-    for (const sys of this.data.systems) {
+    const pool = this.filterVisibleSysids
+      ? this.data.systems.filter((s) => this.filterVisibleSysids!.has(s.sysid))
+      : this.data.systems;
+
+    for (const sys of pool) {
       sysMap.set(sys.sysid, sys);
     }
 
