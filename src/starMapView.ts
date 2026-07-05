@@ -1,6 +1,8 @@
 import { ItemView, WorkspaceLeaf, TFile, TFolder, Notice } from 'obsidian';
 import { StarMapData, System, ViewportState } from './types';
 import { parseStarMapData } from './parser';
+import { ExtensionModal } from './extensionModal';
+import { BoundaryShape } from './settings';
 
 export const STAR_MAP_VIEW_TYPE = 'starforge-view';
 
@@ -16,6 +18,7 @@ export class StarMapView extends ItemView {
   private sourceFile: TFile | null = null;
   private hoveredSystem: System | null = null;
   private animationFrameId: number | null = null;
+  private boundaryShape: BoundaryShape = 'rectangle';
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -31,6 +34,28 @@ export class StarMapView extends ItemView {
 
   getIcon(): string {
     return 'starforge-logo';
+  }
+
+  /** Allow the plugin to push settings updates into the view. */
+  setBoundaryShape(shape: BoundaryShape): void {
+    this.boundaryShape = shape;
+    this.render();
+  }
+
+  /** Get current data (for extension). */
+  getData(): StarMapData {
+    return this.data;
+  }
+
+  /** Add new systems to the map and re-render. */
+  addSystems(newSystems: System[]): void {
+    this.data.systems.push(...newSystems);
+    this.render();
+  }
+
+  /** Get the source file (for saving). */
+  getSourceFile(): TFile | null {
+    return this.sourceFile;
   }
 
   async onOpen(): Promise<void> {
@@ -58,6 +83,7 @@ export class StarMapView extends ItemView {
     this.canvas.addEventListener('mouseleave', () => this.onMouseLeave());
     this.canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     this.canvas.addEventListener('dblclick', (e) => this.onDoubleClick(e));
+    this.canvas.addEventListener('contextmenu', (e) => this.onContextMenu(e));
 
     this.resizeCanvas();
     this.render();
@@ -172,6 +198,21 @@ export class StarMapView extends ItemView {
     }
   }
 
+  private onContextMenu(e: MouseEvent): void {
+    e.preventDefault();
+    const sys = this.getSystemAt(e.offsetX, e.offsetY);
+    if (sys) {
+      new ExtensionModal(
+        this.app,
+        sys,
+        this.data.systems,
+        (newSystems) => {
+          this.addSystems(newSystems);
+        }
+      ).open();
+    }
+  }
+
   private getSystemAt(screenX: number, screenY: number): System | null {
     const worldX = (screenX - this.viewport.offsetX) / this.viewport.zoom;
     const worldY = (screenY - this.viewport.offsetY) / this.viewport.zoom;
@@ -195,7 +236,7 @@ export class StarMapView extends ItemView {
       <div>ID: ${sys.sysid}</div>
       ${sys.type ? `<div>Type: ${sys.type}</div>` : ''}
       ${sys.faction ? `<div>Faction: ${sys.faction}</div>` : ''}
-      <div class="starforge-tooltip-note">Click to open note</div>
+      <div class="starforge-tooltip-note">Right-click to extend from here</div>
     `;
     this.tooltipEl.style.display = 'block';
     this.tooltipEl.style.left = (e.offsetX + 12) + 'px';
@@ -274,8 +315,8 @@ export class StarMapView extends ItemView {
   }
 
   /**
-   * Draw a dashed rectangular boundary around all known systems,
-   * indicating the explored/generated region of the star map.
+   * Draw the explored region boundary (rectangle or circle)
+   * around all known systems.
    */
   private drawExploredRegion(ctx: CanvasRenderingContext2D): void {
     if (this.data.systems.length === 0) return;
@@ -291,37 +332,73 @@ export class StarMapView extends ItemView {
       if (sys.y > maxY) maxY = sys.y;
     }
 
-    const rect = {
-      x: minX - padding,
-      y: minY - padding,
-      width: maxX - minX + padding * 2,
-      height: maxY - minY + padding * 2,
-    };
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const halfW = (maxX - minX) / 2 + padding;
+    const halfH = (maxY - minY) / 2 + padding;
+    const radius = Math.sqrt(halfW * halfW + halfH * halfH);
 
-    // Very faint fill inside the explored region
-    ctx.fillStyle = 'rgba(68, 102, 170, 0.05)';
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    if (this.boundaryShape === 'circle') {
+      // Faint fill
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(68, 102, 170, 0.05)';
+      ctx.fill();
 
-    // Solid inner glow line
-    ctx.strokeStyle = 'rgba(68, 102, 170, 0.3)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 4]);
-    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      // Inner dashed line
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(68, 102, 170, 0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
 
-    // Outer glow (wider, fainter dashed line)
-    ctx.strokeStyle = 'rgba(68, 102, 170, 0.12)';
-    ctx.lineWidth = 4;
-    ctx.setLineDash([8, 6]);
-    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      // Outer glow
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(68, 102, 170, 0.12)';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([8, 6]);
+      ctx.stroke();
 
-    ctx.setLineDash([]);
+      ctx.setLineDash([]);
 
-    // Label above the boundary
-    ctx.fillStyle = 'rgba(68, 102, 170, 0.5)';
-    ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('Explored Region', rect.x + rect.width / 2, rect.y - 3);
+      // Label
+      ctx.fillStyle = 'rgba(68, 102, 170, 0.5)';
+      ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Explored Region', cx, cy - radius - 3);
+    } else {
+      // Rectangle (default)
+      const rect = {
+        x: minX - padding,
+        y: minY - padding,
+        width: maxX - minX + padding * 2,
+        height: maxY - minY + padding * 2,
+      };
+
+      ctx.fillStyle = 'rgba(68, 102, 170, 0.05)';
+      ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+
+      ctx.strokeStyle = 'rgba(68, 102, 170, 0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+      ctx.strokeStyle = 'rgba(68, 102, 170, 0.12)';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = 'rgba(68, 102, 170, 0.5)';
+      ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Explored Region', rect.x + rect.width / 2, rect.y - 3);
+    }
   }
 
   private drawSystems(ctx: CanvasRenderingContext2D): void {

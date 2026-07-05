@@ -1,11 +1,14 @@
 import { PluginSettingTab, Setting, App, Plugin } from 'obsidian';
 
+export type BoundaryShape = 'rectangle' | 'circle';
+
 export interface StarForgeSettings {
   defaultZoom: number;
   showLabels: boolean;
   labelFontSize: number;
   tradeLineOpacity: number;
   backgroundColor: string;
+  boundaryShape: BoundaryShape;
 }
 
 export const DEFAULT_SETTINGS: StarForgeSettings = {
@@ -14,6 +17,7 @@ export const DEFAULT_SETTINGS: StarForgeSettings = {
   labelFontSize: 12,
   tradeLineOpacity: 0.7,
   backgroundColor: '#0a0a1a',
+  boundaryShape: 'rectangle',
 };
 
 export class StarForgeSettingTab extends PluginSettingTab {
@@ -64,6 +68,20 @@ export class StarForgeSettingTab extends PluginSettingTab {
           .setValue((this.plugin as any).settings?.tradeLineOpacity ?? DEFAULT_SETTINGS.tradeLineOpacity)
           .onChange(async (value) => {
             (this.plugin as any).settings.tradeLineOpacity = value;
+            await (this.plugin as any).saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('Boundary shape')
+      .setDesc('Shape of the explored region boundary on the map.')
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption('rectangle', 'Rectangle')
+          .addOption('circle', 'Circle')
+          .setValue((this.plugin as any).settings?.boundaryShape ?? DEFAULT_SETTINGS.boundaryShape)
+          .onChange(async (value) => {
+            (this.plugin as any).settings.boundaryShape = value as 'rectangle' | 'circle';
             await (this.plugin as any).saveSettings();
           })
       );
