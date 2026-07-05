@@ -202,13 +202,7 @@ export class StarMapView extends ItemView {
     this.tooltipEl.style.top = (e.offsetY - 10) + 'px';
   }
 
-  /**
-   * Open (or create) a markdown note for the given system.
-   * Looks for a note with matching sysid in frontmatter. If none found,
-   * creates one in a Systems/ folder.
-   */
   private async openNoteFor(sys: System): Promise<void> {
-    // Try to find an existing note whose frontmatter contains this sysid
     const files = this.app.vault.getMarkdownFiles();
     for (const file of files) {
       const cache = this.app.metadataCache.getFileCache(file);
@@ -219,7 +213,6 @@ export class StarMapView extends ItemView {
       }
     }
 
-    // No existing note found — create one
     const folderPath = 'Systems';
     const folder = this.app.vault.getAbstractFileByPath(folderPath);
     if (!(folder instanceof TFolder)) {
@@ -259,6 +252,7 @@ export class StarMapView extends ItemView {
     ctx.translate(this.viewport.offsetX, this.viewport.offsetY);
     ctx.scale(this.viewport.zoom, this.viewport.zoom);
 
+    this.drawExploredRegion(ctx);
     this.drawTradeLines(ctx);
     this.drawSystems(ctx);
 
@@ -279,12 +273,62 @@ export class StarMapView extends ItemView {
     }
   }
 
+  /**
+   * Draw a dashed rectangular boundary around all known systems,
+   * indicating the explored/generated region of the star map.
+   */
+  private drawExploredRegion(ctx: CanvasRenderingContext2D): void {
+    if (this.data.systems.length === 0) return;
+
+    const padding = 15;
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+
+    for (const sys of this.data.systems) {
+      if (sys.x < minX) minX = sys.x;
+      if (sys.y < minY) minY = sys.y;
+      if (sys.x > maxX) maxX = sys.x;
+      if (sys.y > maxY) maxY = sys.y;
+    }
+
+    const rect = {
+      x: minX - padding,
+      y: minY - padding,
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    };
+
+    // Very faint fill inside the explored region
+    ctx.fillStyle = 'rgba(68, 102, 170, 0.05)';
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+
+    // Solid inner glow line
+    ctx.strokeStyle = 'rgba(68, 102, 170, 0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+    // Outer glow (wider, fainter dashed line)
+    ctx.strokeStyle = 'rgba(68, 102, 170, 0.12)';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([8, 6]);
+    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+    ctx.setLineDash([]);
+
+    // Label above the boundary
+    ctx.fillStyle = 'rgba(68, 102, 170, 0.5)';
+    ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('Explored Region', rect.x + rect.width / 2, rect.y - 3);
+  }
+
   private drawSystems(ctx: CanvasRenderingContext2D): void {
     for (const sys of this.data.systems) {
       const radius = sys.size || 3;
       const color = sys.color || '#ffffff';
 
-      // Glow effect
       const glow = ctx.createRadialGradient(sys.x, sys.y, 0, sys.x, sys.y, radius * 3);
       glow.addColorStop(0, color + '60');
       glow.addColorStop(1, color + '00');
@@ -293,19 +337,16 @@ export class StarMapView extends ItemView {
       ctx.fillStyle = glow;
       ctx.fill();
 
-      // Dot
       ctx.beginPath();
       ctx.arc(sys.x, sys.y, radius, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
 
-      // White core
       ctx.beginPath();
       ctx.arc(sys.x, sys.y, radius * 0.4, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
 
-      // Label — show name if available, otherwise fall back to sysid
       const label = sys.name || sys.sysid;
       ctx.fillStyle = '#ccddff';
       ctx.font = `${Math.max(10, 12 * (1 / this.viewport.zoom))}px sans-serif`;
