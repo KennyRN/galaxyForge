@@ -4,6 +4,7 @@ import { parseStarMapData } from './parser';
 import { ExtensionModal } from './extensionModal';
 import { BoundaryShape } from './settings';
 import { ViewFilterModal, analyseFilter, generateFillerSystems, generateExpansionSystems } from './viewFilterModal';
+import { DistanceModal } from './distanceModal';
 
 export const STAR_MAP_VIEW_TYPE = 'starforge-view';
 
@@ -21,15 +22,8 @@ export class StarMapView extends ItemView {
   private animationFrameId: number | null = null;
   private boundaryShape: BoundaryShape = 'rectangle';
   private systemsFolder = 'Systems';
-
-  /**
-   * Optional filter: only render systems within this set.
-   * If null, all systems are shown.
-   */
   private filterVisibleSysids: Set<string> | null = null;
-  /** The centre system of the current filter (for drawing the filter circle). */
   private filterOrigin: System | null = null;
-  /** The filter circle radius. */
   private filterRadius = 0;
 
   onExtensionApplied?: () => void;
@@ -67,7 +61,6 @@ export class StarMapView extends ItemView {
     return this.sourceFile;
   }
 
-  /** Clear any active filter and show all systems. */
   clearFilter(): void {
     this.filterVisibleSysids = null;
     this.filterOrigin = null;
@@ -75,10 +68,6 @@ export class StarMapView extends ItemView {
     this.render();
   }
 
-  /**
-   * Apply a filter: only render systems within the given set.
-   * Also draws a filter circle on the map.
-   */
   setFilter(origin: System, visibleSysids: Set<string>, radius: number): void {
     this.filterOrigin = origin;
     this.filterVisibleSysids = visibleSysids;
@@ -167,6 +156,8 @@ export class StarMapView extends ItemView {
       this.clearFilter();
       new Notice('Filter cleared.');
     };
+    // Distance calculator button
+    this.controlsEl.createEl('button', { text: '\u2194' }).onclick = () => this.openDistanceModal();
 
     const observer = new ResizeObserver(() => this.resizeCanvas());
     observer.observe(container);
@@ -230,7 +221,6 @@ export class StarMapView extends ItemView {
 
       let needsRefresh = false;
 
-      // Check for unbounded space
       if (analysis.hasUnboundedSpace && result.autoExpand) {
         new Notice('Unbounded space detected. Generating expansion systems...');
         const expansions = generateExpansionSystems(
@@ -247,7 +237,6 @@ export class StarMapView extends ItemView {
         new Notice('View extends beyond explored region. Enable auto-expand to fill.');
       }
 
-      // Check for lopsided region
       if (analysis.isLopsided && result.autoBalance) {
         new Notice(`Region is lopsided. Generating ${analysis.fillerCount} filler system(s)...`);
         const fillers = generateFillerSystems(
@@ -264,7 +253,6 @@ export class StarMapView extends ItemView {
         new Notice('Region is lopsided. Enable auto-balance to fill gaps.');
       }
 
-      // Re-analyse after any additions
       const finalAnalysis = analyseFilter(
         this.data.systems,
         result.originSysid,
@@ -273,7 +261,6 @@ export class StarMapView extends ItemView {
       );
       if (!finalAnalysis) return;
 
-      // Apply the filter
       const visibleSet = new Set(finalAnalysis.systemsInCircle.map((s) => s.sysid));
       this.setFilter(finalAnalysis.originSys, visibleSet, finalAnalysis.circleRadius);
 
@@ -282,6 +269,14 @@ export class StarMapView extends ItemView {
         new Notice('Starmap expanded and filter applied.');
       }
     }).open();
+  }
+
+  private openDistanceModal(): void {
+    if (this.data.systems.length < 2) {
+      new Notice('Need at least two systems to calculate distance.');
+      return;
+    }
+    new DistanceModal(this.app, this.data.systems).open();
   }
 
   private resizeCanvas(): void {
@@ -566,9 +561,6 @@ export class StarMapView extends ItemView {
     }
   }
 
-  /**
-   * Draw the filter circle (if a filter is active).
-   */
   private drawFilterCircle(ctx: CanvasRenderingContext2D): void {
     if (!this.filterOrigin || this.filterRadius <= 0) return;
 
@@ -583,7 +575,6 @@ export class StarMapView extends ItemView {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Label
     const label = `Filter: ${this.filterOrigin.name || this.filterOrigin.sysid}`;
     ctx.fillStyle = 'rgba(100, 200, 255, 0.6)';
     ctx.font = `${Math.max(9, 11 * (1 / this.viewport.zoom))}px sans-serif`;

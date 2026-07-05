@@ -4,6 +4,12 @@ import { StarForgeSettings, StarForgeSettingTab, DEFAULT_SETTINGS, BoundaryShape
 import { generateSysId, to2dp } from './types';
 import { parseStarMapData } from './parser';
 import { SetupModal } from './setupModal';
+import { createDisplayClosestProcessor } from './displayClosest';
+import { DistanceModal } from './distanceModal';
+
+// Store the current starmap data and file for the post-processor
+let currentStarMapData: import('./types').StarMapData | null = null;
+let currentStarmapFile: TFile | null = null;
 
 addIcon(
   'starforge-logo',
@@ -42,6 +48,7 @@ export default class StarForgePlugin extends Plugin {
       await this.activateView();
     });
 
+    // Register commands
     this.addCommand({
       id: 'open-active-as-starmap',
       name: 'Open current note as Star Map',
@@ -71,7 +78,27 @@ export default class StarForgePlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: 'calculate-distance',
+      name: 'Calculate distance between two systems',
+      callback: async () => {
+        if (!currentStarMapData || currentStarMapData.systems.length < 2) {
+          new Notice('Open a starmap with at least two systems first.');
+          return;
+        }
+        new DistanceModal(this.app, currentStarMapData.systems).open();
+      },
+    });
+
     this.addSettingTab(new StarForgeSettingTab(this.app, this));
+
+    // Register the markdown post-processor for displayclosestsystems
+    this.registerMarkdownPostProcessor(
+      createDisplayClosestProcessor(
+        () => currentStarMapData,
+        () => currentStarmapFile
+      )
+    );
   }
 
   onunload(): void {
@@ -161,7 +188,6 @@ export default class StarForgePlugin extends Plugin {
     const newContent = content.replace(starmapRegex, newBlock);
     await this.app.vault.modify(activeFile, newContent);
 
-    // Switch boundary to composite and save setting
     this.settings.boundaryShape = 'composite';
     await this.saveSettings();
 
@@ -180,6 +206,9 @@ export default class StarForgePlugin extends Plugin {
     if (leaf.view instanceof StarMapView) {
       if (file) {
         await leaf.view.loadFromFile(file);
+        // Update the global starmap data for the post-processor
+        currentStarMapData = leaf.view.getData();
+        currentStarmapFile = file;
       }
       leaf.view.setBoundaryShape(this.settings.boundaryShape);
       leaf.view.setSystemsFolder(this.settings.systemsFolder);
@@ -197,6 +226,8 @@ export default class StarForgePlugin extends Plugin {
         leaf.view.setSystemsFolder(this.settings.systemsFolder);
         if (file) {
           await leaf.view.loadFromFile(file);
+          currentStarMapData = leaf.view.getData();
+          currentStarmapFile = file;
         }
       }
     }, 100);
