@@ -1,7 +1,8 @@
-import { Plugin, TFile, addIcon, Notice } from 'obsidian';
+import { Plugin, TFile, TFolder, addIcon, Notice } from 'obsidian';
 import { StarMapView, STAR_MAP_VIEW_TYPE } from './starMapView';
 import { StarForgeSettings, StarForgeSettingTab, DEFAULT_SETTINGS } from './settings';
 import { generateSysId, to2dp } from './types';
+import { parseStarMapData } from './parser';
 
 addIcon(
   'starforge-logo',
@@ -76,7 +77,6 @@ export default class StarForgePlugin extends Plugin {
     }
 
     const content = await this.app.vault.read(activeFile);
-    const { parseStarMapData } = await import('./parser');
     const data = parseStarMapData(content);
     if (!data || data.systems.length === 0) {
       new Notice('No systems found in the current note.');
@@ -107,7 +107,6 @@ export default class StarForgePlugin extends Plugin {
 
     // Generate 3-5 new systems in the new sector
     const count = 3 + Math.floor(Math.random() * 3);
-    const newSystems: string[] = [];
     const lines: string[] = [];
     const usedIds = new Set(data.systems.map((s) => s.sysid));
 
@@ -130,14 +129,13 @@ export default class StarForgePlugin extends Plugin {
       lines.push(`    x: ${x.toFixed(2)}`);
       lines.push(`    y: ${y.toFixed(2)}`);
       lines.push(`    z: ${z.toFixed(2)}`);
-      newSystems.push(sysid);
     }
 
     // Create the new sector note
     const sectorName = `Sector-${generateSysId()}`;
     const folderPath = 'Sectors';
     const folder = this.app.vault.getAbstractFileByPath(folderPath);
-    if (!(folder instanceof import('obsidian').TFolder)) {
+    if (!(folder instanceof TFolder)) {
       await this.app.vault.createFolder(folderPath).catch(() => {});
     }
 
@@ -167,7 +165,6 @@ export default class StarForgePlugin extends Plugin {
       if (file) {
         await leaf.view.loadFromFile(file);
       }
-      // Push current boundary shape setting
       leaf.view.setBoundaryShape(this.settings.boundaryShape);
       return;
     }
