@@ -1,15 +1,14 @@
 import { Plugin, TFile, TFolder, addIcon, Notice } from 'obsidian';
 import { StarMapView, STAR_MAP_VIEW_TYPE } from './starMapView';
-import { StarForgeSettings, StarForgeSettingTab, DEFAULT_SETTINGS, BoundaryShape } from './settings';
+import { StarForgeSettings, StarForgeSettingTab, DEFAULT_SETTINGS } from './settings';
 import { generateSysId, to2dp } from './types';
 import { parseStarMapData } from './parser';
 import { SetupModal } from './setupModal';
 import { createDisplayClosestProcessor } from './displayClosest';
 import { DistanceModal } from './distanceModal';
 
-// Store the current starmap data and file for the post-processor
+// Store the current starmap data for the post-processor
 let currentStarMapData: import('./types').StarMapData | null = null;
-let currentStarmapFile: TFile | null = null;
 
 addIcon(
   'starforge-logo',
@@ -92,12 +91,9 @@ export default class StarForgePlugin extends Plugin {
 
     this.addSettingTab(new StarForgeSettingTab(this.app, this));
 
-    // Register the markdown post-processor for displayclosestsystems
+    // Register the markdown post-processor for inline markers
     this.registerMarkdownPostProcessor(
-      createDisplayClosestProcessor(
-        () => currentStarMapData,
-        () => currentStarmapFile
-      )
+      createDisplayClosestProcessor(() => currentStarMapData)
     );
   }
 
@@ -206,9 +202,7 @@ export default class StarForgePlugin extends Plugin {
     if (leaf.view instanceof StarMapView) {
       if (file) {
         await leaf.view.loadFromFile(file);
-        // Update the global starmap data for the post-processor
         currentStarMapData = leaf.view.getData();
-        currentStarmapFile = file;
       }
       leaf.view.setBoundaryShape(this.settings.boundaryShape);
       leaf.view.setSystemsFolder(this.settings.systemsFolder);
@@ -227,7 +221,6 @@ export default class StarForgePlugin extends Plugin {
         if (file) {
           await leaf.view.loadFromFile(file);
           currentStarMapData = leaf.view.getData();
-          currentStarmapFile = file;
         }
       }
     }, 100);
