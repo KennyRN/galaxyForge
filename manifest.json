@@ -1,9 +1,0 @@
-{
-  "id": "starforge",
-  "name": "StarForge",
-  "version": "1.0.0",
-  "minAppVersion": "1.5.0",
-  "description": "Create interactive 2D star maps with trade routes, linked notes, and more.",
-  "author": "Kenny",
-  "isDesktopOnly": false
-}
