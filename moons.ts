@@ -39,6 +39,7 @@
 
 import type { Rng } from './rng';
 import { snowLineAu } from './planets';
+import { MEARTH_PER_MSUN, kmToAu, radiusEarthToKm } from './units';
 
 export type MoonComposition = 'rock' | 'ice' | 'mixed';
 export type MoonSense = 'prograde' | 'retrograde';
@@ -59,7 +60,6 @@ const RETROGRADE_HILL_FRACTION = 0.70;  // sourced, Quarles et al. 2021
 /** AU -> the same unit as `hillRadiusAu`'s inputs; kept in AU throughout,
  *  converted to planetary radii only at the very end via `planetRadiusAu`. */
 export function hillRadiusAu(planetAu: number, planetMassEarth: number, starMassSol: number): number {
-  const MEARTH_PER_MSUN = 333030;
   return planetAu * Math.pow(planetMassEarth / (3 * starMassSol * MEARTH_PER_MSUN), 1 / 3);
 }
 
@@ -77,9 +77,6 @@ function moonComposition(formationAu: number, hostLuminositySol: number): MoonCo
   if (formationAu > sl * 1.1) return 'ice';
   return 'mixed';
 }
-
-const AU_PER_KM = 6.6845871e-9;
-const EARTH_RADIUS_KM = 6371;
 
 export interface MoonHostInputs {
   readonly planetAu: number;
@@ -101,7 +98,7 @@ const TIDAL_LOCK_LIMIT_RP = 8;    // tunable - a simplified proxy, not a real ti
  * semimajor-axis-fraction-of-the-stable-limit, radius, origin-tiebreak).
  */
 export function rollMoons(rng: Rng, inputs: MoonHostInputs, count: number): MoonDraw[] {
-  const planetRadiusAu = inputs.planetRadiusEarth * EARTH_RADIUS_KM * AU_PER_KM;
+  const planetRadiusAu = kmToAu(radiusEarthToKm(inputs.planetRadiusEarth));
   const hillAu = hillRadiusAu(inputs.planetAu, inputs.planetMassEarth, inputs.starMassSol);
   const composition = moonComposition(inputs.planetFormationAu, inputs.hostLuminositySol);
 
@@ -119,7 +116,7 @@ export function rollMoons(rng: Rng, inputs: MoonHostInputs, count: number): Moon
 
     // Radius: bigger planets host bigger moons on average - a `calibrated`
     // scaling, not a citation.
-    const maxMoonRadiusKm = Math.max(50, 0.05 * inputs.planetRadiusEarth * EARTH_RADIUS_KM);
+    const maxMoonRadiusKm = Math.max(50, 0.05 * radiusEarthToKm(inputs.planetRadiusEarth));
     const radiusKm = 20 + uRadius * maxMoonRadiusKm;
 
     let origin: MoonOrigin = sense === 'retrograde' ? 'capture' : 'accretion';

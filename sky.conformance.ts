@@ -1,5 +1,6 @@
 import { skyFrom, type SkySystemInput } from './sky';
 import { absMagV, luminositySol } from './stellarProperties';
+import { auToPc } from './units';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -24,8 +25,7 @@ check(`1 the Sun (G2V) at 10 pc returns apparentMagV EXACTLY absMagV('G2V') ` +
   `(distance modulus is a no-op at d=10pc, by definition of absolute magnitude) - got ${sunAt10pc.apparentMagV}`,
   sunAt10pc.apparentMagV === absMagV('G2V'));
 
-const AU_IN_PC = 4.84814e-6;
-const sunAt1Au = skyFrom(ORIGIN, [oneStarSystem('sun', 'G2V', AU_IN_PC)], 99)[0]!;
+const sunAt1Au = skyFrom(ORIGIN, [oneStarSystem('sun', 'G2V', auToPc(1))], 99)[0]!;
 check(`1b the Sun at 1 AU lands near -26.7 (got ${sunAt1Au.apparentMagV.toFixed(2)})`,
   Math.abs(sunAt1Au.apparentMagV - (-26.7)) < 0.3);
 

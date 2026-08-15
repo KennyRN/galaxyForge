@@ -26,8 +26,7 @@
 
 import type { Rng } from './rng';
 import type { PlanetClass } from './planets';
-
-const SOLAR_RADIUS_AU = 0.00465047;   // Rsun in AU - a unit-conversion constant, not a science number
+import { SOLAR_RADIUS_AU } from './units';
 
 /** Kelvin. `a_AU` and `hostRadiusSol` combine internally; `albedo` is [0,1). */
 export function equilibriumTempK(hostTempK: number, hostRadiusSol: number, aAu: number, albedo: number): number {

@@ -53,6 +53,7 @@ import { densityByPopulationAtCartesian, upsilonFor, deadStarFraction } from './
 import type { GalaxyModel, Population, PopulationKey } from './galaxyModel';
 import type { CellKey } from './placement';
 import { CELL_SIZE_PC } from './placement';
+import { RSUN_KM } from './units';
 
 export type RemnantKind = 'white-dwarf' | 'neutron-star' | 'black-hole';
 
@@ -185,13 +186,13 @@ function buildRemnantStar(
 ): RemnantSystem {
   const sysid = `remnant.${k.ix}.${k.iy}.${k.iz}.${ordinal}`;
   if (kind === 'neutron-star') {
-    return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol: 1.4, radiusSol: 12 / 696000, tempK: 1e6, luminositySol: 0 };
+    return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol: 1.4, radiusSol: 12 / RSUN_KM, tempK: 1e6, luminositySol: 0 };
   }
   if (kind === 'black-hole') {
     const uMass = rng();
     const massSol = 5 + uMass * 25;   // calibrated, stellar-BH range
     const schwarzschildRadiusKm = 2.95 * massSol;   // sourced (form), R_s = 2GM/c^2
-    return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol, radiusSol: schwarzschildRadiusKm / 696000, tempK: 0, luminositySol: 0 };
+    return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol, radiusSol: schwarzschildRadiusKm / RSUN_KM, tempK: 0, luminositySol: 0 };
   }
   // white-dwarf
   const uProgenitor = rng(), uAge = rng();

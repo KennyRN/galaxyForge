@@ -71,6 +71,7 @@ import { poissonInvCdf, probit } from './mathStats';
 import { xuvFluenceRel } from './stellarHistory';
 import type { StellarClass } from './stellarProperties';
 import { habitableZoneAu } from './habitability';
+import { MEARTH_PER_MSUN, MEARTH_PER_MJUP } from './units';
 
 export type PlanetZone = 'A' | 'B' | 'C';
 export type EnvelopeState = 'primary-retained' | 'stripped';
@@ -370,8 +371,8 @@ export function rollPlanets(rng: Rng, inputs: PlanetSystemInputs): PlanetDraw[] 
     const migrated = uMig < MIGRATION_PROBABILITY;
     let au = migrated ? 0.02 + uMig * 0.3 : formationAu;   // hot-Jupiter-scale if migrated
     au = snapOutOfGap(au, aStypeMaxAu, aPtypeMinAu);
-    const massEarth = 30 + uMass * 900;   // ~2-60 Mearth-to-Jupiter-ish range (Mjup ~ 317.8 Mearth)
-    const radiusEarth = 11.0 * Math.pow(massEarth / 317.8, 0.10);
+    const massEarth = 30 + uMass * 900;   // ~2-60 Mjup-ish range
+    const radiusEarth = 11.0 * Math.pow(massEarth / MEARTH_PER_MJUP, 0.10);
     const cls = classOfRadius(radiusEarth);
     const orbitType: OrbitType = aPtypeMinAu !== null && au >= aPtypeMinAu ? 'p-type' : 's-type';
     draws.push({
@@ -416,8 +417,6 @@ export function rollPlanets(rng: Rng, inputs: PlanetSystemInputs): PlanetDraw[] 
 }
 
 /* -------------------------------- mutual-Hill merging ------------------------------- */
-
-const MEARTH_PER_MSUN = 333030;
 
 /** Sorts by `au`, merges any adjacent pair closer than `K_STABILITY` mutual
  *  Hill radii, keeps the SURVIVOR's original `formationIndex` (the lower
