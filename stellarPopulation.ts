@@ -85,7 +85,9 @@ import type { Rng } from './rng';
  * class), but continuous at both breakpoints so a letter class that straddles
  * 0.5 Msun (M does) does not pick up an artificial jump in relative weight.
  */
-function kroupaImfDensity(massSol: number): number {
+/** Exported so `galacticDensity`'s Upsilon composition (S4.3) reuses this
+ *  SAME Kroupa density rather than keeping a second copy - Law 1. */
+export function kroupaImfDensity(massSol: number): number {
   if (massSol < 0.08) return Math.pow(massSol, -0.3);              // k1 = 1
   if (massSol < 0.5) return 0.08 * Math.pow(massSol, -1.3);        // k2 = k1 * 0.08^1.0
   return 0.04 * Math.pow(massSol, -2.3);                            // k3 = k2 * 0.5^1.0
