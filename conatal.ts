@@ -13,6 +13,30 @@
  * cluster mass function (the brief's own C8/S2.2 correction - not
  * re-litigated here, just applied).
  *
+ * KAMDAR'S OWN IDENTIFICATION THRESHOLDS (recorded here for completeness -
+ * this module does not itself select comoving pairs from real astrometry,
+ * `placement`/this module already know a group's membership by construction;
+ * these are the numbers a future real-catalogue cross-check would need).
+ * Verified directly against the paper this session, not transcribed from an
+ * intermediate summary: ONE velocity/separation criterion, used identically
+ * in both the N-body simulation and its Gaia DR2 + LAMOST DR4 application -
+ * 2 < delta_r < 20 pc and delta_v < 1.5 km/s (3D velocity separation). The
+ * companion metallicity criterion is |delta[Fe/H]| < 0.1 dex, with a stated
+ * simulation measurement uncertainty of sigma[Fe/H] = 0.03 dex - both from
+ * the same paper, not a second, looser pair of thresholds. `AGENT.md`'s own
+ * "two numbers can be near-identical" example names "Kamdar's 1.5 vs 2
+ * km/s" as a pair to preserve, and an external audit (15 Aug 2026) repeated
+ * a similar claim, pairing a 2.0 km/s figure with a 0.05 dex metallicity
+ * threshold as a separate "observational" criterion "both in the published
+ * abstract". Three independent direct checks of the actual paper (abstract,
+ * full text) this session found ONLY the single 1.5 km/s / 0.1 dex pair
+ * above - no second velocity threshold anywhere in it. This may be a belief
+ * that predates this build (AGENT.md is part of the original 1 August
+ * bundle, not written during this pass) rather than something the audit
+ * introduced. Recorded rather than silently corrected: if a genuine second
+ * Kamdar threshold exists, it needs a section/page citation that survives a
+ * direct read, which none of the three checks here produced.
+ *
  * SIGMA_INTRA. 0.02 dex, `derived (from an upper limit)` - Bovy 2016's own
  * element-banded 95% bound for iron ([Fe/H] < 0.02 dex), the tightest band,
  * deliberately NOT Kamdar's 0.03 dex (a mock OBSERVATIONAL uncertainty

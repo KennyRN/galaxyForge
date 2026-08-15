@@ -100,9 +100,14 @@ already in. Four are still owed and are listed there.
 - **Ten stub modules exist only inside `.gate-tmp/`.** They are not real and must
   never be copied from. They retire themselves when you land the real module.
 - **Two numbers can be near-identical and mean different things.** The brief
-  records several (2.6 kpc as number-density scale length vs light vs mass;
-  Kamdar's 1.5 vs 2 km/s). When you meet a coincidence, record both meanings -
-  do not pick one.
+  records several (2.6 kpc as number-density scale length vs light vs mass).
+  When you meet a coincidence, record both meanings - do not pick one.
+  CORRECTION (15 Aug 2026): this bullet used to also name "Kamdar's 1.5 vs 2
+  km/s" as an example. Three independent direct checks of Kamdar, Conroy,
+  Ting, Bonaca, Smith & Brown 2019 (ApJL 884, L42) found only ONE velocity
+  threshold in the paper (Delta_v < 1.5 km/s, paired with |Delta[Fe/H]| <
+  0.1 dex) - no second 2 km/s figure. Removed as an example rather than left
+  to propagate; see `conatal.ts`'s own header for the full account.
 - **`densityMap` has no PRNG channel and must never acquire one.** A map reveals;
   it never rolls. If a feature there seems to want randomness it belongs in
   `placement`.
@@ -116,7 +121,13 @@ per-galaxy parameter file (`fieldShapeVersion: 1`) rather than left as a
 module-level `const`, so that a galaxy pinned to a parameter set is provably
 protected from a future default change. Read that patch in full before
 starting any morphology module (`galaxyModel` real implementation,
-`galacticDensity`, `placement`, `stellarDensity`) - it supersedes v2 S1.1 and
+`galacticDensity`, `placement`) - the patch's own S5 provisionally calls the
+density-normalisation-owning module `stellarDensity` because its author
+"[had] not seen the disc, bar or co-natal modules" and could not name the
+real one; `galacticDensity.ts` (built, not provisional) already owns exactly
+that concern (Upsilon, `deadStarFraction`, per-cell density evaluation) and
+is the module the patch means. Not renamed - see `galacticDensity.ts`'s own
+header note. It supersedes v2 S1.1 and
 adds gates 19, 26 and 27. It also specifies gate 19 as a **procedure** (a
 fuzzer over module-level constants), not a fixed list - run that procedure
 yourself once the modules exist; do not transcribe a guessed schema.

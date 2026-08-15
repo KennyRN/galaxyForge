@@ -141,3 +141,78 @@ not a partially-externalised subset. It does not change any file in this bundle
 `galacticDensity`, `placement`, `stellarDensity`) once they are written. Read it
 before starting S4 of the brief. `nLocalPerPc3` is intentionally `TBD` pending
 the Reyle anchor query above; do not default it.
+
+## 15 August 2026 - audit response
+
+An external audit (dated 15 August 2026) checked in on the three outstanding
+items above plus the patch v2.3 backlog. Results:
+
+1. **`verification/reyle_anchor.py` has now been run** against the live GAVO
+   TAP service. Result recorded in `verification/reyle_anchor_result.json`
+   (git-tracked; the `.gitignore` line for this file's default repo-root
+   location no longer applies now that it lives under `verification/`).
+   Adopted (`stars_only`) count: **254 systems**, density **0.0606380
+   systems/pc^3** at Sol, restriction factor 0.717514, dataset
+   `ivo://org.gavo.dc/tap` updated 2026-07-30, retrieved 2026-08-15. Single-WD
+   cross-check: 13 systems implied, against S5.2's own ~15 +/- 4 prediction -
+   consistent. **One new caveat the script itself surfaced**: the live
+   `obj_cat` vocabulary now includes `LM?`, `BD?`, `WD?` (uncertain
+   classifications) alongside Reyle Table 1's original five categories - not
+   present when the predicates in `reyle_anchor.py` were written. The adopted
+   count excludes all three `?`-suffixed categories (conservative: unconfirmed
+   detections are not counted as hydrogen-burning stars). This is a genuine
+   methodological question for whoever next reads the Reyle paper's current
+   table revision, not resolved here - flagged rather than silently decided.
+   **This value is not yet wired into any module** - `nLocalPerPc3` is
+   consumed by the patch v2.3 Tier G parameter block (S6), which does not
+   exist yet (see below). The anchor is done; the wiring is not.
+2. **Both Kamdar thresholds, corrected.** An audit this session claimed the
+   paper's abstract states two separate thresholds (a 1.5 km/s simulation
+   figure and a 2.0 km/s + 0.05 dex observational figure). Verified against
+   the actual paper (Kamdar, Conroy, Ting, Bonaca, Smith & Brown 2019, ApJL
+   884, L42, arXiv:1904.02159): this is **not correct**. There is one
+   velocity/separation threshold, used identically in both the simulation and
+   its observational application: **2 < Delta_r < 20 pc and Delta_v < 1.5
+   km/s**. The companion metallicity criterion is **|Delta[Fe/H]| < 0.1 dex**
+   (not 0.05), with a simulation measurement uncertainty of sigma[Fe/H] =
+   0.03 dex. `conatal.ts`'s header now records the correct, verified numbers
+   rather than the audit's unverified ones.
+3. **NS scale height / Sartore attribution - documented, not newly modelled.**
+   McKee, Parravano & Hollenbach (2015, ApJ 814, 13, S4.3) do not themselves
+   adopt one scale-height number for neutron stars; they report a surface
+   density within 1.1 kpc of the plane by combining several of Sartore et
+   al. (2010)'s velocity-distribution models (explicitly omitting Sartore's
+   "case 1E", 33 pc, as an outlier) rather than settling on a single figure.
+   `remnants.ts` currently gives every remnant kind - including neutron
+   stars - its SOURCE population's own spatial distribution (no kick
+   -broadening), which is a known simplification against the real physics
+   (natal kicks measurably inflate the NS scale height beyond its birth
+   population's thin disc). Rather than invent a number neither McKee nor
+   this package's own research has pinned down, this gap and its correct
+   citation practice (cite McKee 2015 S4.3; name Sartore as McKee's own
+   underlying source; never quote a Sartore figure as independently
+   verified) are now recorded directly in `remnants.ts`'s header as a named
+   upgrade path - the same honesty pattern the file already uses for its
+   placeholder white-dwarf chain.
+4. **Golden master - already built, not re-scripted.** This item predates
+   Stage 10 (`goldenMaster.conformance.ts`, `verification/golden/gen1.json`),
+   which closes it: a real, self-bootstrapping fixture calling the actual
+   `placement`/`remnants` pipeline, wired into the gate harness. The same
+   audit that reported items 1-3 also proposed a *new*
+   `verification/golden-master.js` with a synthetic `generateTestSector`
+   placeholder (sine/cosine positions, no real module calls) standing in for
+   the generator. **That proposal was not adopted** - it would have been a
+   regression from what already exists and passes. Nothing changed here.
+5. **Patch v2.3 (real arm model, Tier G externalisation, gates 19/26/27,
+   `complexTier` star-forming-complex placement) remains unbuilt.** This was
+   already correctly flagged in `galaxyModel.ts`'s own header ("Arm structure
+   ... is DELIBERATELY NOT implemented here") and is unchanged by this pass.
+   It is a substantial standalone build - a real 5-arm log-spiral density
+   model reproducing the patch's own `precise_block.py` reference table (kappa
+   range 18.7511-30.9951 over 3.5-16 kpc) without its dependency script
+   (`derive_arm_constants_v3.py`, confirmed absent from this repository, per
+   `patches/README.md`'s own instruction not to fabricate it), a serialised
+   per-galaxy parameter file threaded through `galaxyModel`/`galacticDensity`/
+   `placement` in place of module-level consts, and a new meso-scale
+   star-forming-complex clustering tier (`complexIntensityAt`) that does not
+   exist in any form yet. Scoped as its own pass; not attempted in this one.

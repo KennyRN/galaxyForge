@@ -68,6 +68,25 @@ export interface SectorCentreCriteria {
  * into one call. Flagged here rather than faked with a stub that only
  * checks one criterion. `resolvePolarToCartesian`/`cartesianToPolar` are the
  * geometric primitive that search will need; it is not the search itself.
+ *
+ * NAMING NOTE (15 Aug 2026 audit response). Patch v2.3 S5 refers to the
+ * eventual density-normalisation-owning module as `stellarDensity`, a name
+ * its author picked provisionally, by their own admission ("I have not seen
+ * the disc, bar or co-natal modules... I cannot hand you their key names").
+ * This module is that module - Upsilon, `deadStarFraction`, and the per-cell
+ * density evaluation entry point are exactly the "density normalisation"
+ * concern the patch describes. Not renamed: `galacticDensity` predates the
+ * patch, is already the single source of truth for this concern (Law 1),
+ * and a rename here would be churn with no reader benefit, not a
+ * correction. AGENT.md's own patch-reading-list note has been updated to
+ * say so explicitly, so a future reader does not go looking for a fourth
+ * module that was never built. ALSO STILL PENDING from the same patch: the
+ * `nLocalPerPc3` anchor itself is no longer TBD in principle - the Reyle
+ * query has been run (`verification/reyle_anchor_result.json`, 15 Aug 2026:
+ * 0.0606380 systems/pc^3, `stars_only` variant) - but it is not wired in
+ * anywhere below, because the Tier G parameter block that would consume it
+ * (S4/S6 of the patch) has not been built. The anchor is ready; nothing
+ * here reads it yet.
  * ==========================================================================*/
 
 import { kroupaImfDensity } from './stellarPopulation';

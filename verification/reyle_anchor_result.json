@@ -1,0 +1,143 @@
+{
+  "query_service": "https://dc.g-vo.org/tap",
+  "table": "tenpc.main",
+  "retrieved_utc": "2026-08-15T16:35:36+00:00",
+  "dataset_provenance": {
+    "resolved": true,
+    "registry": "http://reg.g-vo.org/tap",
+    "ivoid": "ivo://org.gavo.dc/tap",
+    "title": "GAVO Data Center TAP service",
+    "short_name": "GAVO DC TAP",
+    "created": "2009-12-01T10:00:00",
+    "updated": "2026-07-30T10:53:48"
+  },
+  "protocol_capabilities": [
+    "ivo://ivoa.net/std/DALI#examples v1.0",
+    "ivo://ivoa.net/std/TAP v1.1",
+    "ivo://ivoa.net/std/VOSI#availability v1.0",
+    "ivo://ivoa.net/std/VOSI#capabilities v1.0",
+    "ivo://ivoa.net/std/VOSI#tables v1.1"
+  ],
+  "toolchain": {
+    "python": "3.9.6",
+    "pyvo": "1.8.1"
+  },
+  "table_description": " A catalogue of 541 nearby (within 10pc of the sun) stars, brown\ndwarfs, and confirmed exoplanets in 336 systems, as well 21\ncandidates, compiled from SIMBAD and several other sources. Where\navailable, astrometry and photometry from Gaia eDR3 has been inserted.",
+  "columns_present": [
+    "comment",
+    "common_name",
+    "dec",
+    "epoch",
+    "exoplanet_count",
+    "g_code",
+    "gaia_dr2",
+    "gaia_edr3",
+    "gj",
+    "hd",
+    "hip",
+    "mag_b",
+    "mag_g",
+    "mag_g_estimate",
+    "mag_gbp",
+    "mag_grp",
+    "mag_h",
+    "mag_i",
+    "mag_j",
+    "mag_k",
+    "mag_r",
+    "mag_u",
+    "mag_v",
+    "nb_obj",
+    "nb_sys",
+    "obj_cat",
+    "obj_name",
+    "parallax",
+    "parallax_bibcode",
+    "parallax_error",
+    "pm_bibcode",
+    "pmdec",
+    "pmdec_error",
+    "pmra",
+    "pmra_error",
+    "ra",
+    "rv",
+    "rv_bibcode",
+    "rv_error",
+    "simbad_name",
+    "sp_bibcode",
+    "sp_method",
+    "sp_type",
+    "system_bibcode",
+    "system_name"
+  ],
+  "obj_cat_census": {
+    "WD?": 1,
+    "LM": 254,
+    "*": 68,
+    "LM?": 32,
+    "BD": 97,
+    "BD?": 5,
+    "Planet": 85,
+    "WD": 20
+  },
+  "unexpected_categories": [
+    "BD?",
+    "LM?",
+    "WD?"
+  ],
+  "n_objects_total": 562,
+  "n_systems_all_categories": 354,
+  "n_systems_by_variant": {
+    "stars_only": 254,
+    "stars_and_wd": 267,
+    "substellar_incl": 350
+  },
+  "predicates": {
+    "stars_only": "obj_cat IN ('*', 'LM')",
+    "stars_and_wd": "obj_cat IN ('*', 'LM', 'WD')",
+    "substellar_incl": "obj_cat IN ('*', 'LM', 'WD', 'BD')"
+  },
+  "derived": {
+    "adopted_variant": "stars_only",
+    "n_systems_adopted": 254,
+    "restriction_factor": 0.717514,
+    "single_wd_systems_implied": 13,
+    "systems_density_pc3": 0.06063803,
+    "assumed_sphere_volume_pc3": 4188.7902,
+    "volume_caveat": "Density assumes a strict 10 pc sphere. Reyle retains a few targets slightly beyond 10 pc whose distance is consistent with 10 pc within uncertainties, so the true sample volume is marginally larger and this density is a marginal OVER-estimate. Record, do not silently correct."
+  },
+  "queries_executed": [
+    {
+      "label": "schema: columns",
+      "adql": "SELECT column_name FROM tap_schema.columns WHERE table_name = 'tenpc.main'"
+    },
+    {
+      "label": "schema: table description",
+      "adql": "SELECT description FROM tap_schema.tables WHERE table_name = 'tenpc.main'"
+    },
+    {
+      "label": "count: stars_only",
+      "adql": "SELECT COUNT(DISTINCT nb_sys) AS nsys FROM tenpc.main WHERE obj_cat IN ('*', 'LM')"
+    },
+    {
+      "label": "count: stars_and_wd",
+      "adql": "SELECT COUNT(DISTINCT nb_sys) AS nsys FROM tenpc.main WHERE obj_cat IN ('*', 'LM', 'WD')"
+    },
+    {
+      "label": "count: substellar_incl",
+      "adql": "SELECT COUNT(DISTINCT nb_sys) AS nsys FROM tenpc.main WHERE obj_cat IN ('*', 'LM', 'WD', 'BD')"
+    },
+    {
+      "label": "count: objects",
+      "adql": "SELECT COUNT(*) AS n FROM tenpc.main"
+    },
+    {
+      "label": "count: all categories",
+      "adql": "SELECT COUNT(DISTINCT nb_sys) AS nsys FROM tenpc.main WHERE 1 = 1"
+    },
+    {
+      "label": "census: obj_cat",
+      "adql": "SELECT obj_cat, COUNT(*) AS n FROM tenpc.main GROUP BY obj_cat"
+    }
+  ]
+}

@@ -31,6 +31,28 @@
  * consistent with "expect a handful of neutron stars and at most one black
  * hole in a ten-thousand-system sector" (S5.2's own stated expectation).
  *
+ * NS SPATIAL DISTRIBUTION - A NAMED GAP, attributed correctly. Every remnant
+ * kind drawn here, NS included, is placed using its SOURCE POPULATION's own
+ * density shape (`rhoRemFor` scales `popDensity`) - i.e. a neutron star gets
+ * its birth population's thin-disc scale height, with no kick-broadening.
+ * That is a known simplification: real NS receive large natal kicks and
+ * their true scale height is well above their birth population's. The
+ * correct citation for that broadening is McKee, Parravano & Hollenbach
+ * 2015 S4.3, NOT Sartore et al. 2010 directly (checked against the actual
+ * text this session, not carried over from the brief unverified): McKee
+ * themselves do not adopt one scale-height figure - they report a Sigma_NS
+ * surface density within 1.1 kpc of the plane by combining several of
+ * Sartore's velocity-distribution models, explicitly excluding Sartore's
+ * own "case 1E" (33 pc) as an outlier, rather than settling on a single
+ * number. Inventing a scale height here would mean either quoting Sartore
+ * directly (the brief's own S5.2 explicitly rules this out - "attribute the
+ * scale height to McKee S4.3... do not quote Sartore directly") or guessing
+ * which of McKee's several combined cases to adopt. Recorded as a named
+ * upgrade path rather than either: give NS (and, more weakly, BH) their own
+ * broadened scale height once a specific McKee-endorsed figure can be
+ * pinned down, the same "flag, don't fake" pattern this file already
+ * applies to its placeholder white-dwarf chain.
+ *
  * WHITE-DWARF CHAIN. Progenitor mass drawn from the Kroupa IMF between the
  * population's own turnoff and 8 Msun (the IFMR's usual upper validity
  * bound); a two-segment linear IFMR PLACEHOLDER (`calibrated`, Cummings et
