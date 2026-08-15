@@ -58,6 +58,7 @@ import { glossary as galaxyParametersGlossary } from './galaxyParameters';
 import { glossary as starFormingComplexesGlossary } from './starFormingComplexes';
 import { glossary as metallicityGlossary } from './metallicity';
 import { glossary as systemConductorGlossary } from './systemConductor';
+import { glossary as sectorSearchGlossary } from './sectorSearch';
 
 /**
  * Every module's `glossary` export, concatenated in brief stage order
@@ -91,6 +92,7 @@ export const GLOSSARY: GlossaryEntry[] = [
   ...starFormingComplexesGlossary,
   ...metallicityGlossary,
   ...systemConductorGlossary,
+  ...sectorSearchGlossary,
 ];
 
 /** Look up every glossary entry for a given module, in aggregate order. */

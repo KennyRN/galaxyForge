@@ -189,20 +189,52 @@ function atmosphereComposition(draw: AtmosphereDraw): SpeciesFraction[] {
 
 /* --------------------------------- the conductor -------------------------------- */
 
-export function generateSystemCore(inputs: GenerateSystemInputs): SystemCore {
-  const { sysid, genVersion, worldSeed, positionPc, population, populationMeta, formationRank, terraformScale } = inputs;
+/** The cheap prefix `generateSystemCore` and `quickMultiplicityCensus` (see
+ *  below, `sectorSearch.ts`'s own consumer) BOTH need - age, metallicity,
+ *  primary class and star count, on exactly the same channels either way,
+ *  so a candidate that later gets the FULL treatment produces bit
+ *  -identical results to one only ever quick-censused (Law 1 - one place
+ *  this prefix is computed, not two copies that could drift apart). */
+function ageFehAndStarCensus(inputs: GenerateSystemInputs) {
+  const { sysid, worldSeed, positionPc, populationMeta, formationRank } = inputs;
   const galactocentricRadiusPc = Math.hypot(positionPc.x, positionPc.y, positionPc.z);
 
-  // -- age, metallicity (policy 2: formationRank/population are INPUTS) ---------
   const age = rollAge(ch(worldSeed, CHANNELS.age, sysid), populationMeta, formationRank);
   const feh = rollMetallicity(ch(worldSeed, CHANNELS.metallicity, sysid), populationMeta, galactocentricRadiusPc, formationRank);
 
-  // -- stars (policy 1: pickClass + rollStarCount share one 'stars' stream) -----
   const starsRng = ch(worldSeed, CHANNELS.stars, sysid);
   const primaryClass: StellarClass = pickClass(starsRng, { age, feh } satisfies StellarPopulationCtx);
   const primaryMassSol = representativeMass(primaryClass);
   const primaryLuminositySol = msLuminositySol(primaryClass);
   const starCount = rollStarCount(starsRng, primaryMassSol);
+
+  return { galactocentricRadiusPc, age, feh, primaryClass, primaryMassSol, primaryLuminositySol, starCount };
+}
+
+export interface QuickMultiplicityCensus {
+  readonly starCount: number;
+  readonly primaryClass: StellarClass;
+  readonly age: number;
+  readonly feh: number;
+}
+
+/**
+ * The CHEAP path `sectorSearch.ts` uses for a multiplicity-only filter -
+ * two draws' worth of work (`pickClass` + `rollStarCount`), never the full
+ * planet/belt/moon/atmosphere/biosphere/terraforming/habitability
+ * pipeline. Calling this and then, for a matching candidate, calling
+ * `generateSystemCore` with the SAME inputs is safe and produces
+ * consistent results - both start from the identical channel-seeded
+ * streams, computed via this same shared prefix.
+ */
+export function quickMultiplicityCensus(inputs: GenerateSystemInputs): QuickMultiplicityCensus {
+  const { starCount, primaryClass, age, feh } = ageFehAndStarCensus(inputs);
+  return { starCount, primaryClass, age, feh };
+}
+
+export function generateSystemCore(inputs: GenerateSystemInputs): SystemCore {
+  const { sysid, genVersion, worldSeed, positionPc, population, populationMeta, formationRank, terraformScale } = inputs;
+  const { galactocentricRadiusPc, age, feh, primaryClass, primaryMassSol, primaryLuminositySol, starCount } = ageFehAndStarCensus(inputs);
 
   const companions: CompanionStar[] = starCount > 1
     ? rollCompanions(ch(worldSeed, CHANNELS.companions, sysid), primaryMassSol, starCount, age, feh)
