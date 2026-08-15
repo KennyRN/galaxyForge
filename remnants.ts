@@ -222,3 +222,16 @@ function buildRemnantStar(
  *     measurably tighter than uniform, unlike Stage 4.8's youngThin result.
  */
 export const REMNANTS_GATES = 6 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Local white dwarf density', status: 'sourced',
+    short: 'How many white dwarfs occupy a given volume of the solar neighbourhood.',
+    long: 'spiralCalibrationConstant calibrates rhoRemFor\'s output to match the observed local white dwarf space density.',
+    source: 'Holberg, Oswalt, Sion & McCook 2016, MNRAS 462, 2295 (3.6e-3 pc^-3)',
+  },
+];

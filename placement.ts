@@ -242,3 +242,21 @@ export function applyExclusion(candidates: readonly PlacedSystem[]): PlacedSyste
  *     same count and volume.
  */
 export const PLACEMENT_GATES = 8 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Cell-based Thomas-process sampling', status: 'calibrated',
+    short: 'How individual systems are scattered in space so they cluster realistically instead of forming an artificial grid.',
+    long: 'CELL_SIZE_PC / JITTER_SIGMA_PC parameterise a per-cell Poisson-then-jitter (Thomas process) point pattern, a standard spatial-statistics technique for clustered point processes - the specific pc-scale values here are tunable to taste, not read from a stellar-clustering survey.',
+    source: 'Thomas 1949 (clustered point process), as used broadly in spatial statistics',
+  },
+  {
+    term: 'Local-and-symmetric exclusion', status: 'tunable',
+    short: 'The minimum-separation rule preventing two placed systems from landing implausibly close together.',
+    long: 'EXCLUSION_RADIUS_PC enforced symmetrically between every pair in a local neighbourhood (not a greedy first-come-first-served pass), so placement order never biases which system "wins" a contested spot.',
+  },
+];

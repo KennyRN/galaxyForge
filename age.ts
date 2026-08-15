@@ -104,3 +104,15 @@ export function rollAge(rng: Rng, population: Population, formationRank: number)
  *     declared direction (older).
  */
 export const AGE_GATES = 6 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Age-metallicity coupling', status: 'tunable',
+    short: 'How strongly a system\'s age and metallicity move together via the shared formationRank latent.',
+    long: 'A Gaussian-copula correlation strength (AMR_RHO); no source in this package states a numeric value. metallicity (not yet built) is expected to read the same formationRank with an oppositely-signed coupling.',
+  },
+];

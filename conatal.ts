@@ -148,3 +148,15 @@ export function groupRng(worldSeed: string, cellKey: { ix: number; iy: number; i
  *     key (different channel name, per Law 2 isolation).
  */
 export const CONATAL_GATES = 6 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Conatal group (birth cluster)', status: 'tunable',
+    short: 'A cluster of nearby systems that formed together and therefore share nearly the same age and metallicity.',
+    long: 'COHERENCE_WINDOW_GYR and SIGMA_INTRA_DEX set how tightly a conatal group\'s members must agree in age/metallicity; conatalProbability(pop) scales how common such groups are per population. No specific literature figure was targeted - the qualitative existence of open-cluster-like birth groups is well established, the exact rates here are a narrative-scale tunable.',
+  },
+];

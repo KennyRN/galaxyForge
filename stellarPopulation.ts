@@ -224,3 +224,27 @@ export function classProbabilityGivenAgeFeh(c: StellarClass, age: number, feh: n
  *  6. Determinism - same rng draw and ctx give the same class, always.
  */
 export const STELLAR_POPULATION_GATES = 6 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Observed class fractions', status: 'sourced',
+    short: 'What fraction of stars in the solar neighbourhood are of each spectral class today.',
+    long: 'M dwarfs are 72% of the 25 pc CNS5 sample - confirmed directly against the published abstract. The other six letters could not be retrieved from the paper\'s own table and are graded calibrated instead.',
+    source: 'Golovin et al. 2023, A&A 670, A19 (CNS5)',
+  },
+  {
+    term: 'Kroupa IMF', status: 'sourced',
+    short: 'The initial mass function: how many stars form at each mass.',
+    long: 'A continuous broken power law (breakpoints at 0.08 and 0.5 Msun), used both to weight subtypes within a letter class and, via galacticDensity, to derive Upsilon.',
+    source: 'Kroupa 2001, MNRAS 322, 231',
+  },
+  {
+    term: 'Birth fraction', status: 'derived',
+    short: 'What fraction of stars were born as each class, before any of them had time to die.',
+    long: 'Deconvolved from the observed fractions by dividing out survivorship, assuming a constant local star-formation rate over a 10 Gyr window (tunable).',
+  },
+];

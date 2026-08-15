@@ -128,3 +128,16 @@ export function skyFrom(
  *     zero.
  */
 export const SKY_GATES = 5 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Apparent magnitude', status: 'sourced',
+    short: 'How bright a star looks from a given viewpoint, accounting for both its true brightness and its distance.',
+    long: 'm = M_V + 5*log10(d_pc) - 5, the standard distance-modulus relation, applied to stellarProperties\' own absMagV(class) rather than an independent bolometric approximation.',
+    source: 'Standard distance-modulus relation (Pogson 1856 magnitude scale)',
+  },
+];

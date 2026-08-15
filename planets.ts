@@ -477,3 +477,34 @@ export function mutualHillMerge(planetsIn: readonly PlanetDraw[], primaryMassSol
  *  9. Determinism - same rng sequence and inputs give bit-identical output.
  */
 export const PLANETS_GATES = 9 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Snow line', status: 'sourced',
+    short: 'The orbital distance beyond which ices condense, marking the boundary between rocky and volatile-rich planet formation.',
+    long: 'Scaled with sqrt(L/Lsun) from a 2.7 AU solar anchor, the standard protoplanetary-disc convention.',
+    source: 'Ida & Lin 2004, ApJ 616, 567',
+  },
+  {
+    term: 'Eta-Earth (occurrence of Earth-size HZ planets)', status: 'calibrated',
+    short: 'How often a Sun-like star hosts a roughly Earth-size planet in its habitable zone.',
+    long: 'ETA_EARTH_RATE tuned by iterative numerical search against a 0.35 target occurrence, not read off a single literature value - Kepler-derived eta-Earth estimates themselves span roughly 0.02-0.75 depending on definition.',
+    source: 'Target band informed by Kepler occurrence-rate studies, e.g. Bryson et al. 2021, AJ 161, 36 (eta-Earth ~ 0.37-0.6 depending on definition)',
+  },
+  {
+    term: 'Radius valley (photoevaporation gap)', status: 'calibrated',
+    short: 'The observed scarcity of planets between about 1.5 and 2 Earth radii, splitting rocky planets from gas-enveloped sub-Neptunes.',
+    long: 'Reproduced here via a physics-first envelope-retention model (ENVELOPE_MIN_FRACTION, ENVELOPE_RADIUS_BOOST, ENVELOPE_EXPONENT) tuned by histogram inspection to open a genuine local minimum, following the qualitative shape reported by Fulton et al. 2017, AJ 154, 109 rather than that paper\'s exact numbers.',
+    source: 'Fulton et al. 2017, AJ 154, 109',
+  },
+  {
+    term: 'Giant-hosting rate', status: 'calibrated',
+    short: 'How often a system hosts at least one true giant planet.',
+    long: 'GIANT_HOSTING_SLOPE solved algebraically against a 7% target, scaling with metallicity per the well-established giant-planet-metallicity correlation.',
+    source: 'Giant planet-metallicity correlation: Fischer & Valenti 2005, ApJ 622, 1102',
+  },
+];

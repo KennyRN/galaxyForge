@@ -144,3 +144,15 @@ export function rollTerraforming(
  *  7. Determinism.
  */
 export const TERRAFORMING_GATES = 7 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Terraformability', status: 'tunable',
+    short: 'How plausible it would be to engineer a given world toward human habitability.',
+    long: 'An explicitly fictional, world-building-oriented score - this module\'s own header states it authors fiction, not science. Deterministic and pure given a planet\'s physical state, but carries no literature source: there is none for a subject that does not yet exist.',
+  },
+];

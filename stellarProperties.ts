@@ -285,3 +285,22 @@ export function msLifetimeGyr(massSol: number, feh: number): number {
  *     hottest -> coolest in table order, every mass/radius/luminosity positive.
  */
 export const STELLAR_PROPERTIES_GATES = 5 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Main-sequence class', status: 'sourced',
+    short: 'A star\'s spectral type on the main sequence (e.g. G2V).',
+    long: 'Sixty-five classes, O5V to M9V, every whole subtype, with temperature, colour, luminosity, mass and radius from Eric Mamajek\'s living EEM dwarf sequence table (Pecaut & Mamajek 2013).',
+    source: 'Pecaut & Mamajek 2013, ApJS 208, 9; table retrieved 2026-08-15, version 2022.04.16',
+  },
+  {
+    term: 'Main-sequence lifetime', status: 'calibrated',
+    short: 'How long a star of a given mass and metallicity stays on the main sequence.',
+    long: 'An M/L-based analytic approximation, NOT a literal MIST grid interpolation (which would need gigabytes of tables this plugin cannot ship). The mass-luminosity relation is read off the sourced Mamajek table; the metallicity correction is a calibrated multiplier.',
+    source: 'Choi et al. 2016, ApJ 823, 102 (MIST) is the named upgrade-path target, not the source of today\'s numbers',
+  },
+];

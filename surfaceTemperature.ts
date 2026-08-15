@@ -70,3 +70,16 @@ export function rollSurfaceTemperature(
  *  4. Determinism.
  */
 export const SURFACE_TEMPERATURE_GATES = 4 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Equilibrium temperature', status: 'sourced',
+    short: 'The blackbody temperature a planet would settle at from starlight alone, ignoring any atmosphere.',
+    long: 'T_eq = T_star * sqrt(R_star / (2a)) * (1-A)^(1/4), the standard radiative-balance formula used throughout exoplanet characterisation literature.',
+    source: 'Standard radiative-equilibrium derivation, e.g. Seager 2010, Exoplanet Atmospheres',
+  },
+];

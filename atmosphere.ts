@@ -182,3 +182,22 @@ export function rollAtmosphere(
  *  6. Determinism.
  */
 export const ATMOSPHERE_GATES = 6 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Atmospheric retention margin (ARM)', status: 'sourced',
+    short: 'How comfortably a planet\'s gravity holds onto its atmosphere against a star\'s high-energy radiation.',
+    long: 'The Meni-Gallardo & Palle atmospheric retention model, comparing escape velocity against integrated XUV exposure over the planet\'s life.',
+    source: 'Meni-Gallardo & Palle 2026',
+  },
+  {
+    term: 'Escape velocity', status: 'sourced',
+    short: 'The speed needed for a gas molecule to permanently leave a planet.',
+    long: 'v_esc = 11.186 * sqrt(Mp/Mearth / (Rp/Rearth)) km/s, standard two-body escape-velocity physics in Earth units - corrected during this build from a garbled version of the formula that had conflated Earth\'s own escape velocity with the general formula.',
+    source: 'v_esc = sqrt(2GM/R), standard two-body escape-velocity physics (e.g. de Pater & Lissauer, Planetary Sciences)',
+  },
+];

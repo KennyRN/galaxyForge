@@ -173,3 +173,21 @@ export function densityByPopulationAtCartesian(model: GalaxyModel, x: number, y:
   const { R, theta } = cartesianToPolar(x, y, z);
   return model.densityByPopulation(R, theta, z);
 }
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Upsilon (mass-to-count conversion)', status: 'derived',
+    short: 'How many living-star systems a given amount of stellar mass in a population corresponds to.',
+    long: 'upsilonFor(pop) = 1 / (meanLivingStarMassSol * MEAN_STARS_PER_SYSTEM), algebraically derived from stellarPopulation\'s IMF-weighted mean mass and multiplicity\'s mean stars-per-system - not an independent literature figure.',
+  },
+  {
+    term: 'Dead star fraction', status: 'calibrated',
+    short: 'What fraction of a population\'s stars have already died and left a remnant, given the population\'s age distribution.',
+    long: 'Integrates stellarProperties\' main-sequence lifetimes against the population\'s IMF and age spread; reused by remnants.ts so the two modules cannot silently disagree on how many remnants a population should have.',
+    source: 'Built on stellarProperties\' Mamajek main-sequence lifetimes (Pecaut & Mamajek 2013) and stellarPopulation\'s Kroupa 2001 IMF - no independent citation of its own.',
+  },
+];

@@ -121,3 +121,15 @@ export function isHumanHabitable(tier: HabTier): boolean {
  *  5. Determinism (trivial for a pure function, asserted anyway).
  */
 export const HUMAN_HABITABILITY_GATES = 5 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Human habitability tier', status: 'tunable',
+    short: 'A coarse, narrative-facing bucket (from uninhabitable to Earth-like) summarising how survivable a world would be for unaided humans.',
+    long: 'HAB_TIER_LABELS and the tier thresholds are a deliberate simplification of the many upstream physical scores (temperature, atmosphere, biosphere) into one storytelling-facing number - the isHumanHabitable(tier) >= 2 cutoff is the single sanctioned definition site for that boolean, per the brief\'s Law 1.',
+  },
+];

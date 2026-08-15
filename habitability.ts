@@ -80,3 +80,22 @@ export function galacticHabitabilityScore(galactocentricRadiusPc: number, zPc: n
  *     public surface.
  */
 export const HABITABILITY_GATES = 4 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Habitable zone (HZ)', status: 'sourced',
+    short: 'The range of orbital distances where a rocky planet could sustain liquid surface water.',
+    long: 'Scaled with sqrt(L/Lsun) from Solar-System-anchored inner/outer edges, in the tradition of the classic conservative HZ literature.',
+    source: 'Kasting, Whitmire & Reynolds 1993, Icarus 101, 108; Kopparapu et al. 2013, ApJ 765, 131',
+  },
+  {
+    term: 'Galactic habitability score (GHZ)', status: 'sourced',
+    short: 'How favourable a system\'s location and age within the galaxy are for hosting complex life, independent of the planet itself.',
+    long: 'Follows the qualitative shape of the Galactic Habitable Zone concept - a band in galactocentric radius and time balancing metal enrichment against supernova/radiation hazard.',
+    source: 'Lineweaver, Fenner & Gibson 2004, Science 303, 59',
+  },
+];

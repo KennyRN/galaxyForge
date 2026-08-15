@@ -320,3 +320,22 @@ export function buildSystemGeometry(
  *     the "dead original primary" scenario this module exists to represent.
  */
 export const MULTIPLICITY_GATES = 8 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Multiplicity fraction', status: 'sourced',
+    short: 'The probability a star has one or more companions.',
+    long: 'Mass-binned MF/CSF table from a refereed re-derivation of the same 10 pc catalogue Reyle anchors on; MEAN_STARS_PER_SYSTEM = 1.350 supersedes an earlier 1.407 figure.',
+    source: 'Gonzalez-Payo, Caballero, Cifuentes, Cortes-Contreras & Rica 2026, MNRAS 549, 1, stag838',
+  },
+  {
+    term: 'Holman & Wiegert critical semimajor axis', status: 'sourced',
+    short: 'The boundary between stable S-type (single-star) and P-type (circumbinary) planetary orbits in a binary.',
+    long: 'Two fitting polynomials in mass ratio and eccentricity, independently confirmed against the literature before use.',
+    source: 'Holman & Wiegert 1999, AJ 117, 621',
+  },
+];

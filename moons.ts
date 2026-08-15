@@ -151,3 +151,22 @@ export function rollMoons(rng: Rng, inputs: MoonHostInputs, count: number): Moon
  *  7. Determinism.
  */
 export const MOONS_GATES = 7 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Hill radius', status: 'sourced',
+    short: 'The distance from a planet within which its own gravity dominates over the host star\'s tidal pull - the outer edge of where a moon can stably orbit.',
+    long: 'a_Hill = a_planet * (m_planet / (3*m_star))^(1/3), the standard order-of-magnitude Hill-sphere approximation.',
+    source: 'Hill 1878 (as reproduced in standard celestial-mechanics texts, e.g. Murray & Dermott 1999)',
+  },
+  {
+    term: 'Stable moon orbit limit', status: 'calibrated',
+    short: 'What fraction of the Hill radius a moon can actually occupy before its orbit becomes chaotic.',
+    long: 'PROGRADE_HILL_FRACTION = 0.40 and RETROGRADE_HILL_FRACTION = 0.70, consistent with the qualitative finding (retrograde orbits are more stable, prograde less so) of numerical N-body stability surveys - the exact fractions here are a calibrated simplification of that paper\'s more detailed fit.',
+    source: 'Domingos, Winter & Yokoyama 2006, MNRAS 373, 1227',
+  },
+];

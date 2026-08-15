@@ -192,3 +192,16 @@ function solveLargestDiameter(scale: number): number {
  *  8. Determinism.
  */
 export const BELTS_GATES = 8 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Reference asteroid-belt population', status: 'calibrated',
+    short: 'How many belt objects above a reference size a typical belt-hosting system has, and how that scales with distance from the Sun.',
+    long: 'ALPHA_ABOVE solved algebraically from the brief\'s own stated target ratio (220 objects at one reference distance vs. 26 at another, log2(220/26)); the absolute reference count is a tunable anchor, not a literature figure.',
+    source: 'Target counts specified in the build brief (S6), traceable to Minor Planet Center population statistics at the time of writing',
+  },
+];

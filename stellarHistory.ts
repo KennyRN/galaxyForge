@@ -315,3 +315,28 @@ export function rollStellarHistory(
  *     on being unique).
  */
 export const STELLAR_HISTORY_GATES = 8 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Convective turnover time', status: 'sourced',
+    short: 'How long it takes convective material to cycle through a star\'s outer envelope - sets the Rossby number.',
+    long: 'Noyes et al. 1984\'s classic empirical fit within its calibrated range; a calibrated cool-star extension beyond B-V=1, fit to land at 87 d for M5V.',
+    source: 'Noyes, Hartmann, Baliunas, Duncan & Vaughan 1984, ApJ 279, 763',
+  },
+  {
+    term: 'Rotation period', status: 'sourced',
+    short: 'How fast a star spins, and how that changes with age.',
+    long: 'Barnes 2007\'s I-sequence gyrochronology relation, P = a*((B-V)-c)^b * t^n.',
+    source: 'Barnes 2007, ApJ 669, 1167',
+  },
+  {
+    term: 'Rossby number saturation threshold', status: 'sourced',
+    short: 'The Rossby number below which a star\'s X-ray activity stops rising and saturates.',
+    long: 'RO_SAT = 0.13, from an 824-star X-ray sample; also supplies the saturated X-ray luminosity level and the unsaturated power-law slope (beta = -2.70) this module\'s XUV output uses.',
+    source: 'Wright, Drake, Mamajek & Henry 2011, ApJ 743, 48',
+  },
+];

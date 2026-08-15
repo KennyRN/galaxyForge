@@ -548,3 +548,27 @@ export function createLenticularModel(
     },
   };
 }
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Juric thin/thick disc parameters', status: 'sourced',
+    short: 'The scale height and scale length of the Milky Way\'s two stellar discs, and the fraction of stars in each.',
+    long: 'Juric et al. 2008\'s SDSS-derived structural fit for the Galactic disc(s), used as the spiral model\'s disc geometry.',
+    source: 'Juric et al. 2008, ApJ 673, 864',
+  },
+  {
+    term: 'Hernquist profile', status: 'sourced',
+    short: 'A smooth density profile commonly used for galactic bulges and dark-matter haloes.',
+    long: 'rho(r) = M/(2*pi) * a / (r * (r+a)^3), used here for both the spiral\'s halo and the elliptical/lenticular models\' bulges; hernquistK derived to normalise total enclosed mass.',
+    source: 'Hernquist 1990, ApJ 356, 359',
+  },
+  {
+    term: 'Bar factor', status: 'tunable',
+    short: 'An optional density boost/reshaping near the galactic centre representing a stellar bar.',
+    long: 'A smootherstep-modulated multiplier, toggled by `barEnabled`; no specific bar-strength literature value is targeted, only a qualitatively plausible central concentration.',
+  },
+];

@@ -150,3 +150,15 @@ export function rollBiosphere(
  *  6. Determinism.
  */
 export const BIOSPHERE_GATES = 6 as const;
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Abiogenesis minimum age', status: 'tunable',
+    short: 'The minimum time a habitable world needs to exist before life could plausibly have arisen on it.',
+    long: 'MIN_ABIOGENESIS_GYR = 0.5, loosely anchored to Earth\'s own timeline (life\'s earliest traces are within a few hundred Myr of Earth becoming habitable) but treated as a tunable narrative knob, not a settled scientific figure - abiogenesis timescales are not well constrained even for the one known example.',
+  },
+];
