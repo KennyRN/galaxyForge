@@ -1,7 +1,8 @@
 import {
-  rollPlanets, mutualHillMerge, habitableZoneAu, snowLineAu, zoneOf,
+  rollPlanets, mutualHillMerge, snowLineAu, zoneOf,
   giantHostingRate, classOfRadius, kindOfClass, type PlanetDraw, type PlanetSystemInputs,
 } from './planets';
+import { habitableZoneAu } from './habitability';
 import { luminositySol, representativeMass } from './stellarProperties';
 import { mulberry32, type Rng } from './rng';
 

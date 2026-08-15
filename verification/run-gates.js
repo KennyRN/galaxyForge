@@ -284,8 +284,17 @@ if (retired.length) {
 // and the root one always is, because .gate-tmp/ lives inside the package. Both
 // this config and the root one are built from TSC_FLAGS, so there is still
 // exactly one source of truth for the flags and gate S2 still compares against it.
+// `types: ['node']` is needed because a handful of Stage-9 conformance
+// suites do their own structural grep gates (S9: "grep for isHumanHabitable",
+// "grep for Rossby-number computation") by reading sibling .ts sources with
+// `fs`/`path`/`__dirname` - real Node builtins, not part of the plugin
+// runtime surface itself (gate S1 already bans plugin *source* from touching
+// the network; reading a local sibling file to grep it is neither a network
+// call nor plugin-shipped behaviour). Without an explicit `types` array,
+// automatic @types inclusion is inconsistent across TypeScript majors in an
+// isolated build directory like `.gate-tmp/`.
 fs.writeFileSync(path.join(TMP, 'tsconfig.json'), JSON.stringify({
-  compilerOptions: { ...TSC_FLAGS, outDir: './build', skipLibCheck: true },
+  compilerOptions: { ...TSC_FLAGS, outDir: './build', skipLibCheck: true, types: ['node'] },
   include: rootTs.concat(stubbed),
 }, null, 2));
 

@@ -42,13 +42,10 @@
  * resulting histogram actually shows the valley the brief's gate demands
  * (verified in the conformance suite, not assumed).
  *
- * HABITABLE ZONE. A conservative, Teff-independent sqrt(luminosity) form -
- * inner 0.95, outer 1.67 AU at solar luminosity - `calibrated (simplified
- * from Kopparapu et al. 2014's full Teff-dependent coefficients)`. This is a
- * LOCAL, preliminary approximation for this module's own eta-earth gate;
- * `habitability` (Stage 9, not yet built) is the single source of truth for
- * the real HZ once it lands, and should absorb this rather than the two
- * modules keeping independently-drifting copies (Law 1).
+ * HABITABLE ZONE. Imported from `habitability` (Stage 9) - see that
+ * module's own header for the form and its grading. This module used to
+ * carry a local copy (necessarily, since `habitability` did not exist yet
+ * at Stage 6); that seam is now closed, per Law 1.
  *
  * SNOW LINE. `snowLineAu = 2.7 * sqrt(L/Lsun)` - the standard order-of
  * -magnitude form (Kennedy & Kenyon 2008-style), `sourced (form)`.
@@ -73,6 +70,7 @@ import type { Rng } from './rng';
 import { poissonInvCdf, probit } from './mathStats';
 import { xuvFluenceRel } from './stellarHistory';
 import type { StellarClass } from './stellarProperties';
+import { habitableZoneAu } from './habitability';
 
 export type PlanetZone = 'A' | 'B' | 'C';
 export type EnvelopeState = 'primary-retained' | 'stripped';
@@ -89,12 +87,6 @@ export type PlanetSubclass =
 /** AU. `sourced (form)`. */
 export function snowLineAu(hostLuminositySol: number): number {
   return 2.7 * Math.sqrt(Math.max(hostLuminositySol, 1e-6));
-}
-
-/** Conservative HZ, `calibrated (simplified Kopparapu 2014)` - see header. */
-export function habitableZoneAu(hostLuminositySol: number): { inner: number; outer: number } {
-  const s = Math.sqrt(Math.max(hostLuminositySol, 1e-6));
-  return { inner: 0.95 * s, outer: 1.67 * s };
 }
 
 function zoneBoundaries(hostLuminositySol: number): { aInner: number; aOuter: number } {
