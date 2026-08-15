@@ -9,7 +9,7 @@ Generated 2026-08-15. 17 present, 1 partial, 5 not started.
 | `types` | shared taxonomy, SystemContext, CHANNELS registry | present | - | - |
 | `mathStats` | erf, Phi, probit, truncGaussQuantile, poissonInvCdf - no inline copies anywhere | present | - | yes |
 | `units` | THE ONLY conversion site. Every ly/km/degC toggle is a call into here | not started | - | - |
-| `galaxyModel` | morphology, populations, the continuous density field | present | - | - |
+| `galaxyModel` | morphology, populations, the continuous density field | present | - | yes |
 | `galacticDensity` | per-cell density evaluation, Upsilon, merge pass, sector centring | PARTIAL - declarations only, ADD to it | - | - |
 | `densityMap` | the field sampled for display and region choice - a VIEW, owns no science | present | - | yes |
 | `placement` | Thomas cluster process, cell-based deterministic point placement | not started | placement | - |

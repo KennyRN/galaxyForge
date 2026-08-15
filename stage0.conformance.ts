@@ -6,172 +6,22 @@
 import type { Population, PopulationKey, GalaxyModel, DensityByPopulation } from './galaxyModel';
 import type { SectorCentreCriteria } from './galacticDensity';
 import { assertNever, CHANNELS } from './types';
+// MIGRATED (post Stage 9-12 pass): this file's own population fixtures used
+// to be defined locally here ("the point is the CONTRACT, not the science").
+// They are now the SAME data the real morphology factories in galaxyModel.ts
+// use - imported under their original local names so every gate below is
+// unchanged, but the science now has exactly one home (Law 1). hernquistK,
+// R0_PC, F_HALO, ERWIN and THICK_FRAC moved with them for the same reason.
+import {
+  SPIRAL_POPULATIONS as spiral, ELLIPTICAL_POPULATIONS as elliptical,
+  LENTICULAR_POPULATIONS as lenticular, R0_PC, THICK_FRAC, hernquistK,
+} from './galaxyModel';
 
-const R0_PC = 8178;          // GRAVITY 2019 (1.1)
-const F_HALO = 0.01;         // 3.3a - TUNABLE. The MW is a LOW outlier; external
-                             // stellar-halo fractions scatter by a factor of 7-16.
-const ERWIN = { disc: 0.61, pseudo: 0.33, classical: 0.06 };  // decomposed LIGHT
-
-/**
- * k = R_e / a for a Hernquist sphere, by numerical integration of the PROJECTED
- * profile. 2.1 requires this be COMPUTED, not quoted, so this is the reference
- * implementation rather than a constant.
- *
- * With a = M = 1, rho(r) = 1 / (2*pi*r*(r+1)^3). Projecting,
- *   Sigma(R) = 2 * INT_R^inf rho(r) r dr / sqrt(r^2 - R^2)
- * and the substitution r = sqrt(R^2 + t^2) gives dr/sqrt(r^2-R^2) = dt/r, which
- * removes the integrable singularity at r = R:
- *   Sigma(R) = (1/pi) * INT_0^inf dt / [ r (r+1)^3 ]
- * Then M_proj(R) = 2*pi * INT_0^R Sigma(R') R' dR', and k solves M_proj(k) = 1/2.
- *
- * TRAP: the 3D half-mass radius is a DIFFERENT quantity - r_half/a = 1/(sqrt2 - 1)
- * = 2.4142, against 1.8153 for the projected R_e. Using it would shrink every
- * spheroid scale radius by a quarter. Gated below.
- */
-function simpson(f: (x: number) => number, lo: number, hi: number, n: number): number {
-  const h = (hi - lo) / n;
-  let acc = f(lo) + f(hi);
-  for (let i = 1; i < n; i++) acc += f(lo + i * h) * (i % 2 ? 4 : 2);
-  return (acc * h) / 3;
-}
-function hernquistSigma(R: number, n = 800): number {
-  // t = tan(theta) maps [0, inf) onto [0, pi/2)
-  const g = (th: number) => {
-    const t = Math.tan(th), r = Math.hypot(R, t);
-    return (1 / (r * (r + 1) ** 3)) * (1 / Math.cos(th)) ** 2;
-  };
-  return simpson(g, 0, Math.PI / 2 - 1e-9, n) / Math.PI;
-}
-function hernquistProjectedMass(R: number, n = 120): number {
-  // TWO traps here, both found the hard way:
-  //  1. Sigma(R) DIVERGES logarithmically as R -> 0, so Sigma(0) is Infinity and
-  //     Simpson - which evaluates its endpoints - returns NaN. Adaptive quadrature
-  //     hides this by never touching the endpoint. Guard it: Sigma*R -> 0.
-  //  2. The integrand ~ x*ln(1/x) has infinite derivative at 0, so uniform Simpson
-  //     converges slowly. The substitution x = u^2 clusters points where they are
-  //     needed and reaches 3e-8 with 120 panels.
-  const f = (u: number) => {
-    const x = u * u;
-    return x === 0 ? 0 : hernquistSigma(x) * x * 2 * u;
-  };
-  return 2 * Math.PI * simpson(f, 0, Math.sqrt(R), n);
-}
-function hernquistK(): number {
-  let lo = 1.0, hi = 3.0;                       // bisection; M_proj is monotonic
-  for (let i = 0; i < 50; i++) {
-    const mid = (lo + hi) / 2;
-    if (hernquistProjectedMass(mid) < 0.5) lo = mid; else hi = mid;
-  }
-  return (lo + hi) / 2;
-}
-
-/** Juric et al. 2008, bias-corrected. A NUMBER-density fit traced by M dwarfs. */
-const JURIC = { f: 0.12, lThin: 2600, hThin: 300, lThick: 3600, hThick: 900 };
-
-/**
- * Thick-disc share of disc STAR COUNTS - not mass. See the boxed warning in 3.3:
- * three conversions (stars->systems->mass->remnants) separate this from
- * `massFractionGalaxy`, and transcribing it into the mass field applies Upsilon twice.
- * R0 and L must come from the SAME frame; only the ratio R0/L is physical.
- */
-function juricThickNumberFraction(r0: number): number {
-  const { f, lThin, hThin, lThick, hThick } = JURIC;
-  const ratio = f * Math.exp(r0 / lThick - r0 / lThin)
-                  * (lThick / lThin) ** 2 * (hThick / hThin);
-  return ratio / (1 + ratio);
-}
-const THICK_FRAC = juricThickNumberFraction(R0_PC);
-
-// -- spiral: disc cohorts. No scaleRadiusPc; linear gradient. ---------------
-const spiral: Population[] = [
-  { key: 'youngThin', label: 'Young thin disc', nLocal: 0.018, ageGyr: [0, 3],
-    ageMeanGyr: 1.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.10,
-    fehMeanDex: 0.0, fehSigmaDex: 0.15,
-    fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
-    // REALISM RULING (Build 2): the 8.6 clustering constants live HERE now,
-    // and only here among the shipped placeholders - youngThin is the sole
-    // population whose age interval reaches below the ~1 Gyr coherence window.
-    // Values are the precursor's, migrated with their `tunable` grade intact.
-    clusteredFraction: 0.6, meanGroupSize: 12,
-    armAmplitude: 0.35 },
-  { key: 'midThin', label: 'Mid thin disc', nLocal: 0.030, ageGyr: [3, 6],
-    ageMeanGyr: 4.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.30,
-    fehMeanDex: -0.05, fehSigmaDex: 0.18,
-    fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
-    armAmplitude: 0.25 },
-  { key: 'oldThin', label: 'Old thin disc', nLocal: 0.024, ageGyr: [6, 8],
-    ageMeanGyr: 7.0, ageSigmaGyr: 0.8, massFractionGalaxy: 0.30,
-    fehMeanDex: -0.15, fehSigmaDex: 0.20,
-    fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
-    armAmplitude: 0.15 },
-  // thin/thick seam at 8 Gyr - Xiang & Rix 2022
-  { key: 'thick', label: 'Thick disc', nLocal: 0.006, ageGyr: [8, 12],
-    ageMeanGyr: 10.0, ageSigmaGyr: 1.2, massFractionGalaxy: 0.25,
-    fehMeanDex: -0.55, fehSigmaDex: 0.25,
-    fehGradientForm: 'linear', fehGradient: -0.000015, fehGradientRefPc: R0_PC,
-    armAmplitude: 0.0 },
-  { key: 'halo', label: 'Stellar halo', nLocal: 0.0002, ageGyr: [11, 13.5],
-    ageMeanGyr: 12.0, ageSigmaGyr: 0.9, massFractionGalaxy: 0.05,
-    fehMeanDex: -1.6, fehSigmaDex: 0.4,
-    armAmplitude: 0.0 },                    // no gradient fields: halo is flat
-];
-
-// -- elliptical: two spheroid components, DIFFERENT scale radii (2.4). ------
-const A_IN_SITU_PC = 2400;                  // a = R_e / k, Shen (2.1)
-const elliptical: Population[] = [
-  { key: 'ellipticalInSitu', label: 'In-situ spheroid', nLocal: 0, ageGyr: [9, 13.5],
-    ageMeanGyr: 11.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.60,
-    fehMeanDex: 0.15, fehSigmaDex: 0.20,
-    fehGradientForm: 'logarithmic', fehGradient: -0.2, fehGradientRefPc: A_IN_SITU_PC,
-    scaleRadiusPc: A_IN_SITU_PC },
-  { key: 'ellipticalAccreted', label: 'Accreted metal-poor halo', nLocal: 0,
-    ageGyr: [10, 13.5], ageMeanGyr: 12.2, ageSigmaGyr: 1.0, massFractionGalaxy: 0.40,
-    fehMeanDex: -0.60, fehSigmaDex: 0.30,
-    fehGradientForm: 'logarithmic', fehGradient: -0.05, fehGradientRefPc: A_IN_SITU_PC,
-    scaleRadiusPc: A_IN_SITU_PC * 8 },      // calibrated to the R&F crossover
-];
-
-// -- lenticular, composite: 0.61 / 0.33 / 0.06 (3.2). armAmplitude 0 on ALL. -
-const lenticular: Population[] = [
-  // Disc split DERIVED from Juric at run time (3.3), never transcribed.
-  // NUMBER shares - convert via upsilonFor(pop) before treating as mass.
-  { key: 'lenticularThinDisc', label: 'Quenched thin disc', nLocal: 0, ageGyr: [7, 13],
-    ageMeanGyr: 9.5, ageSigmaGyr: 1.5, massFractionGalaxy: ERWIN.disc * (1 - F_HALO) * (1 - THICK_FRAC),
-    fehMeanDex: -0.10, fehSigmaDex: 0.20,
-    fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
-    armAmplitude: 0 },
-  { key: 'lenticularThickDisc', label: 'Quenched thick disc', nLocal: 0, ageGyr: [8, 13.5],
-    ageMeanGyr: 11.0, ageSigmaGyr: 1.2, massFractionGalaxy: ERWIN.disc * (1 - F_HALO) * THICK_FRAC,
-    fehMeanDex: -0.55, fehSigmaDex: 0.25,
-    fehGradientForm: 'linear', fehGradient: -0.000015, fehGradientRefPc: R0_PC,
-    armAmplitude: 0 },
-  { key: 'lenticularPseudoBulge', label: 'Discy pseudo-bulge', nLocal: 0, ageGyr: [8, 13],
-    ageMeanGyr: 10.0, ageSigmaGyr: 1.2, massFractionGalaxy: ERWIN.pseudo * (1 - F_HALO),
-    fehMeanDex: 0.05, fehSigmaDex: 0.18,
-    // NO gradient fields. The package specifies no pseudo-bulge metallicity
-    // gradient, and the fields are optional, so the honest representation is to
-    // omit them rather than invent a reference radius. An earlier draft put 440 pc
-    // here with a comment implying a source - 440 pc is the BAR's y scale length
-    // (Wegg & Gerhard), a different component of a different morphology.
-    armAmplitude: 0 },
-  { key: 'lenticularClassicalBulge', label: 'Classical bulge', nLocal: 0, ageGyr: [9, 13.5],
-    ageMeanGyr: 11.0, ageSigmaGyr: 1.0, massFractionGalaxy: ERWIN.classical * (1 - F_HALO),
-    fehMeanDex: 0.10, fehSigmaDex: 0.20,
-    fehGradientForm: 'logarithmic', fehGradient: -0.2, fehGradientRefPc: 143,
-    // R_e = 143 pc IS sourced (Erwin et al. 2015, via 3.2). The Hernquist k that
-    // converts it to a scale radius is NOT - 2.1: "Do not take k from me. Compute it
-    // in code by numerically integrating the projected Hernquist profile." So it is
-    // computed below, never written down.
-    scaleRadiusPc: 143 / hernquistK(),
-    armAmplitude: 0 },
-  // 3.3a. Profile is Juric's oblate power law, as the spiral uses - index 2.8,
-  // c/a = 0.64, no new source. NOT Hernquist, so no scaleRadiusPc. Needs an outer
-  // truncation (~20 kpc, Juric's calibration edge): M(<R) ~ R^0.2 diverges.
-  { key: 'lenticularHalo', label: 'Stellar halo', nLocal: 0, ageGyr: [11, 13.5],
-    ageMeanGyr: 12.0, ageSigmaGyr: 0.9, massFractionGalaxy: F_HALO,
-    fehMeanDex: -1.6, fehSigmaDex: 0.4,
-    armAmplitude: 0 },
-];
+const F_HALO = 0.01;         // 3.3a - TUNABLE, re-asserted here for gate 6's own
+                             // reference computation (galaxyModel.ts owns the
+                             // canonical constant; this is a redundant literal
+                             // used only to re-derive an expected value independently).
+const ERWIN = { disc: 0.61, pseudo: 0.33, classical: 0.06 };  // decomposed LIGHT, ditto
 
 // -- the union is closed and switchable --------------------------------------
 function family(key: PopulationKey): 'disc' | 'spheroid' {

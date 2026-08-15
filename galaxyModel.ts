@@ -221,3 +221,330 @@ export interface GalaxyModel {
    *  asserted directly rather than assumed (Part 4). */
   densityByPopulation(R: number, theta: number, z: number): DensityByPopulation;
 }
+
+/* ============================================================================
+ * REAL MORPHOLOGY IMPLEMENTATIONS - brief S4.4-4.6.
+ *
+ * Everything below this line is the concrete GalaxyModel factories: one
+ * shared spiral/barredSpiral implementation (S4.4), elliptical (S4.5),
+ * lenticular (S4.6). The population data was ORIGINALLY duplicated as local
+ * test fixtures inside stage0.conformance.ts (that file's own docstring:
+ * "the point is the CONTRACT, not the science"); it is migrated HERE as the
+ * canonical, single-sourced data those fixtures were always meant to
+ * become, and stage0.conformance.ts now imports it rather than keeping a
+ * second copy (Law 1). Its own 35 gates are the safety net this migration
+ * was checked against - unchanged output, unchanged pass/fail.
+ *
+ * Arm structure (patch v2.3, named arms with pitch angles, kappa width) is
+ * DELIBERATELY NOT implemented here - see AGENT.md's own note: that patch is
+ * Pass-2 work requiring a parameter-externalisation pass this build has not
+ * done. `Population.armAmplitude` is carried (S4.2's field) but not yet
+ * consumed by a density term; the disc fields below are the smooth,
+ * axisymmetric S3.1-S4.4 baseline the patch will modulate later.
+ * ==========================================================================*/
+
+/* ------------------------------- shared anchors ----------------------------- */
+
+export const R0_PC = 8178;          // sourced, GRAVITY Collaboration 2019
+const F_HALO = 0.01;                // tunable, S4.6 - MW is a low outlier
+const ERWIN = { disc: 0.61, pseudo: 0.33, classical: 0.06 };   // sourced, Erwin et al. 2015
+
+/** Hernquist k = R_e/a, computed by numerical integration of the projected
+ *  profile - never quoted (S4.5's own ruling). See stage0.conformance.ts's
+ *  gate asserting this lands at 1.815271. */
+function simpson(f: (x: number) => number, lo: number, hi: number, n: number): number {
+  const h = (hi - lo) / n;
+  let acc = f(lo) + f(hi);
+  for (let i = 1; i < n; i++) acc += f(lo + i * h) * (i % 2 ? 4 : 2);
+  return (acc * h) / 3;
+}
+function hernquistSigma(R: number, n = 800): number {
+  const g = (th: number) => {
+    const t = Math.tan(th), r = Math.hypot(R, t);
+    return (1 / (r * (r + 1) ** 3)) * (1 / Math.cos(th)) ** 2;
+  };
+  return simpson(g, 0, Math.PI / 2 - 1e-9, n) / Math.PI;
+}
+function hernquistProjectedMass(R: number, n = 120): number {
+  const f = (u: number) => {
+    const x = u * u;
+    return x === 0 ? 0 : hernquistSigma(x) * x * 2 * u;
+  };
+  return 2 * Math.PI * simpson(f, 0, Math.sqrt(R), n);
+}
+export function hernquistK(): number {
+  let lo = 1.0, hi = 3.0;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    if (hernquistProjectedMass(mid) < 0.5) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/** Juric et al. 2008, bias-corrected. sourced. */
+export const JURIC = { f: 0.12, lThin: 2600, hThin: 300, lThick: 3600, hThick: 900 };
+
+function juricThickNumberFraction(r0: number): number {
+  const { f, lThin, hThin, lThick, hThick } = JURIC;
+  const ratio = f * Math.exp(r0 / lThick - r0 / lThin) * (lThick / lThin) ** 2 * (hThick / hThin);
+  return ratio / (1 + ratio);
+}
+export const THICK_FRAC = juricThickNumberFraction(R0_PC);
+const A_IN_SITU_PC = 2400;   // a = R_e/k, Shen (S4.5)
+
+/* --------------------------------- populations ------------------------------- */
+
+export const SPIRAL_POPULATIONS: Population[] = [
+  { key: 'youngThin', label: 'Young thin disc', nLocal: 0.018, ageGyr: [0, 3],
+    ageMeanGyr: 1.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.10,
+    fehMeanDex: 0.0, fehSigmaDex: 0.15,
+    fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
+    clusteredFraction: 0.6, meanGroupSize: 12, armAmplitude: 0.35 },
+  { key: 'midThin', label: 'Mid thin disc', nLocal: 0.030, ageGyr: [3, 6],
+    ageMeanGyr: 4.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.30,
+    fehMeanDex: -0.05, fehSigmaDex: 0.18,
+    fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
+    armAmplitude: 0.25 },
+  { key: 'oldThin', label: 'Old thin disc', nLocal: 0.024, ageGyr: [6, 8],
+    ageMeanGyr: 7.0, ageSigmaGyr: 0.8, massFractionGalaxy: 0.30,
+    fehMeanDex: -0.15, fehSigmaDex: 0.20,
+    fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
+    armAmplitude: 0.15 },
+  { key: 'thick', label: 'Thick disc', nLocal: 0.006, ageGyr: [8, 12],
+    ageMeanGyr: 10.0, ageSigmaGyr: 1.2, massFractionGalaxy: 0.25,
+    fehMeanDex: -0.55, fehSigmaDex: 0.25,
+    fehGradientForm: 'linear', fehGradient: -0.000015, fehGradientRefPc: R0_PC,
+    armAmplitude: 0.0 },
+  { key: 'halo', label: 'Stellar halo', nLocal: 0.0002, ageGyr: [11, 13.5],
+    ageMeanGyr: 12.0, ageSigmaGyr: 0.9, massFractionGalaxy: 0.05,
+    fehMeanDex: -1.6, fehSigmaDex: 0.4, armAmplitude: 0.0 },
+];
+
+export const ELLIPTICAL_POPULATIONS: Population[] = [
+  { key: 'ellipticalInSitu', label: 'In-situ spheroid', nLocal: 0, ageGyr: [9, 13.5],
+    ageMeanGyr: 11.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.60,
+    fehMeanDex: 0.15, fehSigmaDex: 0.20,
+    fehGradientForm: 'logarithmic', fehGradient: -0.2, fehGradientRefPc: A_IN_SITU_PC,
+    scaleRadiusPc: A_IN_SITU_PC },
+  { key: 'ellipticalAccreted', label: 'Accreted metal-poor halo', nLocal: 0,
+    ageGyr: [10, 13.5], ageMeanGyr: 12.2, ageSigmaGyr: 1.0, massFractionGalaxy: 0.40,
+    fehMeanDex: -0.60, fehSigmaDex: 0.30,
+    fehGradientForm: 'logarithmic', fehGradient: -0.05, fehGradientRefPc: A_IN_SITU_PC,
+    scaleRadiusPc: A_IN_SITU_PC * 8 },
+];
+
+export const LENTICULAR_POPULATIONS: Population[] = [
+  { key: 'lenticularThinDisc', label: 'Quenched thin disc', nLocal: 0, ageGyr: [7, 13],
+    ageMeanGyr: 9.5, ageSigmaGyr: 1.5, massFractionGalaxy: ERWIN.disc * (1 - F_HALO) * (1 - THICK_FRAC),
+    fehMeanDex: -0.10, fehSigmaDex: 0.20,
+    fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC, armAmplitude: 0 },
+  { key: 'lenticularThickDisc', label: 'Quenched thick disc', nLocal: 0, ageGyr: [8, 13.5],
+    ageMeanGyr: 11.0, ageSigmaGyr: 1.2, massFractionGalaxy: ERWIN.disc * (1 - F_HALO) * THICK_FRAC,
+    fehMeanDex: -0.55, fehSigmaDex: 0.25,
+    fehGradientForm: 'linear', fehGradient: -0.000015, fehGradientRefPc: R0_PC, armAmplitude: 0 },
+  { key: 'lenticularPseudoBulge', label: 'Discy pseudo-bulge', nLocal: 0, ageGyr: [8, 13],
+    ageMeanGyr: 10.0, ageSigmaGyr: 1.2, massFractionGalaxy: ERWIN.pseudo * (1 - F_HALO),
+    fehMeanDex: 0.05, fehSigmaDex: 0.18, armAmplitude: 0 },
+  { key: 'lenticularClassicalBulge', label: 'Classical bulge', nLocal: 0, ageGyr: [9, 13.5],
+    ageMeanGyr: 11.0, ageSigmaGyr: 1.0, massFractionGalaxy: ERWIN.classical * (1 - F_HALO),
+    fehMeanDex: 0.10, fehSigmaDex: 0.20,
+    fehGradientForm: 'logarithmic', fehGradient: -0.2, fehGradientRefPc: 143,
+    scaleRadiusPc: 143 / hernquistK(), armAmplitude: 0 },
+  { key: 'lenticularHalo', label: 'Stellar halo', nLocal: 0, ageGyr: [11, 13.5],
+    ageMeanGyr: 12.0, ageSigmaGyr: 0.9, massFractionGalaxy: F_HALO,
+    fehMeanDex: -1.6, fehSigmaDex: 0.4, armAmplitude: 0 },
+];
+
+/* --------------------------------- disc + halo -------------------------------- */
+
+const CORE_FLOOR_PC = 10;     // tunable, numerical guard against 1/r divergence
+
+/** Standard double-exponential disc, sourced (form). Per-population
+ *  geometry: the three thin cohorts share Juric's thin-disc scale length/
+ *  height (they are an age subdivision of ONE structural disc, S4.6's own
+ *  reasoning applied back to the spiral); thick uses Juric's thick-disc
+ *  values; halo is NOT a disc term (see haloTerm). */
+function discGeometryFor(key: PopulationKey): { scaleLengthPc: number; scaleHeightPc: number } | null {
+  switch (key) {
+    case 'youngThin': case 'midThin': case 'oldThin':
+    case 'lenticularThinDisc':
+      return { scaleLengthPc: JURIC.lThin, scaleHeightPc: JURIC.hThin };
+    case 'thick': case 'lenticularThickDisc':
+      return { scaleLengthPc: JURIC.lThick, scaleHeightPc: JURIC.hThick };
+    default:
+      return null;
+  }
+}
+
+function discTerm(pop: Population, R: number, z: number): number {
+  const geom = discGeometryFor(pop.key);
+  if (!geom) return 0;
+  return pop.nLocal * Math.exp(-(R - R0_PC) / geom.scaleLengthPc) * Math.exp(-Math.abs(z) / geom.scaleHeightPc);
+}
+
+const HALO_INDEX = 2.8;        // sourced, Juric 2008
+const HALO_FLATTENING = 0.64;  // sourced, Juric 2008 (c/a)
+const HALO_TRUNCATION_PC = 20000;   // tunable, Juric's calibration edge (S4.6)
+
+/** Juric's oblate power-law halo, sourced (form). Normalised so it equals
+ *  `nLocalHalo` at (R0, 0), and truncated at `HALO_TRUNCATION_PC` (mandatory
+ *  for the lenticular's mass-normalised halo, S4.6 - M(<R) ~ R^0.2
+ *  diverges otherwise; harmless for the locally-anchored spiral). */
+function haloTerm(nLocalHalo: number, R: number, z: number): number {
+  const rEff = Math.hypot(R, z / HALO_FLATTENING);
+  const rEffRef = Math.hypot(R0_PC, 0);
+  if (rEff > HALO_TRUNCATION_PC) return 0;
+  const r = Math.max(rEff, CORE_FLOOR_PC);
+  return nLocalHalo * Math.pow(rEffRef / r, HALO_INDEX);
+}
+
+function hernquistMassDensity(rPc: number, totalMassSol: number, aPc: number): number {
+  if (rPc <= 0) return Number.POSITIVE_INFINITY;
+  return (totalMassSol * aPc) / (2 * Math.PI * rPc * Math.pow(rPc + aPc, 3));
+}
+
+/* ------------------------------- bar geometry --------------------------------- */
+
+function smootherstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/** Wegg & Gerhard 2013 / Wegg, Gerhard & Portail 2015 - all sourced except
+ *  the taper window and strength, which are tunable (S4.4's own ledger). */
+const BAR = {
+  phaseRad: (27 * Math.PI) / 180,
+  scalePc: { x: 700, y: 440, z: 180 },
+  halfLengthPc: 5000,
+  taperInnerPc: 4200,
+  taperOuterPc: 5800,
+  strength: 1.0,
+};
+
+/** Returns EXACTLY 1 when `enabled` is false - the short-circuit that
+ *  guarantees `barredSpiral` with the bar off reproduces `spiral`
+ *  bit-identically (S4.4's own gate). */
+function barFactor(enabled: boolean, R: number, theta: number, z: number): number {
+  if (!enabled || BAR.strength === 0) return 1;
+  const dth = theta - BAR.phaseRad;
+  const x = R * Math.cos(dth), y = R * Math.sin(dth);
+  const s = Math.abs(x) / BAR.scalePc.x + Math.abs(y) / BAR.scalePc.y + Math.abs(z) / BAR.scalePc.z;
+  const window = 1 - smootherstep(BAR.taperInnerPc, BAR.taperOuterPc, R);
+  return 1 + BAR.strength * Math.exp(-s) * window;
+}
+
+/* ------------------------------- model factories ------------------------------- */
+
+/**
+ * ONE implementation, one flag (S4.4). `barEnabled = false` reproduces the
+ * pure spiral bit-identically, because `barFactor` returns exactly 1 and the
+ * halo is NEVER multiplied by it (S4.2's halo/bar bug fix - a bar is a disc
+ * instability, not a halo feature).
+ */
+export function createSpiralModel(barEnabled: boolean): GalaxyModel {
+  const populations = SPIRAL_POPULATIONS;
+  return {
+    morphology: barEnabled ? 'barredSpiral' : 'spiral',
+    populations,
+    densityAt(R, theta, z) {
+      return Object.values(this.densityByPopulation(R, theta, z) as Record<string, number>)
+        .reduce((a, b) => a + b, 0);
+    },
+    densityByPopulation(R, theta, z): DensityByPopulation {
+      const bar = barFactor(barEnabled, R, theta, z);
+      const out: Partial<Record<PopulationKey, number>> = {};
+      for (const pop of populations) {
+        out[pop.key] = pop.key === 'halo'
+          ? haloTerm(pop.nLocal, R, z)                 // AXISYMMETRIC - never barred
+          : discTerm(pop, R, z) * bar;
+      }
+      return out;
+    },
+  };
+}
+
+/**
+ * S4.5. `upsilonFor` is INJECTED (Kroupa + msLifetimeGyr + meanStarsPerSystem
+ * composed elsewhere, owned by `galacticDensity` - S4.3's own ruling) so this
+ * module never depends on `galacticDensity`, keeping the import direction
+ * one-way (types.ts -> galaxyModel; galacticDensity -> galaxyModel).
+ */
+export function createEllipticalModel(
+  galaxyMassSol: number, upsilonFor: (pop: Population) => number,
+): GalaxyModel {
+  const populations = ELLIPTICAL_POPULATIONS;
+  return {
+    morphology: 'elliptical',
+    populations,
+    densityAt(R, _theta, z) {
+      return Object.values(this.densityByPopulation(R, _theta, z) as Record<string, number>)
+        .reduce((a, b) => a + b, 0);
+    },
+    densityByPopulation(R, _theta, z): DensityByPopulation {
+      const r = Math.max(Math.hypot(R, z), CORE_FLOOR_PC);
+      const out: Partial<Record<PopulationKey, number>> = {};
+      for (const pop of populations) {
+        const massSol = galaxyMassSol * pop.massFractionGalaxy;
+        out[pop.key] = hernquistMassDensity(r, massSol, pop.scaleRadiusPc!) * upsilonFor(pop);
+      }
+      return out;
+    },
+  };
+}
+
+/** S4.6. `bulgeType` selects `'composite'` (both pseudo- and classical
+ *  bulge populations contribute) or `'classical'` (single spheroidal bulge
+ *  only, at the Gao et al. 2018 B/T) - the classical config's B/T constant
+ *  lives here rather than as a second population set, per S4.6's own
+ *  "reuse the elliptical's function, not its population set" framing. */
+export function createLenticularModel(
+  galaxyMassSol: number, upsilonFor: (pop: Population) => number,
+  bulgeType: 'composite' | 'classical' = 'composite',
+): GalaxyModel {
+  const CLASSICAL_BT = 0.38;   // calibrated, Gao, Ho, Barth & Li 2018 (unbarred)
+  const populations = bulgeType === 'composite'
+    ? LENTICULAR_POPULATIONS
+    : LENTICULAR_POPULATIONS.filter((p) => p.key !== 'lenticularPseudoBulge').map((p) =>
+      p.key === 'lenticularClassicalBulge' ? { ...p, massFractionGalaxy: CLASSICAL_BT * (1 - F_HALO) }
+        : p.key === 'lenticularThinDisc' || p.key === 'lenticularThickDisc'
+          ? { ...p, massFractionGalaxy: p.massFractionGalaxy * (1 - CLASSICAL_BT) / ERWIN.disc }
+          : p);
+
+  return {
+    morphology: 'lenticular',
+    populations,
+    densityAt(R, theta, z) {
+      return Object.values(this.densityByPopulation(R, theta, z) as Record<string, number>)
+        .reduce((a, b) => a + b, 0);
+    },
+    densityByPopulation(R, _theta, z): DensityByPopulation {
+      const r = Math.max(Math.hypot(R, z), CORE_FLOOR_PC);
+      const out: Partial<Record<PopulationKey, number>> = {};
+      for (const pop of populations) {
+        const massSol = galaxyMassSol * pop.massFractionGalaxy;
+        if (pop.key === 'lenticularHalo') {
+          out[pop.key] = haloTerm(1, R, z) * (massSol * upsilonFor(pop)) / haloTerm(1, R0_PC, 0);
+        } else if (pop.scaleRadiusPc !== undefined) {
+          out[pop.key] = hernquistMassDensity(r, massSol, pop.scaleRadiusPc) * upsilonFor(pop);
+        } else {
+          // Mass-normalised exponential disc, CENTRED AT R=0 (never R0 - the
+          // lenticular has no solar-neighbourhood anchor, S4.6's own point
+          // about the pseudo-bulge applies to every disc-shaped population
+          // here). Closed form: M = n_centre * 4*pi*L^2*H for
+          // n(R,z) = n_centre * exp(-R/L) * exp(-|z|/H), so n_centre is
+          // solved directly from mass rather than anchored at any reference
+          // radius. `lenticularThinDisc`/`lenticularThickDisc` use Juric's
+          // geometry; `lenticularPseudoBulge` (which `discGeometryFor` does
+          // NOT recognise - it is not one of the spiral-shared disc keys)
+          // falls back to its OWN sourced geometry, Erwin et al. 2015's
+          // 440 pc mean scale length, flattening `calibrated` similar to the
+          // main disc per S4.6's own text.
+          const geom = discGeometryFor(pop.key) ?? { scaleLengthPc: 440, scaleHeightPc: JURIC.hThin };
+          const nCentre = (massSol * upsilonFor(pop)) / (4 * Math.PI * geom.scaleLengthPc ** 2 * geom.scaleHeightPc);
+          out[pop.key] = nCentre * Math.exp(-R / geom.scaleLengthPc) * Math.exp(-Math.abs(z) / geom.scaleHeightPc);
+        }
+      }
+      return out;
+    },
+  };
+}
