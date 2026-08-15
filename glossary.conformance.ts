@@ -80,7 +80,7 @@ if (duplicates.length > 0) {
 // Mirrors the module list documented in glossary.ts's SCOPE section - every
 // module that carries a provenance header/ledger, i.e. everything except the
 // Amendment-A3-exempt infrastructure/presentation modules.
-const EXPECTED_MIN_ENTRIES_PER_MODULE = 26; // 26 modules contribute >= 1 entry each (25 + sectorSearch, 15 Aug 2026)
+const EXPECTED_MIN_ENTRIES_PER_MODULE = 27; // 27 modules contribute >= 1 entry each (26 + sectorFootprint, 15 Aug 2026)
 check(
   'the aggregate is non-trivially populated (>= 1 entry per known ledger-bearing module)',
   GLOSSARY.length >= EXPECTED_MIN_ENTRIES_PER_MODULE,

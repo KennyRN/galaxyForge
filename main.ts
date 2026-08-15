@@ -5,25 +5,32 @@
  * -- WHAT THIS IS, HONESTLY -----------------------------------------------------
  * A REAL, loadable plugin skeleton, not a mock-up: `onload` registers one
  * working command that exercises the actual pipeline built so far
- * (`galaxyModel` -> `placement` -> `vault`) end to end, writing real system
- * notes into the vault. It is deliberately NOT the full product the brief
- * describes - there is no galaxy-creation modal, no settings tab, no
- * sector-map view (S4.8's two views), no sector-centring search UI. Those
- * all need the full conductor (`ctx.age`/`ctx.feh` threaded from
- * `placement` through `stellarPopulation`, `multiplicity`, `planets`,
- * `atmosphere`, `biosphere`) that `galacticDensity.ts`'s and
- * `goldenMaster.conformance.ts`'s own headers already flag as not yet
- * built. This command is scoped to what IS wired together: positions,
- * population and formationRank for a small, fixed test region.
+ * (`galaxyModel` -> `sectorFootprint` -> `vault`) end to end, writing real
+ * system notes into the vault. It is deliberately NOT the full product the
+ * brief describes - there is no galaxy-creation modal, no settings tab, no
+ * sector-map view (S4.8's two views), no sector-centring search UI wired in
+ * (the engine behind it, `sectorSearch.ts`, exists and is gated - only the
+ * UI to drive it does not). This command is scoped to what IS wired
+ * together: a real circular-footprint sector, positions/population/
+ * formationRank per system.
+ *
+ * UPDATED 15 Aug 2026: previously walked a fixed, unfiltered 3x3 cell block
+ * - this module's own header named that as a placeholder standing in for
+ * work that did not exist yet. `sectorFootprint.generateSector` is that
+ * work, now real: a proper circumradius-clipped, exclusion-resolved
+ * sector, not a crude cell-block approximation.
  */
 
 import { Plugin, Notice, type TFile } from 'obsidian';
 import { createSpiralModel } from './galaxyModel';
-import { rollCell, type CellKey, CELL_SIZE_PC } from './placement';
+import { generateSector } from './sectorFootprint';
 import { writeSystemNote } from './vault';
 import type { RenderSystemInput } from './render';
 
 const TEST_WORLD_SEED = 'starforge-default-seed';
+const TEST_CENTRE_PC = { x: 8178, y: 0, z: 0 };   // the Sun's own canonical placement default
+const TEST_RADIUS_PC = 25;
+const TEST_THICKNESS_PC = 10;
 
 export default class StarForgePlugin extends Plugin {
   async onload(): Promise<void> {
@@ -36,23 +43,17 @@ export default class StarForgePlugin extends Plugin {
 
   private async generateTestRegion(): Promise<void> {
     const model = createSpiralModel(false);
-    const originIx = Math.floor(8178 / CELL_SIZE_PC);
-    const cells: CellKey[] = [];
-    for (let ix = originIx - 1; ix <= originIx + 1; ix++) {
-      for (let iy = -1; iy <= 1; iy++) cells.push({ ix, iy, iz: 0 });
-    }
+    const systems = generateSector(TEST_WORLD_SEED, model, TEST_CENTRE_PC, TEST_RADIUS_PC, TEST_THICKNESS_PC, 'circle');
 
     let written = 0;
-    for (const cell of cells) {
-      const systems = rollCell(TEST_WORLD_SEED, model, cell);
-      for (const s of systems) {
-        const input: RenderSystemInput = {
-          sysid: s.sysid, name: null, population: s.population,
-          positionPc: s.positionPc, distanceFromSectorOriginPc: 0,
-        };
-        await writeSystemNote(this.app.vault, input, null);
-        written++;
-      }
+    for (const s of systems) {
+      const dx = s.positionPc.x - TEST_CENTRE_PC.x, dy = s.positionPc.y - TEST_CENTRE_PC.y, dz = s.positionPc.z - TEST_CENTRE_PC.z;
+      const input: RenderSystemInput = {
+        sysid: s.sysid, name: null, population: s.population,
+        positionPc: s.positionPc, distanceFromSectorOriginPc: Math.hypot(dx, dy, dz),
+      };
+      await writeSystemNote(this.app.vault, input, null);
+      written++;
     }
     new Notice(`StarForge: wrote ${written} system note(s) to StarForge/Systems/`);
   }
