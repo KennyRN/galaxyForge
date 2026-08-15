@@ -26,6 +26,7 @@ import { createSpiralModel } from './galaxyModel';
 import { generateSector } from './sectorFootprint';
 import { writeSystemNote } from './vault';
 import type { RenderSystemInput } from './render';
+import { GalaxyScreen1Modal } from './galaxyCreationModals';
 
 const TEST_WORLD_SEED = 'starforge-default-seed';
 const TEST_CENTRE_PC = { x: 8178, y: 0, z: 0 };   // the Sun's own canonical placement default
@@ -38,6 +39,11 @@ export default class StarForgePlugin extends Plugin {
       id: 'starforge-generate-test-region',
       name: 'StarForge: generate a small test region',
       callback: () => { void this.generateTestRegion(); },
+    });
+    this.addCommand({
+      id: 'starforge-create-galaxy',
+      name: 'StarForge: create a galaxy',
+      callback: () => { new GalaxyScreen1Modal(this.app).open(); },
     });
   }
 
