@@ -131,3 +131,23 @@ header note. It supersedes v2 S1.1 and
 adds gates 19, 26 and 27. It also specifies gate 19 as a **procedure** (a
 fuzzer over module-level constants), not a fixed list - run that procedure
 yourself once the modules exist; do not transcribe a guessed schema.
+
+**STATUS, 15 Aug 2026: built, scope stated honestly.** `spiralArms.ts` (arm
+geometry - real, verified against the patch's own kappa/width reference
+table, though NOT its exact contrast figures, see that file's own header),
+`galaxyParameters.ts` (the parameter block itself, plus gates 26/27 and a
+gate-19 substitute - a load-bearing perturbation check plus a structural
+literal-duplication sweep, not a literal AST fuzzer), and
+`starFormingComplexes.ts` (the `complexTier` boost, `calibrated
+(interpretive)` - the patch names the fields, not the combining formula)
+are all real and gated. WIRED into `createSpiralModel` (the arm/complex
+fields are load-bearing there - see `galaxyParameters.conformance.ts`'s own
+gate-19 checks). **NOT wired** into `createEllipticalModel`/
+`createLenticularModel`/`placement.ts`/`remnants.ts` - those four still
+read their own module-level consts, unchanged, even though
+`GalaxyParameters` now declares fields for their geometry too (matching
+values, inert). Do not read "the parameter schema exists" as "everything is
+externalised" - `galaxyParameters.ts`'s own header states the boundary
+explicitly, and `galaxyParameters.conformance.ts` asserts it directly.
+`CURRENT_GEN_VERSION` bumped to 2 for this change; `verification/golden/
+gen2.json` is the fixture cut against it.

@@ -11,7 +11,20 @@
  * The generator is a CONDUCTOR. It asks a model a question and never reaches
  * inside it. The science underneath may be rewritten freely as long as this
  * interface holds.
+ *
+ * IMPORTS, 15 Aug 2026 (patch v2.3): `galaxyParameters`/`spiralArms`/
+ * `starFormingComplexes` are pulled in for the spiral's real arm/complex
+ * modulation. None of the three imports `galaxyModel` back as a VALUE (only
+ * `galaxyParameters` takes a `type`-only import of `GalaxyModelName`, erased
+ * at compile time) - the one-way direction this file's own R14/S4.5 comments
+ * already establish (`galacticDensity -> galaxyModel`, never the reverse)
+ * still holds.
  */
+
+import type { GalaxyParameters, BarParams } from './galaxyParameters';
+import { DEFAULT_GALAXY_PARAMETERS, anchorArmCorrectionFor } from './galaxyParameters';
+import { armFactor, type ArmResponseSet } from './spiralArms';
+import { complexIntensityAt } from './starFormingComplexes';
 
 export type GalaxyModelName = 'spiral' | 'barredSpiral' | 'elliptical' | 'lenticular';
 
@@ -235,12 +248,22 @@ export interface GalaxyModel {
  * second copy (Law 1). Its own 35 gates are the safety net this migration
  * was checked against - unchanged output, unchanged pass/fail.
  *
- * Arm structure (patch v2.3, named arms with pitch angles, kappa width) is
- * DELIBERATELY NOT implemented here - see AGENT.md's own note: that patch is
- * Pass-2 work requiring a parameter-externalisation pass this build has not
- * done. `Population.armAmplitude` is carried (S4.2's field) but not yet
- * consumed by a density term; the disc fields below are the smooth,
- * axisymmetric S3.1-S4.4 baseline the patch will modulate later.
+ * ARM STRUCTURE (patch v2.3), 15 Aug 2026: now implemented. `discTerm` takes
+ * `theta` and multiplies by `spiralArms.armFactor` for whichever arm set
+ * `params.armResponse` assigns each population, divided by
+ * `anchorArmCorrectionFor` so the reference point still reads exactly
+ * `nLocal` rather than a ring mean (patch S4/S7). `youngThin` additionally
+ * carries `starFormingComplexes.complexIntensityAt`'s meso-scale boost.
+ * `Population.armAmplitude` (S4.2's original field) is UNCHANGED and still
+ * carried on every population, but is now the SUPERSEDED, pre-patch
+ * mechanism - never read by `discTerm` below. It remains only because (a)
+ * it is stamped into no generated note (safe to leave inert, nothing to
+ * corrupt) and (b) the lenticular's own S4.7 gate ("no population has
+ * armAmplitude > 0") checks the FIELD's stored value, not its effect on
+ * output - removing the field would be gratuitous churn, not a fix. See
+ * `galaxyParameters.ts`'s own header for exactly what else patch v2.3 still
+ * leaves unwired (disc/halo geometry for the other two morphologies,
+ * `placement`/`remnants` cell geometry).
  * ==========================================================================*/
 
 /* ------------------------------- shared anchors ----------------------------- */
@@ -376,10 +399,48 @@ function discGeometryFor(key: PopulationKey): { scaleLengthPc: number; scaleHeig
   }
 }
 
-function discTerm(pop: Population, R: number, z: number): number {
+/**
+ * Which `spiralArms.ArmResponseSet` a disc population sees - only the five
+ * spiral/barredSpiral keys carry one (patch S4's `armResponse` table);
+ * every other key (lenticular's own disc-shaped populations included) gets
+ * `'none'`, since arm modulation is spiral-only in this pass.
+ */
+function armResponseFor(key: PopulationKey, params: GalaxyParameters): ArmResponseSet {
+  switch (key) {
+    case 'youngThin': return params.armResponse.youngThin;
+    case 'midThin': return params.armResponse.midThin;
+    case 'oldThin': return params.armResponse.oldThin;
+    case 'thick': return params.armResponse.thick;
+    case 'halo': return params.armResponse.halo;
+    default: return 'none';
+  }
+}
+
+/** 0 at/below `armStartInnerPc`, 1 at/above `armStartOuterPc` - patch S4's
+ *  "inner-disc taper" (By-law S4), calibrated on the Wegg 2015 bar
+ *  half-length: arms do not meaningfully extend into the barred inner disc.
+ *  Reuses the same `smootherstep` the bar's own taper window already uses
+ *  (Law 1 - one smooth-window primitive, not two). This is ALSO what keeps
+ *  the arm contrast finite and well-behaved as R -> 0 (S4.7's own gate) -
+ *  `spiralArms`'s own `MIN_ARM_R_PC` clamp guards the geometry itself, this
+ *  taper is what makes the PHYSICS agree that near-zero R should carry no
+ *  arm signal in the first place, not merely avoid a NaN. */
+function armInnerTaper(R: number, params: GalaxyParameters): number {
+  return smootherstep(params.armStartInnerPc, params.armStartOuterPc, R);
+}
+
+function discTerm(pop: Population, R: number, theta: number, z: number, params: GalaxyParameters): number {
   const geom = discGeometryFor(pop.key);
   if (!geom) return 0;
-  return pop.nLocal * Math.exp(-(R - R0_PC) / geom.scaleLengthPc) * Math.exp(-Math.abs(z) / geom.scaleHeightPc);
+  const smooth = pop.nLocal * Math.exp(-(R - params.R0Pc) / geom.scaleLengthPc) * Math.exp(-Math.abs(z) / geom.scaleHeightPc);
+  const set = armResponseFor(pop.key, params);
+  if (set === 'none') return smooth;
+  const contrasts = params.armContrast();
+  const cFull = set === 'all' ? contrasts.youngThin : set === 'majorMinor' ? contrasts.midThin : contrasts.oldThin;
+  const c = cFull * armInnerTaper(R, params);
+  const raw = armFactor(set, c, R, theta, params.armWidth);
+  const correction = anchorArmCorrectionFor(params, set);
+  return smooth * (raw / correction);
 }
 
 const HALO_INDEX = 2.8;        // sourced, Juric 2008
@@ -410,27 +471,24 @@ function smootherstep(edge0: number, edge1: number, x: number): number {
   return t * t * t * (t * (t * 6 - 15) + 10);
 }
 
-/** Wegg & Gerhard 2013 / Wegg, Gerhard & Portail 2015 - all sourced except
- *  the taper window and strength, which are tunable (S4.4's own ledger). */
-const BAR = {
-  phaseRad: (27 * Math.PI) / 180,
-  scalePc: { x: 700, y: 440, z: 180 },
-  halfLengthPc: 5000,
-  taperInnerPc: 4200,
-  taperOuterPc: 5800,
-  strength: 1.0,
-};
+// Wegg & Gerhard 2013 / Wegg, Gerhard & Portail 2015 bar geometry - sourced
+// except the taper window and strength (tunable, S4.4's own ledger). NO
+// LONGER DECLARED HERE (15 Aug 2026, patch v2.3) - `galaxyParameters
+// .DEFAULT_BAR` is the single source now (Law 1); `barFactor` below takes
+// `BarParams` as an explicit argument instead of closing over a module
+// -level const, so `createSpiralModel`'s injected `params.bar` is what
+// actually reaches it.
 
 /** Returns EXACTLY 1 when `enabled` is false - the short-circuit that
  *  guarantees `barredSpiral` with the bar off reproduces `spiral`
  *  bit-identically (S4.4's own gate). */
-function barFactor(enabled: boolean, R: number, theta: number, z: number): number {
-  if (!enabled || BAR.strength === 0) return 1;
-  const dth = theta - BAR.phaseRad;
+function barFactor(enabled: boolean, bar: BarParams, R: number, theta: number, z: number): number {
+  if (!enabled || bar.strength === 0) return 1;
+  const dth = theta - bar.phaseRad;
   const x = R * Math.cos(dth), y = R * Math.sin(dth);
-  const s = Math.abs(x) / BAR.scalePc.x + Math.abs(y) / BAR.scalePc.y + Math.abs(z) / BAR.scalePc.z;
-  const window = 1 - smootherstep(BAR.taperInnerPc, BAR.taperOuterPc, R);
-  return 1 + BAR.strength * Math.exp(-s) * window;
+  const s = Math.abs(x) / bar.scalePc.x + Math.abs(y) / bar.scalePc.y + Math.abs(z) / bar.scalePc.z;
+  const window = 1 - smootherstep(bar.taperInnerPc, bar.taperOuterPc, R);
+  return 1 + bar.strength * Math.exp(-s) * window;
 }
 
 /* ------------------------------- model factories ------------------------------- */
@@ -440,9 +498,17 @@ function barFactor(enabled: boolean, R: number, theta: number, z: number): numbe
  * pure spiral bit-identically, because `barFactor` returns exactly 1 and the
  * halo is NEVER multiplied by it (S4.2's halo/bar bug fix - a bar is a disc
  * instability, not a halo feature).
+ *
+ * `params` (patch v2.3, 15 Aug 2026) is OPTIONAL, defaulting to
+ * `DEFAULT_GALAXY_PARAMETERS` - a caller that omits it gets the identical
+ * `R0Pc`/`bar` values this function always had, so every prior call site
+ * (a single positional `barEnabled` argument) keeps compiling and keeps its
+ * existing behaviour. The arm/complex modulation, however, is NOT optional
+ * once `params` IS supplied - it is what `params` is actually for.
  */
-export function createSpiralModel(barEnabled: boolean): GalaxyModel {
+export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters = DEFAULT_GALAXY_PARAMETERS): GalaxyModel {
   const populations = SPIRAL_POPULATIONS;
+  const youngThinClustered = populations.find((p) => p.key === 'youngThin')?.clusteredFraction ?? 0;
   return {
     morphology: barEnabled ? 'barredSpiral' : 'spiral',
     populations,
@@ -451,12 +517,26 @@ export function createSpiralModel(barEnabled: boolean): GalaxyModel {
         .reduce((a, b) => a + b, 0);
     },
     densityByPopulation(R, theta, z): DensityByPopulation {
-      const bar = barFactor(barEnabled, R, theta, z);
+      const bar = barFactor(barEnabled, params.bar, R, theta, z);
       const out: Partial<Record<PopulationKey, number>> = {};
       for (const pop of populations) {
-        out[pop.key] = pop.key === 'halo'
-          ? haloTerm(pop.nLocal, R, z)                 // AXISYMMETRIC - never barred
-          : discTerm(pop, R, z) * bar;
+        if (pop.key === 'halo') {
+          out[pop.key] = haloTerm(pop.nLocal, R, z);    // AXISYMMETRIC - never barred, never arm-modulated
+          continue;
+        }
+        let d = discTerm(pop, R, theta, z, params) * bar;
+        if (pop.key === 'youngThin') {
+          // Complex-scale coordinates need Cartesian (x,y,z), not (R,theta,z) -
+          // the same conversion `galacticDensity`'s own polarToCartesian
+          // performs; duplicated as a two-line local rather than imported,
+          // since importing `galacticDensity` FROM `galaxyModel` would
+          // invert this project's own one-way import direction (this
+          // module's own header: "galacticDensity -> galaxyModel", never
+          // the reverse).
+          const x = R * Math.cos(theta), y = R * Math.sin(theta);
+          d *= complexIntensityAt(params.worldSeed, params, youngThinClustered, x, y, z);
+        }
+        out[pop.key] = d;
       }
       return out;
     },

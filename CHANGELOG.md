@@ -204,15 +204,88 @@ items above plus the patch v2.3 backlog. Results:
    the generator. **That proposal was not adopted** - it would have been a
    regression from what already exists and passes. Nothing changed here.
 5. **Patch v2.3 (real arm model, Tier G externalisation, gates 19/26/27,
-   `complexTier` star-forming-complex placement) remains unbuilt.** This was
-   already correctly flagged in `galaxyModel.ts`'s own header ("Arm structure
-   ... is DELIBERATELY NOT implemented here") and is unchanged by this pass.
-   It is a substantial standalone build - a real 5-arm log-spiral density
-   model reproducing the patch's own `precise_block.py` reference table (kappa
-   range 18.7511-30.9951 over 3.5-16 kpc) without its dependency script
-   (`derive_arm_constants_v3.py`, confirmed absent from this repository, per
-   `patches/README.md`'s own instruction not to fabricate it), a serialised
-   per-galaxy parameter file threaded through `galaxyModel`/`galacticDensity`/
-   `placement` in place of module-level consts, and a new meso-scale
-   star-forming-complex clustering tier (`complexIntensityAt`) that does not
-   exist in any form yet. Scoped as its own pass; not attempted in this one.
+   `complexTier` star-forming-complex placement) - built in a follow-up pass
+   the same day.** See "15 August 2026 - patch v2.3 implementation" below.
+
+## 15 August 2026 - patch v2.3 implementation
+
+Full scope, at the user's explicit choice after being shown the size and the
+one real risk (`derive_arm_constants_v3.py`, the script that produced the
+patch's own reference numbers, is confirmed absent from this repository and
+was not fabricated - see `patches/README.md`).
+
+**New: `spiralArms.ts`.** The five Reid et al. 2019 named arms (pitch angle,
+reference radius, tier), the arm-width relation, and a von Mises-bump
+`armFactor`. VERIFIED, not merely transcribed: independently reproduces the
+patch's own kappa reference table (18.7511 to 30.9951 over 3.5-16 kpc, a
+630-point sweep) to 4 decimal places, and the width relation's own two
+reference values (183 pc at 3900 pc; ~337 pc at the solar circle) exactly.
+**NOT reproduced**: the patch's exact stated contrast figures
+(`armContrast.oldThin` etc) - two independently-attempted combining
+functions (unnormalised and normalised von Mises sums) both landed on the
+right order of magnitude but not the same number, and without the missing
+derivation script there is no way to identify which combining function is
+the original. This module derives its OWN contrasts via the same
+target-driven procedure the patch documents (solve against Drimmel &
+Spergel's K=1.326, apply the patch's own stated 1.4x/2.0x multipliers) and
+grades them `calibrated (derived here)`, with a conformance check that
+FAILS if a future edit silently substitutes the patch's own unreproducible
+numbers as if they had been verified.
+
+**New: `galaxyParameters.ts`.** The Tier G parameter block (patch S4/S5) -
+arm geometry, `complexTier`, and (declared but not yet wired - see below)
+disc/bar/halo/placement geometry. `nLocalPerPc3` is wired from the Reyle
+anchor result recorded earlier today (0.0606380 systems/pc^3). Implements
+gate 27 (`assertGalaxyParameters` - throws loudly on `armWidth.broadening >
+1.02`, `complexTier.cellSizePc` below its floor, or a missing/non-positive
+`nLocalPerPc3`) and gate 26 (`anchorArmCorrectionFor` reproduces from
+STORED, 4-dp-rounded contrasts to 1e-12, per the patch's own S7
+self-consistency rule).
+
+**New: `starFormingComplexes.ts`.** The `complexTier` meso-scale density
+boost - a real, seeded, deterministic Poisson-parent-point mechanism using
+every field the patch names (`sigmaComplexPc`, `meanGroupsPerComplex`,
+`complexFraction`, the age-decay window, `cellSizePc`, `guardBandSigma`),
+graded `calibrated (interpretive)` because the patch names the fields and a
+consumer function signature but not the combining formula (its own S5:
+"I have not seen ... co-natal modules... I cannot hand you their key
+names").
+
+**`galaxyModel.ts` wiring.** `createSpiralModel(barEnabled, params?)` now
+takes an optional `GalaxyParameters`, defaulting to
+`DEFAULT_GALAXY_PARAMETERS` so every prior call site keeps compiling and
+keeps its exact prior behaviour. `discTerm` is arm-modulated (with an inner
+-disc taper, `armStartInnerPc`/`armStartOuterPc`, that also fixes a real
+R->0 NaN this wiring introduced and caught via the existing S4.7 gate before
+it shipped); `youngThin` additionally carries the complex-tier boost. The
+module-level `BAR` const was deleted (Law 1 - `galaxyParameters.DEFAULT_BAR`
+is the single source now); `barFactor` takes `BarParams` as an argument.
+
+**Gate 19 - NOT a literal AST fuzzer.** Implemented as two things instead,
+documented as a deliberate substitute in `galaxyParameters.conformance.ts`'s
+own header: a perturbation check proving every WIRED parameter field is
+load-bearing (changes `densityAt`) and every NOT-YET-WIRED field is
+honestly inert (does not) - both directions asserted, so neither a stray
+wire-up nor a silent regression slips past unnoticed - plus a structural
+grep sweep for the arm table's own distinctive literals reappearing outside
+`spiralArms.ts`/`galaxyParameters.ts`.
+
+**Scope stated honestly, per the patch's own S2 warning** ("a block that is
+90% complete is worse than one that is 50% complete and known to be"):
+`GalaxyParameters` declares fields for disc/halo geometry (`juric`,
+`erwin`, `haloIndexPower`, `haloFlattening`, `haloTruncationPc`,
+`coreFloorPc`) and placement geometry (`placement.cellSizePc` etc), with
+defaults matching the current hardcoded values exactly - but
+`createEllipticalModel`, `createLenticularModel`, `placement.ts` and
+`remnants.ts` do NOT yet read them; they still use their own module-level
+consts, unchanged. The arm/complex wiring (the part that changes what a
+generated galaxy actually looks like) is real; the remaining wiring is
+future work, named as such rather than silently left half-done. See
+`AGENT.md`'s own "STATUS, 15 Aug 2026" note.
+
+**`CURRENT_GEN_VERSION` bumped 1 -> 2** (the spiral's density field
+genuinely changed). `verification/golden/gen2.json` cut and verified;
+`gen1.json` kept as a historical fixture, no longer read by the harness.
+
+All 31 conformance suites pass (up from 28), `npm run build` still produces
+`main.js` cleanly.

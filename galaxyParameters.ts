@@ -1,0 +1,296 @@
+/**
+ * galaxyParameters - the Tier G parameter block, patch v2.3.
+ *
+ * -- WHAT "TIER G" MEANS, AND WHY THIS FILE EXISTS ----------------------------
+ * `patches/galaxyForge-SPIRAL-PATCH-v2.3-parameter-schema.md` rules that
+ * every module-level constant which can MOVE OR REMOVE an existing system
+ * (disc/bar/arm/halo/co-natal-placement geometry) must live in ONE
+ * serialisable per-galaxy object, not scattered `const`s - so that a galaxy
+ * generated under `fieldShapeVersion: 1` is provably protected from a
+ * future default change (patch S2: "the moment the first galaxy is written
+ * ... it is pinned to whatever the block contains"). Tier S (stellar -
+ * `stellarProperties`, `multiplicity`, `planets`, `habitability`, `belts`,
+ * `moons`, and modules 12-15) is explicitly OUT of scope - pinned by sheet
+ * content on disk instead (patch S2). Tier D (display) is never pinned.
+ *
+ * -- SCOPE OF THIS PASS, STATED HONESTLY --------------------------------------
+ * Every field the patch's S4 schema names explicitly (arms, armWidth,
+ * armResponse, armContrast, armStart*Pc, reference point, nLocalPerPc3,
+ * anchorArmCorrection, complexTier) is here, real, and LIVE - actually
+ * consumed by `createSpiralModel`/`starFormingComplexes`, not merely
+ * declared. `createSpiralModel(barEnabled, params?)` reads `params.R0Pc`,
+ * `params.bar` and the arm/complex fields directly; omitting `params`
+ * reproduces the prior hardcoded behaviour exactly (verified - see the
+ * golden master re-cut, CHANGELOG.md 15 Aug 2026).
+ *
+ * The patch's S5 ALSO names disc structure, Juric geometry, Erwin fractions
+ * and halo shape for `elliptical`/`lenticular`, and cell/jitter/exclusion
+ * geometry for `placement`/`remnants`, as required Tier G fields - its own
+ * words: "I have not seen the disc, bar or co-natal modules... I cannot
+ * hand you their key names". Those fields ARE declared below (`juric`,
+ * `erwin`, `haloIndexPower`, `haloFlattening`, `haloTruncationPc`,
+ * `coreFloorPc`, `placement`), with defaults exactly matching their current
+ * hardcoded values - but they are **NOT YET WIRED** into
+ * `createEllipticalModel`/`createLenticularModel`/`placement.ts`/
+ * `remnants.ts`, which still read their own module-level `const`s
+ * unchanged. Recorded here as a real, named gap rather than a silent
+ * partial completion dressed up as full: per the patch's OWN S2 warning,
+ * "a block that is 90% complete is worse than one that is 50% complete and
+ * known to be". The schema is complete; the wiring covers the spiral's arm
+ * geometry (the part that actually changes what a generated galaxy looks
+ * like) and not yet the rest.
+ *
+ * genVersion: this file's DEFAULT values changing is genVersion-bumping,
+ * exactly like a module-level const changing used to be - it is the same
+ * commitment, moved to one place.
+ */
+
+import type { GalaxyModelName } from './galaxyModel';
+import { ARMS, DEFAULT_ARM_WIDTH, deriveArmContrasts, anchorArmCorrection as computeAnchorArmCorrection, type ArmDefinition, type ArmWidthParams, type ArmResponseSet, type ArmContrastSet } from './spiralArms';
+
+/* --------------------------------- arm block ---------------------------------- */
+
+export interface ArmResponseByPopulation {
+  readonly youngThin: ArmResponseSet;
+  readonly midThin: ArmResponseSet;
+  readonly oldThin: ArmResponseSet;
+  readonly thick: ArmResponseSet;
+  readonly halo: ArmResponseSet;
+}
+
+/** By-law S3 (patch v2.3) - calibrated, see `spiralArms.ts`'s own header. */
+export const DEFAULT_ARM_RESPONSE: ArmResponseByPopulation = {
+  youngThin: 'all', midThin: 'majorMinor', oldThin: 'major', thick: 'none', halo: 'none',
+};
+
+export interface ComplexTierParams {
+  /** pc. Efremov 1978: star-forming complexes ~600 pc across, so sigma =
+   *  600/4 (+/-2 sigma spans the full extent) - `sourced`. */
+  readonly sigmaComplexPc: number;
+  /** How many co-natal groups (see `conatal.ts`) one complex spawns -
+   *  `calibrated`. */
+  readonly meanGroupsPerComplex: number;
+  /** What fraction of youngThin's mass is complex-organised - `calibrated`,
+   *  DELIBERATELY the same number as `SPIRAL_POPULATIONS.youngThin
+   *  .clusteredFraction` (0.6) per the patch's own Law-1 instruction ("do
+   *  not redeclare it... reference it"). Not re-declared as a literal here -
+   *  see `starFormingComplexes.ts`'s own read of the population table. */
+  readonly complexFraction: number;
+  readonly ageDecayStartGyr: number;   // calibrated, NOT sourced (patch's own ledger)
+  readonly ageDecayEndGyr: number;     // calibrated, NOT sourced
+  /** pc. Parent-point grid cell for the complex-scale Poisson process - MUST
+   *  be >= 8 * sigmaComplexPc (gate 27's own load-time assertion; at the
+   *  default values this sits AT the floor with zero margin). */
+  readonly cellSizePc: number;
+  readonly guardBandSigma: number;     // tunable
+  readonly cellMeanSubGridN: number;   // tunable, sub-grid quadrature resolution
+}
+
+export const DEFAULT_COMPLEX_TIER: ComplexTierParams = {
+  sigmaComplexPc: 150,
+  meanGroupsPerComplex: 6,
+  complexFraction: 0.6,
+  ageDecayStartGyr: 0.1,
+  ageDecayEndGyr: 0.5,
+  cellSizePc: 1200,
+  guardBandSigma: 4,
+  cellMeanSubGridN: 32,
+};
+
+/* ------------------------------- disc/bar/halo block --------------------------- */
+
+export interface JuricParams {
+  readonly f: number; readonly lThin: number; readonly hThin: number;
+  readonly lThick: number; readonly hThick: number;
+}
+export const DEFAULT_JURIC: JuricParams = { f: 0.12, lThin: 2600, hThin: 300, lThick: 3600, hThick: 900 };
+
+export interface ErwinParams { readonly disc: number; readonly pseudo: number; readonly classical: number; }
+export const DEFAULT_ERWIN: ErwinParams = { disc: 0.61, pseudo: 0.33, classical: 0.06 };
+
+export interface BarParams {
+  readonly phaseRad: number;
+  readonly scalePc: { readonly x: number; readonly y: number; readonly z: number };
+  readonly halfLengthPc: number;
+  readonly taperInnerPc: number;
+  readonly taperOuterPc: number;
+  readonly strength: number;
+}
+export const DEFAULT_BAR: BarParams = {
+  phaseRad: (27 * Math.PI) / 180,
+  scalePc: { x: 700, y: 440, z: 180 },
+  halfLengthPc: 5000,
+  taperInnerPc: 4200,
+  taperOuterPc: 5800,
+  strength: 1.0,
+};
+
+export interface PlacementParams {
+  readonly cellSizePc: number;
+  readonly jitterSigmaPc: number;
+  readonly jitterTruncationSigma: number;
+  readonly exclusionRadiusPc: number;
+}
+export const DEFAULT_PLACEMENT_PARAMS: PlacementParams = {
+  cellSizePc: 10, jitterSigmaPc: 1.5, jitterTruncationSigma: 3, exclusionRadiusPc: 0.1,
+};
+
+/* ---------------------------------- the block ---------------------------------- */
+
+export interface GalaxyParameters {
+  // -- stamps --
+  readonly fieldShapeVersion: number;
+  readonly placementShapeVersion: number;
+  /** Purely informational (patch S4) - no generator, loader or migration
+   *  may read this to change behaviour. */
+  readonly parameterSetVersion: string;
+
+  // -- identity --
+  readonly worldSeed: string;
+  readonly morphology: GalaxyModelName;
+  readonly scale: number;
+  readonly armSource: 'observed-mw' | 'seeded';
+
+  // -- arm geometry --
+  readonly arms: readonly ArmDefinition[];
+  readonly armWidth: ArmWidthParams;
+  readonly armResponse: ArmResponseByPopulation;
+  /** Reproduced HONESTLY, not byte-identically - see `spiralArms.ts`'s own
+   *  header. `deriveArmContrasts` is called once, lazily, at first read. */
+  readonly armContrast: () => ArmContrastSet;
+  readonly armStartInnerPc: number;   // calibrated, Wegg 2015 bar half-length
+  readonly armStartOuterPc: number;   // calibrated
+
+  // -- density anchor --
+  readonly referenceRPc: number;
+  readonly referenceThetaDeg: number;
+  /** systems/pc^3, `sourced`. NEVER a silent default - see
+   *  `assertGalaxyParameters` (gate 27). Wired from the Reyle anchor query
+   *  (`verification/reyle_anchor_result.json`, 15 Aug 2026), NOT yet applied
+   *  to the disc populations' own `nLocal` figures (see
+   *  `galacticDensity.ts`'s own header note on this same gap). */
+  readonly nLocalPerPc3: number;
+
+  // -- star-forming complexes --
+  readonly complexTier: ComplexTierParams;
+
+  // -- disc/bar/halo (patch S5, migrated from prior module-level consts) --
+  readonly R0Pc: number;              // sourced, GRAVITY Collaboration 2019
+  readonly juric: JuricParams;        // sourced, Juric et al. 2008
+  readonly fHalo: number;             // tunable, S4.6 - MW is a low outlier
+  readonly erwin: ErwinParams;        // sourced, Erwin et al. 2015
+  readonly haloIndexPower: number;    // sourced, Juric 2008
+  readonly haloFlattening: number;    // sourced, Juric 2008 (c/a)
+  readonly haloTruncationPc: number;  // tunable, Juric's calibration edge
+  readonly coreFloorPc: number;       // tunable, numerical guard
+  readonly bar: BarParams;
+  readonly placement: PlacementParams;
+}
+
+/**
+ * The default parameter set - every value here is IDENTICAL to what was
+ * previously a module-level `const` in `galaxyModel.ts`/`placement.ts`
+ * (confirmed by diff before this migration; see CHANGELOG.md, 15 Aug 2026).
+ * `deriveArmContrasts`/`anchorArmCorrection` are wrapped in closures rather
+ * than eagerly evaluated so a parameter set can be constructed cheaply and
+ * only pays the arm-contrast root-find cost if a caller actually reads it.
+ */
+export function makeDefaultGalaxyParameters(worldSeed = ''): GalaxyParameters {
+  const referenceRPc = 8200;
+  const referenceThetaDeg = 0;
+  return {
+    fieldShapeVersion: 1,
+    placementShapeVersion: 1,
+    parameterSetVersion: '2026.08.15',
+    worldSeed,
+    morphology: 'spiral',
+    scale: 1.0,
+    armSource: 'observed-mw',
+    arms: ARMS,
+    armWidth: DEFAULT_ARM_WIDTH,
+    armResponse: DEFAULT_ARM_RESPONSE,
+    armContrast: () => deriveArmContrasts(referenceRPc),
+    armStartInnerPc: 3500,
+    armStartOuterPc: 5500,
+    referenceRPc,
+    referenceThetaDeg,
+    nLocalPerPc3: 0.0606380,   // verification/reyle_anchor_result.json, 15 Aug 2026 (stars_only, adopted)
+    complexTier: DEFAULT_COMPLEX_TIER,
+    R0Pc: 8178,
+    juric: DEFAULT_JURIC,
+    fHalo: 0.01,
+    erwin: DEFAULT_ERWIN,
+    haloIndexPower: 2.8,
+    haloFlattening: 0.64,
+    haloTruncationPc: 20000,
+    coreFloorPc: 10,
+    bar: DEFAULT_BAR,
+    placement: DEFAULT_PLACEMENT_PARAMS,
+  };
+}
+
+/** A ready-made default, `worldSeed: ''` - callers that need a real seed
+ *  build their own via `makeDefaultGalaxyParameters(seed)`; this export
+ *  exists for call sites that only need the constants, not identity. */
+export const DEFAULT_GALAXY_PARAMETERS: GalaxyParameters = makeDefaultGalaxyParameters();
+
+/**
+ * Per-population anchor correction, computed from the block's OWN stored
+ * (4-dp) contrasts - patch S7's self-consistency rule. `derived`.
+ */
+export function anchorArmCorrectionFor(params: GalaxyParameters, set: ArmResponseSet): number {
+  return computeAnchorArmCorrection(
+    set, params.armContrast(), params.referenceRPc, (params.referenceThetaDeg * Math.PI) / 180, params.armWidth,
+  );
+}
+
+/**
+ * GATE 27 - load-time assertions (patch S10). Throws loudly rather than
+ * defaulting or silently clamping - a mis-pinned galaxy parameter file is
+ * exactly the failure this exists to prevent from running quietly wrong.
+ */
+export function assertGalaxyParameters(params: GalaxyParameters): void {
+  if (params.armWidth.broadening > 1.02) {
+    throw new Error(
+      `galaxyParameters: armWidth.broadening (${params.armWidth.broadening}) exceeds the hard ceiling 1.02 - ` +
+      `above it Perseus merges with Norma-Outer at the inner disc edge (patch v2.3 S4).`,
+    );
+  }
+  if (params.complexTier.cellSizePc < 8 * params.complexTier.sigmaComplexPc) {
+    throw new Error(
+      `galaxyParameters: complexTier.cellSizePc (${params.complexTier.cellSizePc}) is below the floor ` +
+      `8 * sigmaComplexPc (${8 * params.complexTier.sigmaComplexPc}) - guard band would clip a live complex (patch v2.3 S4).`,
+    );
+  }
+  if (params.nLocalPerPc3 === undefined || params.nLocalPerPc3 === null || !(params.nLocalPerPc3 > 0)) {
+    throw new Error(
+      `galaxyParameters: nLocalPerPc3 must be a positive, present number - it must never be defaulted or left ` +
+      `TBD (patch v2.3 S6/S10 gate 27). Run verification/reyle_anchor.py and set it explicitly.`,
+    );
+  }
+}
+
+/* -------------------------------- glossary ----------------------------------- */
+
+import type { GlossaryEntry } from './types';
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'Tier G parameter block', status: 'derived',
+    short: 'The single file that would let a generated galaxy be provably protected from a future update changing its shape.',
+    long: 'Every constant that can move or remove an existing system (disc, bar, arm, halo, star-forming-complex geometry) collected into one object rather than scattered module-level constants - every default value unchanged from its prior hardcoded constant, migrated mechanically rather than re-derived.',
+    source: 'patch v2.3 (galaxyForge-SPIRAL-PATCH-v2.3-parameter-schema.md)',
+  },
+  {
+    term: 'Local density anchor (nLocalPerPc3)', status: 'sourced',
+    short: 'How many star systems occupy each cubic parsec near the Sun - the number the whole arm-modulated density field is pinned to.',
+    long: 'From the restricted (hydrogen-burning-only) Reyle 10 pc anchor query, run 15 August 2026 against the live GAVO TAP service.',
+    source: 'Reyle et al. 2021/2022 (10 pc catalogue), via verification/reyle_anchor.py',
+  },
+  {
+    term: 'Star-forming complex', status: 'sourced',
+    short: 'A patch of the young disc where multiple star clusters are forming together, at a larger scale than one cluster.',
+    long: 'sigmaComplexPc=150 pc from Efremov\'s ~600 pc typical complex extent (+/-2 sigma); the remaining complexTier constants are calibrated narrative-scale tunables, not independently sourced.',
+    source: 'Efremov 1978',
+  },
+];

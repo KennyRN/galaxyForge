@@ -18,12 +18,13 @@
  * is" panel (brief S9-ish territory, not committed to a stage here).
  *
  * SCOPE. Every module that carries a provenance header and a ledger gets a
- * `glossary` export and is listed below. `rng`, `mathStats`, `units`,
- * `densityMap`, `render`, `vault`, `main`, `genVersion` are Amendment-A3
- * -exempt infrastructure/presentation modules: they own no graded constants
- * and correctly have no `glossary` export to aggregate. `types` declares only
- * meta-taxonomies (Confidence, LedgerStatus, GlossaryEntry itself) and is
- * exempt for the same reason.
+ * `glossary` export and is listed below - as of 15 Aug 2026 that includes
+ * `spiralArms`, `galaxyParameters` and `starFormingComplexes` (patch v2.3).
+ * `rng`, `mathStats`, `units`, `densityMap`, `render`, `vault`, `main`,
+ * `genVersion` are Amendment-A3-exempt infrastructure/presentation modules:
+ * they own no graded constants and correctly have no `glossary` export to
+ * aggregate. `types` declares only meta-taxonomies (Confidence,
+ * LedgerStatus, GlossaryEntry itself) and is exempt for the same reason.
  *
  * genVersion: this module does NOT participate. It reads glossaries and
  * concatenates them; it stores nothing and draws nothing. A change here alters
@@ -52,6 +53,9 @@ import { glossary as placementGlossary } from './placement';
 import { glossary as remnantsGlossary } from './remnants';
 import { glossary as conatalGlossary } from './conatal';
 import { glossary as skyGlossary } from './sky';
+import { glossary as spiralArmsGlossary } from './spiralArms';
+import { glossary as galaxyParametersGlossary } from './galaxyParameters';
+import { glossary as starFormingComplexesGlossary } from './starFormingComplexes';
 
 /**
  * Every module's `glossary` export, concatenated in brief stage order
@@ -80,6 +84,9 @@ export const GLOSSARY: GlossaryEntry[] = [
   ...remnantsGlossary,
   ...conatalGlossary,
   ...skyGlossary,
+  ...spiralArmsGlossary,
+  ...galaxyParametersGlossary,
+  ...starFormingComplexesGlossary,
 ];
 
 /** Look up every glossary entry for a given module, in aggregate order. */

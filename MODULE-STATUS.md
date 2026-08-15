@@ -42,6 +42,8 @@ file is absent, so landing a module removes its stub with no list to update.
 
 ## Channel reconciliation
 
-17 channels declared in `types.ts`; 17 claimed above.
+18 channels declared in `types.ts`; 17 claimed above.
 
-Every declared channel has exactly one owner.
+**UNCLAIMED: complexField** - either a module is missing from this
+manifest or a channel exists that nobody owns. Both are worth resolving before
+the stage-10 bump, because a channel with no owner is a seam in the wrong place.

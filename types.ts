@@ -498,6 +498,13 @@ export const CHANNELS = {
    *  sampler's aesthetic concern; this stream decides which groups MEAN
    *  something. Member scatter rides each member's own `metallicity` channel. */
   conatalGroup: 'conatalGroup',
+  /** Patch v2.3's star-forming-complex tier (S4/S5): the meso-scale
+   *  Poisson parent-point layer `starFormingComplexes.ts` scatters at its
+   *  own (1200 pc) cell size, isolated from `placement`'s own (10 pc) cell
+   *  channel so a complex-tier parameter change can never perturb an
+   *  already-placed system's fine position - the same isolation reasoning
+   *  as `remnantPlacement`/`conatalGroup`. */
+  complexField: 'complexField',
   planets: 'planets',
   belts: 'belts',
   rotation: (starIndex: number) => `rotation:${starIndex}`,
