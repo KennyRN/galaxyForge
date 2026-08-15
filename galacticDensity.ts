@@ -127,6 +127,19 @@ export function upsilonFor(pop: Population): number {
   return 1 / (meanLivingStarMassSol * MEAN_STARS_PER_SYSTEM);
 }
 
+/**
+ * Fraction of this population's Kroupa-IMF stars (BY NUMBER) that have
+ * already evolved off the main sequence at its own age/feh - `remnants`
+ * (S5.2) reuses this directly rather than re-deriving turnoff machinery a
+ * second time (Law 1: one IMF/turnoff composition, here).
+ */
+export function deadStarFraction(pop: Population): number {
+  const turnoff = Math.min(turnoffMassSol(pop.ageMeanGyr, pop.fehMeanDex), IMF_MAX_MSUN);
+  const numberOfLiving = integrate(kroupaImfDensity, IMF_MIN_MSUN, turnoff);
+  const numberOfTotal = integrate(kroupaImfDensity, IMF_MIN_MSUN, IMF_MAX_MSUN);
+  return Math.max(0, Math.min(1, 1 - numberOfLiving / numberOfTotal));
+}
+
 /* ------------------------------ coordinate transform --------------------------- */
 
 /**
