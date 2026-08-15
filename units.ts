@@ -82,6 +82,20 @@ export function orbitRpToKm(orbitRp: number, hostRadiusEarth: number): number {
   return orbitRp * radiusEarthToKm(hostRadiusEarth);
 }
 
+/** Surface gravity, in Earth g - g/g_earth = (M/Mearth)/(R/Rearth)^2, Newton's
+ *  law of gravitation with both quantities already in Earth units so the
+ *  constant cancels. `sourced (form)`, no free parameter. Added 15 Aug 2026
+ *  for `terraforming.terraformabilityOf`/`humanHabitability
+ *  .assessHumanHabitability`, both of which take `gravityG` as a caller
+ *  -supplied value but neither of which computed it (a real, previously
+ *  -unfilled gap - see `systemConductor.ts`'s own header). Lives here, not
+ *  in either of those two modules, because it belongs to neither
+ *  exclusively (Law 1) and is pure canonical-unit physics, `units.ts`'s own
+ *  charter. */
+export function surfaceGravityG(massEarth: number, radiusEarth: number): number {
+  return massEarth / (radiusEarth * radiusEarth);
+}
+
 /* ----------------------------------- time ------------------------------------------- */
 
 export function gyrToMyr(gyr: number): number { return gyr * 1000; }

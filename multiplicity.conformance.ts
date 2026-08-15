@@ -78,6 +78,32 @@ check('6 aStypeMaxAu < aPtypeMinAu (a real forbidden gap) across a spread of mu/
     }
     return true;
   })());
+check('6c REGRESSION (15 Aug 2026): aStypeMaxAu is never negative, even at extreme ' +
+  'eccentricity where the raw Holman & Wiegert fit crosses zero (systemConductor\'s ' +
+  'own NaN sweep caught this at mu=0.4314, e=0.95 - reproduced directly here)',
+  (() => {
+    // The exact reproduction: holmanWiegertSType(0.4314, 0.95) < 0 (unclamped).
+    if (!(holmanWiegertSType(0.4314, 0.95) < 0)) {
+      throw new Error('fixture assumption broke: this mu/e no longer produces a negative raw fit - revisit this gate');
+    }
+    for (let mui = 1; mui <= 9; mui++) {
+      for (let ei = 0; ei <= 99; ei++) {
+        const mu = mui / 10, e = ei / 100;
+        // Choose innerMassSol = mu, primaryMassSol = 1 - mu directly, so
+        // mu_actual = mu / (mu + (1 - mu)) = mu exactly - no back-solving.
+        const primaryMassSol = 1 - mu;
+        const companions = [{
+          kind: 'main-sequence' as const, birthMassSol: mu, massSol: mu, classGuess: 'G2V' as const,
+          luminositySol: 1, tempK: 5772, radiusSol: 1, colourBV: 0.65,
+          orbit: { separationAu: 10, eccentricity: e },
+        }];
+        const g = buildSystemGeometry(primaryMassSol, 1, companions);
+        if (g.aStypeMaxAu === null || g.aPtypeMinAu === null) return false;
+        if (g.aStypeMaxAu < 0 || g.aPtypeMinAu < 0) return false;
+      }
+    }
+    return true;
+  })());
 check('6b both zones scale linearly with the binary\'s own separation',
   (() => {
     const companions1 = rollCompanions(mulberry32(4), 1.0, 2, 5.0, 0);

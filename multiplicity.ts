@@ -278,8 +278,25 @@ export function buildSystemGeometry(
   const e = inner.orbit.eccentricity;
   const aBin = inner.orbit.separationAu;
 
-  const aStypeMaxAu = holmanWiegertSType(mu, e) * aBin;
-  const aPtypeMinAu = holmanWiegertPType(mu, e) * aBin;
+  // BUG FOUND AND FIXED, 15 Aug 2026 (systemConductor.conformance.ts's own
+  // NaN sweep caught it): Holman & Wiegert's own fit is calibrated over
+  // roughly e <= 0.7-0.8; this project's own eccentricity draw
+  // (near-thermal, e = sqrt(u)) can and does produce e up to ~0.95+ for
+  // wide binaries, and the S-type polynomial CROSSES ZERO and goes
+  // slightly NEGATIVE there (verified: mu=0.4314, e=0.95 gives
+  // holmanWiegertSType = -0.0007, not the "vanishingly small positive
+  // zone" the `< 0.05 AU` regime cutoff below assumed it would always be).
+  // An unclamped negative `aStypeMaxAu` reached `planets.ts` as if it were
+  // a valid inner boundary and produced NEGATIVE planet semimajor axes -
+  // `Math.sqrt` of a negative ratio downstream in `surfaceTemperature`,
+  // and NaN all the way through atmosphere/biosphere/terraforming. Clamped
+  // to zero here - the one place this boundary is computed (Law 1) - so
+  // every downstream consumer sees a physically valid "no stable S-type
+  // zone" rather than a nonsensical negative one, regardless of whether it
+  // also checks `regime`.
+  const aStypeMaxAuRaw = holmanWiegertSType(mu, e) * aBin;
+  const aStypeMaxAu = Math.max(0, aStypeMaxAuRaw);
+  const aPtypeMinAu = Math.max(0, holmanWiegertPType(mu, e) * aBin);
 
   // Very tight or extreme-mass-ratio binaries can push the S-type zone to
   // near nothing - in that regime a system is realistically circumbinary
@@ -289,7 +306,11 @@ export function buildSystemGeometry(
   return {
     regime, orbits, aStypeMaxAu, aPtypeMinAu, combinedLuminositySol,
     hostsCircumbinary: true,
-    stabilityConfidence: mu < 0.1 ? 'out-of-range' : 'sourced',
+    // out-of-range for mu < 0.1 (extreme mass ratio, the pre-existing
+    // check) OR when the RAW (pre-clamp) S-type fit went negative - both
+    // are the fit being evaluated genuinely outside where it was
+    // calibrated, not merely a tight-but-valid S-type zone.
+    stabilityConfidence: (mu < 0.1 || aStypeMaxAuRaw < 0) ? 'out-of-range' : 'sourced',
   };
 }
 

@@ -2,7 +2,7 @@ import {
   pcToLy, lyToPc, pcToKm, auToKm, kmToAu, auToPc, pcToAu, kToC, kToF,
   radiusSolToKm, radiusSolToRearth, radiusEarthToKm, kmToRadiusEarth,
   radiusEarthToRjup, massEarthToMjup, gyrToMyr, myrToGyr, dexToLinearRatio,
-  linearRatioToDex, MEARTH_PER_MSUN,
+  linearRatioToDex, MEARTH_PER_MSUN, surfaceGravityG,
 } from './units';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -59,6 +59,9 @@ check('+ radiusEarthToRjup(11.2) lands near 1 (Jupiter is ~11.2 Rearth)',
 check('+ massEarthToMjup(317.8) lands near 1 (Jupiter is ~317.8 Mearth)',
   Math.abs(massEarthToMjup(317.8) - 1) < 0.01);
 check('+ gyrToMyr and myrToGyr round-trip', Math.abs(myrToGyr(gyrToMyr(4.6)) - 4.6) < 1e-9);
+check('+ surfaceGravityG(1, 1) === 1 exactly (Earth is its own reference)', surfaceGravityG(1, 1) === 1);
+check('+ surfaceGravityG doubles with mass at fixed radius', surfaceGravityG(2, 1) === 2 * surfaceGravityG(1, 1));
+check('+ surfaceGravityG quarters when radius doubles at fixed mass (inverse-square)', Math.abs(surfaceGravityG(1, 2) - surfaceGravityG(1, 1) / 4) < 1e-12);
 
 if (failures > 0) throw new Error(`${failures} units conformance failure(s)`);
 console.log('\nall units conformance checks passed');
