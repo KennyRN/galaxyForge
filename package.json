@@ -1,18 +1,23 @@
 {
-  "name": "starforge-stage0",
-  "version": "0.0.0",
+  "name": "starforge",
+  "version": "0.0.1",
   "private": true,
-  "description": "StarForge stage-0 source and conformance gates. The TypeScript version is pinned EXACTLY, not by range: the gates are a provenance artefact and their toolchain is part of the result (audit correction C11).",
+  "description": "StarForge - a procedural galactic-sector generator for Obsidian. The TypeScript version is pinned EXACTLY, not by range: the gates are a provenance artefact and their toolchain is part of the result (audit correction C11).",
   "scripts": {
     "gates": "node verification/run-gates.js",
     "status": "node verification/module-status.js",
     "status:write": "node verification/module-status.js --write",
     "typecheck": "tsc -p tsconfig.json",
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs",
     "pretest": "npm run gates",
     "test": "node -e \"console.log('the gates are the test suite')\""
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "builtin-modules": "^5.3.0",
+    "esbuild": "^0.28.2",
+    "obsidian": "^1.13.1",
     "typescript": "^6.0.3"
   }
 }

@@ -2,4 +2,5 @@ node_modules/
 .gate-tmp/
 build/
 dist/
+main.js
 reyle_anchor_result.json
