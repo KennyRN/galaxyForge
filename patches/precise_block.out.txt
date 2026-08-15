@@ -1,0 +1,19 @@
+CONTRASTS (full precision, from derive_arm_constants_v3.py)
+  oldThin   0.3096367574   -> store 0.3096
+  midThin   0.4334914603   -> store 0.4335
+  youngThin 0.6192735147   -> store 0.6193
+
+ANCHOR CORRECTION at (8200 pc, 0 deg), computed with the STORED 4-dp contrasts
+  oldThin   0.951032712016
+  midThin   0.894378924469
+  youngThin 0.908223499942
+
+KAPPA RANGE over 3.5-16 kpc, all arms
+  18.7511 to 30.9951
+
+CELL SIZE FLOOR CHECK
+  8 * sigmaComplexPc = 1200 pc ; cellSizePc = 1200 -> margin 0 pc (AT THE FLOOR)
+
+SUB-GRID QUADRATURE (v2.1 sec 2): resolve sigma_perp/4 at the tightest radius in the gate band
+  R=3900: sigma_perp=183 pc -> target 46 pc -> n >= 27 per 1200 pc cell axis
+  R=8200: sigma_perp=338 pc -> target 84 pc -> n >= 15 per 1200 pc cell axis
