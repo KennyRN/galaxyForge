@@ -235,6 +235,12 @@ const SLIDER_NUMBER_BOX_WIDTH_PX = 72;
  *  lives here instead, on hover, not permanently on screen. */
 interface SliderRowLeft { readonly icon?: string; readonly label?: string; readonly title: string; }
 
+/** A reference BAND on a slider's own track, not a single value (16 Aug
+ *  2026, a direct user question: "is there a slice which has 'reasonable'
+ *  sol neighbourhood density and feel?" - yes, this is that slice) -
+ *  `center` +/- `halfWidth` in the slider's own units. */
+interface SliderRowMark { readonly center: number; readonly halfWidth: number; readonly title: string; }
+
 /**
  * ONE shared slider row, used by all six sliders app-wide (16 Aug 2026, a
  * direct user follow-up on the icon-only Screen 2 sliders from two turns
@@ -244,29 +250,36 @@ interface SliderRowLeft { readonly icon?: string; readonly label?: string; reado
  * boxes the same size" is a meaningful statement is if more than one
  * screen's sliders share this exact control.
  *
- * Layout: `[icon OR label] [native <input type=range>, flex:1] [number
- * box, fixed width] [- pill] [+ pill]`. Three independent ways to reach
- * the SAME underlying value:
- *  - Dragging the slider moves in its own `step` - the existing coarse,
- *    comfortable drag granularity, unchanged.
+ * Layout: `[icon OR label] [number box, fixed width] [native <input
+ * type=range>, flex:1] [ONE pill-shaped -/+ container]` - the number box
+ * moved to sit BEFORE the slider (16 Aug 2026, a direct user follow-up: it
+ * previously sat after the slider, between it and the pills), and the two
+ * separate pill buttons became ONE pill-shaped container split into two
+ * clickable halves (a single `border-radius`+`overflow:hidden` div
+ * clipping two plain, undecorated buttons inside it, not two individually
+ * -rounded buttons). Three independent ways to reach the SAME value:
+ *  - Dragging the slider moves in its own `step` - unchanged.
  *  - The number box accepts free text to `decimals` places, committed on
- *    blur/Enter (NOT on every keystroke - typing then triggering a full
- *    draft update per character is exactly the bug just fixed for the
- *    Total systems/Size (pc) fields two turns ago; committing only once
- *    typing is done avoids reintroducing it).
- *  - The pills nudge by exactly HALF of `step` (R's own step is 50pc, so
- *    the pills move it +/-25pc; z's is 10 -> +/-5; angle/size/terraform's
- *    is 1 -> +/-0.5) - a deliberately FINER adjustment than dragging.
+ *    blur/Enter (not per-keystroke - the exact bug just fixed for Total
+ *    systems/Size (pc)). RIGHT-aligned with a fixed `decimals` count -
+ *    "Excel accounting" alignment: since every value in one box always
+ *    carries the same number of decimal places, right-aligning a
+ *    fixed-width box keeps the decimal point the same distance from the
+ *    right edge regardless of how many integer digits or a leading minus
+ *    sign the current value happens to have.
+ *  - The pill halves nudge by exactly HALF of `step`.
  *
- * `markValue` (optional) draws a thin reference tick at that value's own
- * position along the track, DOM-ordered before the native slider so it
- * paints behind it - the sol-like-neighbourhood marker (`GalaxyScreen2Modal`
- * 's own `solRadiusPc`) is the one caller that supplies it.
+ * `mark` (optional) draws a shaded band (see `SliderRowMark`) plus a
+ * bolder centre line, DOM-ordered before the native slider so it paints
+ * behind it, EXTENDING slightly above/below the slider's own height so it
+ * stays visible past the native track - a mark confined to exactly the
+ * track's own height was found to be almost entirely hidden by it (a
+ * direct user follow-up: "the slider itself hides the bar").
  */
 function renderSliderRow(
   container: HTMLElement, left: SliderRowLeft,
   min: number, max: number, step: number, decimals: number, value: number, onChange: (v: number) => void,
-  markValue?: number,
+  mark?: SliderRowMark,
 ): void {
   const row = container.createDiv();
   row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:8px 0;';
@@ -280,23 +293,29 @@ function renderSliderRow(
     labelEl.style.cssText = 'flex:0 0 auto;min-width:150px;color:var(--text-normal);font-size:var(--font-ui-small);';
   }
 
+  const numberInput = row.createEl('input', { attr: { type: 'text', inputmode: 'decimal' } });
+  numberInput.value = value.toFixed(decimals);
+  numberInput.style.cssText = `flex:0 0 ${SLIDER_NUMBER_BOX_WIDTH_PX}px;width:${SLIDER_NUMBER_BOX_WIDTH_PX}px;text-align:right;` +
+    'background:var(--background-modifier-form-field);border:1px solid var(--background-modifier-border);' +
+    'border-radius:4px;color:var(--text-normal);padding:2px 6px;font-variant-numeric:tabular-nums;';
+
   const sliderWrap = row.createDiv();
   sliderWrap.style.cssText = 'position:relative;flex:1 1 auto;display:flex;align-items:center;';
-  if (markValue !== undefined && max > min) {
-    const pct = Math.min(1, Math.max(0, (markValue - min) / (max - min))) * 100;
-    const mark = sliderWrap.createDiv({ attr: { title: 'Roughly where a sol-like neighbourhood would sit' } });
-    mark.style.cssText = `position:absolute;left:${pct}%;top:1px;bottom:1px;width:2px;` +
-      'background:var(--text-faint);pointer-events:none;transform:translateX(-1px);z-index:0;';
+  if (mark !== undefined && max > min) {
+    const centrePct = Math.min(1, Math.max(0, (mark.center - min) / (max - min))) * 100;
+    const halfPct = (Math.max(0, mark.halfWidth) / (max - min)) * 100;
+    const band = sliderWrap.createDiv({ attr: { title: mark.title } });
+    band.style.cssText = `position:absolute;left:${Math.max(0, centrePct - halfPct)}%;` +
+      `width:${Math.min(100, halfPct * 2)}%;top:-5px;bottom:-5px;` +
+      'background:rgba(200,205,220,0.22);pointer-events:none;z-index:0;border-radius:2px;';
+    const centreLine = sliderWrap.createDiv({ attr: { title: mark.title } });
+    centreLine.style.cssText = `position:absolute;left:${centrePct}%;top:-5px;bottom:-5px;width:2px;` +
+      'background:var(--text-muted);pointer-events:none;transform:translateX(-1px);z-index:0;';
   }
   const slider = new SliderComponent(sliderWrap).setLimits(min, max, step).setValue(value).setDynamicTooltip()
     .onChange((v) => { numberInput.value = v.toFixed(decimals); onChange(v); });
   slider.sliderEl.style.cssText = 'flex:1 1 auto;width:100%;position:relative;z-index:1;';
 
-  const numberInput = row.createEl('input', { attr: { type: 'text', inputmode: 'decimal' } });
-  numberInput.value = value.toFixed(decimals);
-  numberInput.style.cssText = `flex:0 0 ${SLIDER_NUMBER_BOX_WIDTH_PX}px;width:${SLIDER_NUMBER_BOX_WIDTH_PX}px;text-align:center;` +
-    'background:var(--background-modifier-form-field);border:1px solid var(--background-modifier-border);' +
-    'border-radius:4px;color:var(--text-normal);padding:2px 4px;font-variant-numeric:tabular-nums;';
   const commit = (raw: string): void => {
     const n = Number(raw);
     if (!Number.isFinite(n)) { numberInput.value = slider.getValue().toFixed(decimals); return; }
@@ -309,15 +328,18 @@ function renderSliderRow(
   numberInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); numberInput.blur(); } });
 
   const nudge = step / 2;
-  const makePill = (glyph: string, title: string, delta: number): void => {
-    const btn = row.createEl('button', { attr: { title, 'aria-label': title } });
-    btn.style.cssText = 'flex:0 0 auto;width:22px;height:22px;border-radius:999px;padding:0;' +
-      'display:flex;align-items:center;justify-content:center;background:var(--interactive-normal);color:var(--text-normal);';
+  const pill = row.createDiv();
+  pill.style.cssText = 'flex:0 0 auto;display:flex;border-radius:999px;overflow:hidden;background:var(--interactive-normal);';
+  const makeHalf = (glyph: string, title: string, delta: number): void => {
+    const btn = pill.createEl('button', { cls: 'sf-pill-btn', attr: { title, 'aria-label': title } });
+    btn.style.cssText = 'flex:0 0 auto;width:22px;height:22px;padding:0;border-radius:0;border:none;' +
+      'display:flex;align-items:center;justify-content:center;background:transparent;color:var(--text-normal);';
     btn.innerHTML = glyph;
     btn.onclick = () => commit(String(Math.min(max, Math.max(min, slider.getValue() + delta))));
   };
-  makePill(MINUS_ICON, 'Decrease', -nudge);
-  makePill(PLUS_ICON, 'Increase', nudge);
+  makeHalf(MINUS_ICON, 'Decrease', -nudge);
+  pill.createDiv().style.cssText = 'flex:0 0 1px;width:1px;background:var(--background-modifier-border);';
+  makeHalf(PLUS_ICON, 'Increase', nudge);
 }
 
 const MORPHOLOGY_LABELS: Readonly<Record<MorphologyChoice, string>> = {
@@ -1170,6 +1192,18 @@ export class GalaxyScreen2Modal extends Modal {
    *  neighbourhood concept applies there at all. */
   private solRadiusPc: number | null = null;
 
+  /** How far from `solRadiusPc`/the plane still "feels" roughly sol-like
+   *  (16 Aug 2026, a direct user question: "is there a slice which has
+   *  'reasonable' sol neighbourhood density and feel?") - answered with
+   *  real, sourced, ALREADY-SCALED model quantities rather than an
+   *  invented tolerance: the R band is +/-10% of the solar radius itself
+   *  (a plain, symmetric "still close to R0" reading); the z band is one
+   *  full thin-disc scale height (`params.juric.hThin`, Juric et al. 2008
+   *  - "within the thin disc's own characteristic thickness of the
+   *  plane"), both scaled by `previewScale` the same way `solRadiusPc` is. */
+  private solRHalfWidthPc: number | null = null;
+  private solZHalfWidthPc: number | null = null;
+
   constructor(
     app: App, private readonly screen1: Screen1Draft,
     private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void,
@@ -1186,6 +1220,8 @@ export class GalaxyScreen2Modal extends Modal {
     this.previewScale = previewScaleFor(this.model, this.params);
     if (this.model.morphology === 'spiral' || this.model.morphology === 'barredSpiral') {
       this.solRadiusPc = this.params.R0Pc * this.previewScale;
+      this.solRHalfWidthPc = this.params.R0Pc * 0.1 * this.previewScale;
+      this.solZHalfWidthPc = this.params.juric.hThin * this.previewScale;
     }
   }
 
@@ -1264,12 +1300,16 @@ export class GalaxyScreen2Modal extends Modal {
     renderSliderRow(
       contentEl, { icon: DISTANCE_FROM_CENTRE_ICON, title: `Distance from centre (R) - ${this.draft.distanceFromCentrePc} pc` },
       0, 20000, 50, 2, this.draft.distanceFromCentrePc, (v) => this.setDraft({ distanceFromCentrePc: v }),
-      this.solRadiusPc ?? undefined,
+      this.solRadiusPc !== null && this.solRHalfWidthPc !== null
+        ? { center: this.solRadiusPc, halfWidth: this.solRHalfWidthPc, title: 'Roughly where a sol-like neighbourhood would sit' }
+        : undefined,
     );
     renderSliderRow(
       contentEl, { icon: DISTANCE_FROM_PLANE_ICON, title: `Distance from galactic plane (z) - ${this.draft.distanceFromPlanePc} pc` },
       -2000, 2000, 10, 2, this.draft.distanceFromPlanePc, (v) => this.setDraft({ distanceFromPlanePc: v }),
-      this.solRadiusPc !== null ? 0 : undefined,
+      this.solZHalfWidthPc !== null
+        ? { center: 0, halfWidth: this.solZHalfWidthPc, title: 'Roughly the thin disc\'s own thickness around the plane' }
+        : undefined,
     );
 
     renderShapeAndDensityRow(

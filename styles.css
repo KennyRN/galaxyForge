@@ -23,3 +23,11 @@
 .sf-shape-icon.is-selected:hover {
   color: var(--interactive-accent-hover);
 }
+
+/* Slider stepper pill (16 Aug 2026) - the two halves are plain, undecorated
+ * buttons clipped to their outer container's own pill shape; this is just
+ * their hover feedback, the one thing inline styles cannot express. */
+.sf-pill-btn:hover {
+  background: var(--interactive-hover);
+}
+
