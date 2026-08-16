@@ -19,6 +19,30 @@
  * relative to a gen-1 galaxy. `verification/golden/gen2.json` is the fixture
  * cut against THIS version - see `goldenMaster.conformance.ts`.
  *
+ * BUMP 3, 16 Aug 2026 (six ported changes, ONE bump - the same "coordinate,
+ * do not trickle" reasoning as bump 2, and the sibling build's own R7
+ * precedent): (1) spiralArms' besselI0e mean-subtraction fix - every
+ * spiral/barredSpiral arm contrast changes; (2) placement's genuine
+ * two-level Thomas process replacing the fixed-cluster-size approximation
+ * - every clustered population's exact positions/counts change;
+ * (3) remnants' Cummings 2018 IFMR + real-age-threaded cooling +
+ * surviving-planet mechanism - every remnant's mass/radius/temperature and
+ * existence-of-planet changes; (4) remnants and co-natal chemistry are now
+ * actually composed into a real sector (`sectorFootprint.assembleSector`)
+ * - a generated sector's system SET changes, not merely individual
+ * systems' properties; (5) starFormingComplexes' discrete placement
+ * hierarchy replacing the continuous density-multiplier - youngThin's
+ * exact positions in a complex-tier-active region change; (6) the
+ * lenticular classical bulge's Prugniel-Simien profile + the lenticular
+ * halo's closed-form mass normalisation, both replacing prior Hernquist/
+ * point-anchor forms - elliptical is untouched by (1)/(2)/(5) but its own
+ * populations still redraw under the shared placement/remnant machinery
+ * bump, and lenticular changes under (6) directly.
+ * `verification/golden/gen3.json` is the fixture cut against THIS version,
+ * widened (an audit finding, same date) to cover all four morphologies and
+ * a full `SystemCore` hash per morphology, not just spiral placement/
+ * remnants - see `goldenMaster.conformance.ts`.
+ *
  * NOT bumped again by anything built in this same pass.
  */
-export const CURRENT_GEN_VERSION = 2;
+export const CURRENT_GEN_VERSION = 3;
