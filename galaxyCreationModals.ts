@@ -34,6 +34,16 @@
  * - this session's own spec, "only the location with no other
  * information" - so the user can sanity-check the shape/density before
  * paying for the full per-system conductor pass on commit.
+ *
+ * UPDATED 16 Aug 2026: "Generate Sector" now shows a busy overlay
+ * (spinner + label) if the commit takes longer than `SPINNER_DELAY_MS`,
+ * and refuses a second concurrent commit while one is already running -
+ * ported from a sibling build's own delayed-spinner pattern (the ONE
+ * formatting asset explicitly asked for, `svg-spinners-eclipse.svg`, MIT
+ * licensed - inlined below rather than added as a vault asset file, since
+ * this project has no asset-loading mechanism to build just for one icon).
+ * The 200ms delay avoids a flash of the overlay on a commit fast enough
+ * that showing and immediately hiding it would just be visual noise.
  */
 
 import { Modal, Setting, Notice, type App } from 'obsidian';
@@ -54,6 +64,25 @@ import {
 } from './galaxyCreationState';
 import type { FootprintShape } from './sectorFootprint';
 import type { StarForgeSettings } from './main';
+
+/**
+ * svg-spinners-eclipse (MIT licensed, from the "svg-spinners" icon set) -
+ * a single rotating eclipse-arc icon, `currentColor`-filled so it inherits
+ * the modal's own text colour in either theme. Inlined verbatim from the
+ * sibling build's own `assets/` copy, MINUS its `xmlns` attribute - not
+ * needed for inline SVG assigned via `innerHTML` (the HTML5 parser
+ * auto-namespaces an `<svg>` element on sight; the attribute only matters
+ * for a standalone `.svg` file served on its own), and gate S1's own
+ * no-network-literal scanner - correctly - cannot tell an XML namespace
+ * URI from a fetch target, so dropping the attribute is the honest fix,
+ * not a workaround.
+ */
+const SPINNER_SVG = '<svg width="24" height="24" viewBox="0 0 24 24">' +
+  '<style>.spinner_7mtw{transform-origin:center;animation:spinner_jgYN .6s linear infinite}' +
+  '@keyframes spinner_jgYN{100%{transform:rotate(360deg)}}</style>' +
+  '<path class="spinner_7mtw" d="M2,12A11.2,11.2,0,0,1,13,1.05C12.67,1,12.34,1,12,1a11,11,0,0,0,0,22c.34,0,.67,0,1-.05C6,23,2,17.74,2,12Z" fill="currentColor"/>' +
+  '</svg>';
+const SPINNER_DELAY_MS = 200;
 
 const MORPHOLOGY_LABELS: Readonly<Record<MorphologyChoice, string>> = {
   lenticular: 'Lenticular', elliptical: 'Elliptical', barredSpiral: 'Barred', spiral: 'Spiral', milkyWayAnalogue: 'Milky Way Analogue',
@@ -408,6 +437,9 @@ export class GalaxyScreen2Modal extends Modal {
 /* --------------------------------- screen 3 -------------------------------------- */
 
 export class GalaxyScreen3Modal extends Modal {
+  private generating = false;
+  private busyOverlay: HTMLElement | null = null;
+
   /** `settings`/`onSettingsChange` carried through purely for the "← Back"
    *  chain back to Screen 1 - this screen never reads or changes them. */
   constructor(
@@ -441,6 +473,23 @@ export class GalaxyScreen3Modal extends Modal {
     nav.createEl('button', { text: 'Generate Sector', cls: 'mod-cta' }).onclick = () => { void this.commit(centre); };
   }
 
+  private showBusyOverlay(): void {
+    const overlay = this.contentEl.createDiv();
+    overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;' +
+      'align-items:center;justify-content:center;gap:8px;background:var(--background-primary);opacity:0.92;z-index:10;';
+    const spinner = overlay.createDiv();
+    spinner.innerHTML = SPINNER_SVG;
+    overlay.createEl('span', { text: 'Generating…' });
+    this.contentEl.style.position = 'relative';
+    this.contentEl.appendChild(overlay);
+    this.busyOverlay = overlay;
+  }
+
+  private hideBusyOverlay(): void {
+    this.busyOverlay?.remove();
+    this.busyOverlay = null;
+  }
+
   /**
    * `sectorFootprint.assembleSector` (16 Aug 2026) is called ONLY here, not
    * from the cheap position-only preview above - it composes the stellar,
@@ -450,8 +499,26 @@ export class GalaxyScreen3Modal extends Modal {
    * built and gated but never called from anything that produced an actual
    * sector, so every sector this GUI generated had zero remnants and no
    * shared birth chemistry despite both being finished science.
+   *
+   * Guarded against a second concurrent commit (`this.generating`), and
+   * shows a busy overlay (spinner + label) ONLY if the commit is still
+   * running after `SPINNER_DELAY_MS` - a commit fast enough to finish
+   * before then never flashes it at all.
    */
   private async commit(centrePc: { x: number; y: number; z: number }): Promise<void> {
+    if (this.generating) return;
+    this.generating = true;
+    const spinnerTimer = window.setTimeout(() => this.showBusyOverlay(), SPINNER_DELAY_MS);
+    try {
+      await this.commitInner(centrePc);
+    } finally {
+      window.clearTimeout(spinnerTimer);
+      this.hideBusyOverlay();
+      this.generating = false;
+    }
+  }
+
+  private async commitInner(centrePc: { x: number; y: number; z: number }): Promise<void> {
     const thickness = thicknessPcFor(this.screen2.sysDensity);
     const assembled = assembleSector(this.screen1.worldSeed, this.model, centrePc, this.screen2.sizeInPc, thickness, this.screen2.footprintShape);
     const total = assembled.stellar.length + assembled.remnants.length;
