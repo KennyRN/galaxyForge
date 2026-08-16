@@ -625,10 +625,20 @@ function drawPositionGuides(canvas: HTMLCanvasElement, field: DensityDisplayFiel
   // hold if that ever changes, same as the complex-clump loop above).
   const originPx = w / 2 - centrePc.x * pcToPx, originPy = h / 2 + centrePc.y * pcToPx;
 
+  // Solid, wide, saturated magenta at near-full opacity (16 Aug 2026, a
+  // direct user follow-up: "aren't rendering") - the FIRST version (a 1px,
+  // 65%-alpha, DASHED pale blue that sits close in hue to both the star
+  // colour rgba(205,215,255,...) and the sector marker's amber #e0b25a)
+  // checked out completely on paper - both calls are wired correctly, both
+  // coordinates are finite and on-canvas for every default/reachable draft
+  // - so the "not rendering" was very likely "rendering but lost in the
+  // noise", not absent. Magenta shares no hue with anything else already
+  // drawn on this canvas (starfield: white/blue, sector marker: amber), so
+  // this can no longer blend into either regardless of exactly how the
+  // starfield happens to be jittered.
   ctx.save();
-  ctx.strokeStyle = 'rgba(120,170,255,0.65)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = 'rgba(255,64,190,0.95)';
+  ctx.lineWidth = 2;
 
   ctx.beginPath();
   ctx.arc(originPx, originPy, distanceFromCentrePc * pcToPx, 0, 2 * Math.PI);
@@ -638,10 +648,22 @@ function drawPositionGuides(canvas: HTMLCanvasElement, field: DensityDisplayFiel
   // the canvas itself clips anything drawn beyond its own bounds, so the
   // exact intersection with the edge is not worth computing.
   const beyondEdge = Math.hypot(w, h);
+  const tipX = originPx + Math.cos(angleRad) * beyondEdge, tipY = originPy - Math.sin(angleRad) * beyondEdge;
   ctx.beginPath();
   ctx.moveTo(originPx, originPy);
-  ctx.lineTo(originPx + Math.cos(angleRad) * beyondEdge, originPy - Math.sin(angleRad) * beyondEdge);
+  ctx.lineTo(tipX, tipY);
   ctx.stroke();
+
+  // Crosshair at the actual (angle, R) point - where the line and ring
+  // cross is the one point that answers BOTH questions at once, so it
+  // earns its own marker rather than making the reader trace two thin
+  // strokes to the same conclusion.
+  const targetX = originPx + Math.cos(angleRad) * distanceFromCentrePc * pcToPx;
+  const targetY = originPy - Math.sin(angleRad) * distanceFromCentrePc * pcToPx;
+  ctx.fillStyle = 'rgba(255,64,190,0.95)';
+  ctx.beginPath();
+  ctx.arc(targetX, targetY, 3.5, 0, 2 * Math.PI);
+  ctx.fill();
 
   ctx.restore();
 }
