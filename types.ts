@@ -341,6 +341,14 @@ export interface SystemContext {
   history: StellarHistory[];     // index-aligned to `stars`; per-star channels
   terraformScale: number;        // 0-6. An AUTHORING parameter shown at galaxy
                                  //   creation; it shapes procedural prevalence
+                                 //   (COVERAGE - how many feasible candidates
+                                 //   get selected at all).
+  /** 0-6. A SECOND, independent authoring parameter (16 Aug 2026) - DEGREE,
+   *  not coverage: how far a SELECTED planet's terraforming has progressed
+   *  (`terraforming.ts`'s own header explains why one dial could not carry
+   *  both questions). Additive alongside `terraformScale`, never a
+   *  replacement for it (Law 5). */
+  terraformIntensity: number;
 }
 
 /**
@@ -443,6 +451,11 @@ export interface SectorRecipe {
    *  revise their search criteria later without invalidating a single note. */
   centreCriteria?: SectorCentreCriteria;
   terraformScale: number;
+  /** Paired with `terraformScale` (16 Aug 2026) - see `SystemContext
+   *  .terraformIntensity`'s own doc comment. Same "provenance, not
+   *  generation input" treatment for hashing: it changes what a system's
+   *  terraforming LOOKS like, never whether that system exists or where. */
+  terraformIntensity: number;
 
   galaxyConfigHash: string;
 }

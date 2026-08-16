@@ -149,7 +149,8 @@ export interface GenerateSystemInputs {
   readonly population: PopulationKey;
   readonly populationMeta: Population;
   readonly formationRank: number;
-  readonly terraformScale: number;   // 0-6, authoring input
+  readonly terraformScale: number;   // 0-6, authoring input - COVERAGE
+  readonly terraformIntensity: number;   // 0-6, authoring input - DEGREE (16 Aug 2026, paired with terraformScale)
   /**
    * Present iff this system is a member of a co-natal group (16 Aug 2026,
    * wiring `conatal.ts` into real generation for the first time - it
@@ -265,7 +266,7 @@ export function quickMultiplicityCensus(inputs: GenerateSystemInputs): QuickMult
 }
 
 export function generateSystemCore(inputs: GenerateSystemInputs): SystemCore {
-  const { sysid, genVersion, worldSeed, positionPc, population, populationMeta, formationRank, terraformScale } = inputs;
+  const { sysid, genVersion, worldSeed, positionPc, population, populationMeta, formationRank, terraformScale, terraformIntensity } = inputs;
   const { galactocentricRadiusPc, age, feh, primaryClass, primaryMassSol, primaryLuminositySol, starCount } = ageFehAndStarCensus(inputs);
 
   const companions: CompanionStar[] = starCount > 1
@@ -295,7 +296,7 @@ export function generateSystemCore(inputs: GenerateSystemInputs): SystemCore {
   const ctx: SystemContext = {
     sysid, genVersion, positionPc, galactocentricRadiusPc, population, formationRank,
     conatalGroupId: inputs.conatal?.groupId,
-    age, feh, geometry, history, terraformScale,
+    age, feh, geometry, history, terraformScale, terraformIntensity,
   };
 
   // -- planets --------------------------------------------------------------------
@@ -383,7 +384,7 @@ export function generateSystemCore(inputs: GenerateSystemInputs): SystemCore {
     const terraRng = ch(worldSeed, CHANNELS.terraforming(i), sysid);
     const hasAtmosphere = atmDraw.kind !== 'none';
     const terraformability = terraformabilityOf(stDraw.equilibriumTempK, gravityG, hasAtmosphere);
-    const terraDraw = rollTerraforming(terraRng, terraformability, terraformScale, atmosphereComposition(atmDraw), stDraw.equilibriumTempK);
+    const terraDraw = rollTerraforming(terraRng, terraformability, terraformScale, terraformIntensity, atmosphereComposition(atmDraw), stDraw.equilibriumTempK);
     terraforming.push(terraDraw);
 
     // -- human habitability (deterministic, no channel) --

@@ -166,12 +166,24 @@ export function kappaOf(a: ArmDefinition, R_pc: number, w: ArmWidthParams = DEFA
   return (R * Math.sin(pitchRad)) ** 2 / (sw * sw);
 }
 
+// Precomputed once, not re-filtered on every call - `armFactor` is on the hot
+// path of every density-map render (one call per z-sample per population per
+// grid cell), and `ARMS.filter(...)` was allocating a fresh array on every
+// single one of those calls despite the result being constant for the life
+// of the process (16 Aug 2026, perf finding while diagnosing a GUI report -
+// the allocation churn was a real contributor to how expensive a high
+// -resolution preview render was, independent of the display bug it was
+// found alongside).
+const ARMS_MAJOR: readonly ArmDefinition[] = ARMS.filter((a) => a.tier === 'major');
+const ARMS_MAJOR_MINOR: readonly ArmDefinition[] = ARMS.filter((a) => a.tier === 'major' || a.tier === 'minor');
+const ARMS_NONE: readonly ArmDefinition[] = [];
+
 function armsInSet(set: ArmResponseSet): readonly ArmDefinition[] {
   switch (set) {
     case 'all': return ARMS;
-    case 'majorMinor': return ARMS.filter((a) => a.tier === 'major' || a.tier === 'minor');
-    case 'major': return ARMS.filter((a) => a.tier === 'major');
-    case 'none': return [];
+    case 'majorMinor': return ARMS_MAJOR_MINOR;
+    case 'major': return ARMS_MAJOR;
+    case 'none': return ARMS_NONE;
   }
 }
 

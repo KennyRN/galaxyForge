@@ -24,14 +24,14 @@ check('defaultScreen1Draft() with no overrides matches the original hardcoded de
   (() => {
     const d = defaultScreen1Draft();
     return d.morphology === 'spiral' && d.sizeStepIndex === 2 && d.worldSeed === '' &&
-      d.terraformScale === 3 && d.lenticularBulgeType === 'composite';
+      d.terraformScale === 3 && d.terraformIntensity === 3 && d.lenticularBulgeType === 'composite';
   })());
 check('defaultScreen1Draft(overrides) applies ONLY the given overrides, leaving ' +
   'every other field at its normal default - main.ts\'s own persisted-settings ' +
   'seed can supply worldSeed alone without having to know every other field',
   (() => {
     const d = defaultScreen1Draft({ worldSeed: 'persisted-seed-123' });
-    return d.worldSeed === 'persisted-seed-123' && d.morphology === 'spiral' && d.terraformScale === 3;
+    return d.worldSeed === 'persisted-seed-123' && d.morphology === 'spiral' && d.terraformScale === 3 && d.terraformIntensity === 3;
   })());
 
 /* -- screen 1: morphology resolution -------------------------------------------- */

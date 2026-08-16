@@ -43,6 +43,25 @@
  * a full `SystemCore` hash per morphology, not just spiral placement/
  * remnants - see `goldenMaster.conformance.ts`.
  *
+ * BUMP 4, 16 Aug 2026 (a user-found gap): `terraforming.rollTerraforming`
+ * gains a second parameter, `terraformIntensity` - the completeness roll
+ * (previously uniform regardless of `terraformScale`) is now biased by a
+ * power-curve exponent keyed on this new value, so every ALREADY-PLACED
+ * terraformed planet's `completeness`/`types`/realised composition can
+ * change even though the placement roll itself (which `terraformScale`
+ * alone still governs) is untouched. `terraformIntensity = 3` (the new
+ * default, matching the slider's own midpoint) reproduces the prior
+ * uniform draw's DISTRIBUTION exactly - see `terraforming.ts`'s own
+ * `intensityExponent` doc comment - but this is not bit-identical to a
+ * gen-3 galaxy at the individual-draw level, because it is now one call
+ * consuming `Math.pow(rng(), 1)` rather than `rng()` directly, and floating
+ * -point round-trip through `Math.pow` is not guaranteed bit-identical to
+ * its own input even at exponent 1 (verified: it IS bit-identical on this
+ * project's target platforms, but the fixture is recut anyway rather than
+ * relying on that unstated guarantee holding forever - the same
+ * "coordinate, do not trickle" posture bumps 2/3 already established).
+ * `verification/golden/gen4.json` is the fixture cut against THIS version.
+ *
  * NOT bumped again by anything built in this same pass.
  */
-export const CURRENT_GEN_VERSION = 3;
+export const CURRENT_GEN_VERSION = 4;

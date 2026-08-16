@@ -108,7 +108,11 @@ export interface Screen1Draft {
   readonly morphology: MorphologyChoice;
   readonly sizeStepIndex: number;   // 0-4, into SIZE_STEPS[morphology]
   readonly worldSeed: string;
-  readonly terraformScale: number;   // 0-6, "other options" section
+  readonly terraformScale: number;   // 0-6, "other options" section - COVERAGE
+  /** 0-6, "other options" section - DEGREE (16 Aug 2026, paired with
+   *  `terraformScale`; see `terraforming.ts`'s own header for why one dial
+   *  could not carry both questions). */
+  readonly terraformIntensity: number;
   /** Only meaningful when `morphology === 'lenticular'` - "other options"
    *  section, per this session's own instruction. */
   readonly lenticularBulgeType: LenticularBulgeType;
@@ -120,7 +124,7 @@ export interface Screen1Draft {
  *  dependency runs one way, caller reads this module's own shape and
  *  supplies a partial override, never the reverse. */
 export function defaultScreen1Draft(overrides: Partial<Screen1Draft> = {}): Screen1Draft {
-  return { morphology: 'spiral', sizeStepIndex: 2, worldSeed: '', terraformScale: 3, lenticularBulgeType: 'composite', ...overrides };
+  return { morphology: 'spiral', sizeStepIndex: 2, worldSeed: '', terraformScale: 3, terraformIntensity: 3, lenticularBulgeType: 'composite', ...overrides };
 }
 
 /* --------------------------------- screen 2 ------------------------------------ */

@@ -134,13 +134,13 @@ function distancePc(a: { x: number; y: number; z: number }, b: { x: number; y: n
 /**
  * Walks outward from `originPc` looking for the NEAREST system matching
  * `criteria`, capped at `maxRadiusPc`. `worldSeed`/`model`/`genVersion`/
- * `terraformScale` are exactly what the real generation pass would use -
- * the search draws from the SAME deterministic streams, so a found system
- * is not a preview of something different, it IS the system (modulo the
- * exclusion-pass caveat in this module's own header).
+ * `terraformScale`/`terraformIntensity` are exactly what the real
+ * generation pass would use - the search draws from the SAME deterministic
+ * streams, so a found system is not a preview of something different, it IS
+ * the system (modulo the exclusion-pass caveat in this module's own header).
  */
 export function searchNearestSystem(
-  worldSeed: string, model: GalaxyModel, genVersion: number, terraformScale: number,
+  worldSeed: string, model: GalaxyModel, genVersion: number, terraformScale: number, terraformIntensity: number,
   originPc: { readonly x: number; readonly y: number; readonly z: number },
   criteria: SearchCriteria, maxRadiusPc: number,
 ): SearchResult {
@@ -176,7 +176,7 @@ export function searchNearestSystem(
 
         const baseInputs: GenerateSystemInputs = {
           sysid: candidate.sysid, genVersion, worldSeed, positionPc: candidate.positionPc,
-          population: candidate.population, populationMeta, formationRank: candidate.formationRank, terraformScale,
+          population: candidate.population, populationMeta, formationRank: candidate.formationRank, terraformScale, terraformIntensity,
         };
 
         const census = quickMultiplicityCensus(baseInputs);

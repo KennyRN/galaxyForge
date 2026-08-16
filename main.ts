@@ -63,12 +63,18 @@ export interface StarForgeSettings {
    *  seed used yet", not a literal seed value (Screen 1's own placeholder
    *  behaviour on an empty field is unchanged: leave blank for random). */
   lastWorldSeed: string;
-  /** Pre-fills Screen 1's terraforming-prevalence slider (0-6). */
+  /** Pre-fills Screen 1's terraforming-coverage slider (0-6) - how many
+   *  feasible worlds get selected for terraforming at all. */
   defaultTerraformScale: number;
+  /** Pre-fills Screen 1's terraforming-intensity slider (0-6, 16 Aug 2026) -
+   *  how far a SELECTED world's terraforming has progressed. Paired with
+   *  `defaultTerraformScale`, never a replacement for it - see
+   *  `terraforming.ts`'s own header for why one dial could not carry both. */
+  defaultTerraformIntensity: number;
 }
 
 export const DEFAULT_SETTINGS: StarForgeSettings = {
-  lastWorldSeed: '', defaultTerraformScale: 3,
+  lastWorldSeed: '', defaultTerraformScale: 3, defaultTerraformIntensity: 3,
 };
 
 export default class StarForgePlugin extends Plugin {
@@ -126,7 +132,7 @@ export default class StarForgePlugin extends Plugin {
       // Sector" commit does, not a thinner stand-in.
       const core = populationMeta ? generateSystemCore({
         sysid: s.sysid, genVersion: CURRENT_GEN_VERSION, worldSeed: TEST_WORLD_SEED, positionPc: s.positionPc,
-        population: s.population, populationMeta, formationRank: s.formationRank, terraformScale: 3,
+        population: s.population, populationMeta, formationRank: s.formationRank, terraformScale: 3, terraformIntensity: 3,
         conatal: m.conatal,
       } satisfies GenerateSystemInputs) : undefined;
       const input: RenderSystemInput = {
@@ -172,13 +178,23 @@ class StarForgeSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName('Default terraforming prevalence')
-      .setDesc(`${this.plugin.settings.defaultTerraformScale} / 6 - how common deliberate terraforming is in newly created galaxies, by default.`)
+      .setName('Default terraforming coverage')
+      .setDesc(`${this.plugin.settings.defaultTerraformScale} / 6 - how many feasible worlds get selected for terraforming in newly created galaxies, by default.`)
       .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.plugin.settings.defaultTerraformScale).setDynamicTooltip()
         .onChange((v) => {
           this.plugin.settings = { ...this.plugin.settings, defaultTerraformScale: v };
           void this.plugin.saveSettings();
           this.display();   // refresh the description's own "X / 6" text
+        }));
+
+    new Setting(containerEl)
+      .setName('Default terraforming intensity')
+      .setDesc(`${this.plugin.settings.defaultTerraformIntensity} / 6 - how far a SELECTED world's terraforming has progressed, by default (separate from coverage above).`)
+      .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.plugin.settings.defaultTerraformIntensity).setDynamicTooltip()
+        .onChange((v) => {
+          this.plugin.settings = { ...this.plugin.settings, defaultTerraformIntensity: v };
+          void this.plugin.saveSettings();
+          this.display();
         }));
   }
 }

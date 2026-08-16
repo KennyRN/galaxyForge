@@ -22,8 +22,8 @@ const origin = { x: 8178, y: 0, z: 0 };
 
 check('searchNearestSystem is deterministic', (() => {
   const criteria: SearchCriteria = { multiplicity: 'any', sysType: { kind: 'nearest' } };
-  const a = searchNearestSystem(worldSeed, model, genVersion, 3, origin, criteria, 200);
-  const b = searchNearestSystem(worldSeed, model, genVersion, 3, origin, criteria, 200);
+  const a = searchNearestSystem(worldSeed, model, genVersion, 3, 3, origin, criteria, 200);
+  const b = searchNearestSystem(worldSeed, model, genVersion, 3, 3, origin, criteria, 200);
   return JSON.stringify(a) === JSON.stringify(b);
 })());
 
@@ -32,7 +32,7 @@ check('searchNearestSystem is deterministic', (() => {
 check('the returned match is the TRUE nearest within the search cap, verified by exhaustive scan', (() => {
   const criteria: SearchCriteria = { multiplicity: 'any', sysType: { kind: 'nearest' } };
   const capPc = 60;   // small enough to exhaustively scan every cell in the volume directly
-  const result = searchNearestSystem(worldSeed, model, genVersion, 3, origin, criteria, capPc);
+  const result = searchNearestSystem(worldSeed, model, genVersion, 3, 3, origin, criteria, capPc);
   if (!result.found) return false;
 
   // Exhaustive scan: every cell within the cap, every candidate, real distance.
@@ -62,13 +62,13 @@ check('a multiplicity-only search never calls the full conductor (measured, not 
   // doc comment) - a stronger, more direct signal than mocking would be
   // here, since it reflects the search's own documented contract.
   const criteria: SearchCriteria = { multiplicity: 'binary', sysType: { kind: 'nearest' } };
-  const result = searchNearestSystem(worldSeed, model, genVersion, 3, origin, criteria, 300);
+  const result = searchNearestSystem(worldSeed, model, genVersion, 3, 3, origin, criteria, 300);
   return result.found ? (result as SearchFound).core === undefined : true;
 })());
 
 check('an "interesting" or "habitable" search DOES attach a core on a match (the expensive path genuinely ran)', (() => {
   const criteria: SearchCriteria = { multiplicity: 'any', sysType: { kind: 'interesting' } };
-  const result = searchNearestSystem(worldSeed, model, genVersion, 3, origin, criteria, 500);
+  const result = searchNearestSystem(worldSeed, model, genVersion, 3, 3, origin, criteria, 500);
   return result.found ? (result as SearchFound).core !== undefined : true;   // vacuously fine if nothing matched within the cap
 })());
 
@@ -76,7 +76,7 @@ check('an "interesting" or "habitable" search DOES attach a core on a match (the
 
 check('an impossible criterion within a tiny cap returns found:false, not an unbounded search', (() => {
   const criteria: SearchCriteria = { multiplicity: 'any', sysType: { kind: 'habitable', minTier: 4 } };
-  const result = searchNearestSystem(worldSeed, model, genVersion, 3, origin, criteria, 1);   // 1 pc - far too small to plausibly find an Earth-like world
+  const result = searchNearestSystem(worldSeed, model, genVersion, 3, 3, origin, criteria, 1);   // 1 pc - far too small to plausibly find an Earth-like world
   return result.found === false;
 })());
 
@@ -84,16 +84,16 @@ check('an impossible criterion within a tiny cap returns found:false, not an unb
 
 check('a "solo" match always has exactly one star, a "binary" match always has at least two', (() => {
   const soloCriteria: SearchCriteria = { multiplicity: 'solo', sysType: { kind: 'nearest' } };
-  const soloResult = searchNearestSystem(worldSeed, model, genVersion, 3, origin, soloCriteria, 300);
+  const soloResult = searchNearestSystem(worldSeed, model, genVersion, 3, 3, origin, soloCriteria, 300);
   const binaryCriteria: SearchCriteria = { multiplicity: 'binary', sysType: { kind: 'nearest' } };
-  const binaryResult = searchNearestSystem(worldSeed, model, genVersion, 3, origin, binaryCriteria, 300);
+  const binaryResult = searchNearestSystem(worldSeed, model, genVersion, 3, 3, origin, binaryCriteria, 300);
   if (!soloResult.found || !binaryResult.found) return false;
 
   const soloInputs: GenerateSystemInputs = {
     sysid: (soloResult as SearchFound).sysid, genVersion, worldSeed, positionPc: (soloResult as SearchFound).positionPc,
     population: (soloResult as SearchFound).population,
     populationMeta: model.populations.find((p) => p.key === (soloResult as SearchFound).population)!,
-    formationRank: 0.5, terraformScale: 3,
+    formationRank: 0.5, terraformScale: 3, terraformIntensity: 3,
   };
   // formationRank above is a placeholder for the CENSUS call only - it does
   // not affect starCount (which depends on primaryMassSol, not
@@ -109,7 +109,7 @@ check('a "solo" match always has exactly one star, a "binary" match always has a
 
 check('"interesting" match has >= 3 orbital items if single-star, >= 4 if multi-star', (() => {
   const criteria: SearchCriteria = { multiplicity: 'any', sysType: { kind: 'interesting' } };
-  const result = searchNearestSystem(worldSeed, model, genVersion, 3, origin, criteria, 800);
+  const result = searchNearestSystem(worldSeed, model, genVersion, 3, 3, origin, criteria, 800);
   if (!result.found) return true;   // vacuously fine - the gate below covers the substantive case
   const core = (result as SearchFound).core!;
   const items = core.planets.length + core.belts.length;

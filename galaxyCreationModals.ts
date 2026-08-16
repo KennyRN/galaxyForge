@@ -153,26 +153,55 @@ function boundaryPointsPc(radiusPc: number, shape: FootprintShape): { x: number;
   });
 }
 
-/** Renders the density field as a textured scatter (importance-sampled
- *  stipple, not a smooth gradient) - per this session's own "should look
- *  like a map of the Milky Way complete with clumps, not just radiating
- *  lines". Purely visual dithering, `Math.random()` - NOT the plugin's own
- *  seeded/channelled RNG, since this draws nothing and generates no
- *  system; it is exactly `densityMap`'s own "reveals, does not roll"
- *  posture, extended to pixels. */
-function renderDensityCanvas(
-  canvas: HTMLCanvasElement, model: GalaxyModel,
-  centrePc: { x: number; y: number; z: number }, halfWidthPc: number, thicknessPc: number,
-  overlay: { readonly radiusPc: number; readonly shape: FootprintShape } | null,
-): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const w = canvas.width, h = canvas.height;
-  ctx.fillStyle = '#05050a';
-  ctx.fillRect(0, 0, w, h);
+/**
+ * The whole-galaxy overview - the SAME view on both Screen 1 and Screen 2
+ * (16 Aug 2026, a user-found gap: Screen 2's top-down view previously
+ * showed a small local patch zoomed to the sector's own neighbourhood,
+ * which "doesn't look anything like" Screen 1's view of the whole galaxy -
+ * the actual spec is one picture, unzoomed, with the sector marked on it so
+ * a user can see WHERE in the galaxy they are, not a different picture of
+ * just the sector's own surroundings).
+ *
+ * RESOLUTION (200x200, up from an earlier 80x80): a cell at 80x80 over this
+ * span is 500pc across - coarser than a spiral arm's own perpendicular
+ * width (183-511pc across this project's radius range, `spiralArms
+ * .armWidthPc`) and coarser than the bar's own core scale (700/440pc,
+ * `DEFAULT_BAR.scalePc`). Verified directly (this session's own diagnostic
+ * script, ASCII-rendered the field at several resolutions): at 500pc/cell
+ * an arm ridge is aliased into blocky noise rather than a resolvable curve,
+ * which is a real contributor to "just a uniform collection of dots" - not
+ * only the contrast/normalisation bug `emphasiseArmsForDisplay` itself
+ * fixes. 200x200 (100pc/cell) resolves an arm's own width across roughly
+ * 1.5-2 cells, comfortably past the aliasing threshold, at an acceptable
+ * cost (measured ~150-250ms warm on this session's own hardware) BECAUSE
+ * it is computed once per model and cached (`GalaxyScreen1Modal`'s
+ * `fieldForCurrentDraft`, `GalaxyScreen2Modal.onOpen`'s `galaxyOverview`),
+ * never recomputed on a slider tick that does not change the model itself.
+ */
+const GALAXY_OVERVIEW_CENTRE_PC = { x: 0, y: 0, z: 0 } as const;
+const GALAXY_OVERVIEW_HALF_WIDTH_PC = 20000;
+const GALAXY_OVERVIEW_THICKNESS_PC = 4000;
+const GALAXY_OVERVIEW_RES = { nx: 200, ny: 200 };
 
+/** The reduced-and-display-scaled field a canvas is painted from, computed
+ *  once and reusable across repaints (the overlay alone changes far more
+ *  often than the field itself does). */
+interface DensityDisplayField {
+  readonly norm: Float64Array;
+  readonly res: { nx: number; ny: number };
+  readonly centrePc: { x: number; y: number; z: number };
+  readonly halfWidthPc: number;
+}
+
+/** Samples and display-scales a model's density field over a square region
+ *  - the expensive half of what used to be `renderDensityCanvas` alone,
+ *  split out so a caller whose region never changes (Screen 2's galaxy
+ *  overview) can compute it once and only repaint. */
+function computeDensityDisplayField(
+  model: GalaxyModel, centrePc: { x: number; y: number; z: number },
+  halfWidthPc: number, thicknessPc: number, res: { nx: number; ny: number } = { nx: 80, ny: 80 },
+): DensityDisplayField {
   const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
-  const res = { nx: 80, ny: 80 };
   const surface = projectSlab(fieldFromModel(model), region, res);
   // emphasiseArmsForDisplay (16 Aug 2026) for spiral/barred - plain log
   // normalisation was found to make arm structure invisible on a
@@ -184,7 +213,31 @@ function renderDensityCanvas(
   const norm = isSpiralLike
     ? emphasiseArmsForDisplay(surface.values, res.nx, res.ny, halfWidthPc, DEFAULT_JURIC.lThin, 1)
     : normaliseForDisplay(surface.values, { log: true });
+  return { norm, res, centrePc, halfWidthPc };
+}
 
+/** Renders a precomputed field as a textured scatter (importance-sampled
+ *  stipple, not a smooth gradient) - per this session's own "should look
+ *  like a map of the Milky Way complete with clumps, not just radiating
+ *  lines". Purely visual dithering, `Math.random()` - NOT the plugin's own
+ *  seeded/channelled RNG, since this draws nothing and generates no
+ *  system; it is exactly `densityMap`'s own "reveals, does not roll"
+ *  posture, extended to pixels.
+ *
+ *  `overlay.centrePc` (16 Aug 2026) is a WORLD position, independent of the
+ *  field's own `centrePc` - the field may be a fixed whole-galaxy view
+ *  while the overlay marks wherever the sector actually sits within it. */
+function paintDensityField(
+  canvas: HTMLCanvasElement, field: DensityDisplayField,
+  overlay: { readonly centrePc: { readonly x: number; readonly y: number }; readonly radiusPc: number; readonly shape: FootprintShape } | null,
+): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = '#05050a';
+  ctx.fillRect(0, 0, w, h);
+
+  const { norm, res, centrePc, halfWidthPc } = field;
   const pcToPx = w / (2 * halfWidthPc);
   for (let iy = 0; iy < res.ny; iy++) {
     for (let ix = 0; ix < res.nx; ix++) {
@@ -206,21 +259,37 @@ function renderDensityCanvas(
   }
 
   if (overlay) {
+    const offsetX = overlay.centrePc.x - centrePc.x, offsetY = overlay.centrePc.y - centrePc.y;
     const pts = boundaryPointsPc(overlay.radiusPc, overlay.shape);
     ctx.strokeStyle = '#e0b25a';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     pts.forEach((p, i) => {
-      const px = w / 2 + p.x * pcToPx, py = h / 2 - p.y * pcToPx;
+      const px = w / 2 + (p.x + offsetX) * pcToPx, py = h / 2 - (p.y + offsetY) * pcToPx;
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     });
     ctx.stroke();
-    // Centre marker.
+    // Centre marker - fixed pixel radius regardless of `overlay.radiusPc`,
+    // so a sector far too small to show its own boundary at this zoom
+    // (routine on the galaxy overview - a 25pc sector against a 20 000pc
+    // half-width view) still marks WHERE it is.
     ctx.fillStyle = '#e0b25a';
     ctx.beginPath();
-    ctx.arc(w / 2, h / 2, 2.5, 0, 2 * Math.PI);
+    ctx.arc(w / 2 + offsetX * pcToPx, h / 2 - offsetY * pcToPx, 2.5, 0, 2 * Math.PI);
     ctx.fill();
   }
+}
+
+/** Convenience wrapper for a one-shot render (no caching) - Screen 1's own
+ *  canvas, and anywhere else that computes and paints in one step. */
+function renderDensityCanvas(
+  canvas: HTMLCanvasElement, model: GalaxyModel,
+  centrePc: { x: number; y: number; z: number }, halfWidthPc: number, thicknessPc: number,
+  overlay: { readonly radiusPc: number; readonly shape: FootprintShape } | null,
+  res?: { nx: number; ny: number },
+): void {
+  const field = computeDensityDisplayField(model, centrePc, halfWidthPc, thicknessPc, res);
+  paintDensityField(canvas, field, overlay ? { centrePc, radiusPc: overlay.radiusPc, shape: overlay.shape } : null);
 }
 
 /**
@@ -318,6 +387,15 @@ export class GalaxyScreen1Modal extends Modal {
   private draft: Screen1Draft;
   private canvas!: HTMLCanvasElement;
 
+  /** Cache key = whatever `modelFromDraft` actually reads (morphology,
+   *  size step, bulge type) - NOT terraforming or the seed, neither of
+   *  which affects the density field at all. Without this, dragging either
+   *  terraforming slider recomputed the full galaxy-overview field on every
+   *  tick for no visible reason (a pre-existing waste this session's own
+   *  resolution bump would otherwise have made noticeably more expensive). */
+  private cachedFieldKey: string | null = null;
+  private cachedField: DensityDisplayField | null = null;
+
   /**
    * `settings`/`onSettingsChange` (16 Aug 2026) are a plain data + callback
    * pair, not the whole `StarForgePlugin` instance - this modal only ever
@@ -328,7 +406,22 @@ export class GalaxyScreen1Modal extends Modal {
    */
   constructor(app: App, private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void) {
     super(app);
-    this.draft = defaultScreen1Draft({ worldSeed: settings.lastWorldSeed, terraformScale: settings.defaultTerraformScale });
+    this.draft = defaultScreen1Draft({
+      worldSeed: settings.lastWorldSeed,
+      terraformScale: settings.defaultTerraformScale,
+      terraformIntensity: settings.defaultTerraformIntensity,
+    });
+  }
+
+  private fieldForCurrentDraft(model: GalaxyModel): DensityDisplayField {
+    const key = `${this.draft.morphology}:${this.draft.sizeStepIndex}:${this.draft.lenticularBulgeType}`;
+    if (this.cachedFieldKey !== key || !this.cachedField) {
+      this.cachedField = computeDensityDisplayField(
+        model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_PC, GALAXY_OVERVIEW_THICKNESS_PC, GALAXY_OVERVIEW_RES,
+      );
+      this.cachedFieldKey = key;
+    }
+    return this.cachedField;
   }
 
   onOpen(): void {
@@ -367,15 +460,22 @@ export class GalaxyScreen1Modal extends Modal {
           .setValue(this.draft.lenticularBulgeType)
           .onChange((v) => { this.draft = { ...this.draft, lenticularBulgeType: v as 'composite' | 'classical' }; }));
     }
-    new Setting(contentEl).setName('Terraforming prevalence').setDesc(`${this.draft.terraformScale} / 6`)
+    // Two independent dials (16 Aug 2026, a user-found gap): a single
+    // "prevalence" slider conflated HOW MANY worlds get terraformed with
+    // HOW FAR each one has progressed - see `terraforming.ts`'s own header
+    // for why one number could not carry both questions honestly.
+    new Setting(contentEl).setName('Terraforming coverage').setDesc(`${this.draft.terraformScale} / 6 - how many worlds get selected`)
       .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.draft.terraformScale).setDynamicTooltip()
         .onChange((v) => { this.draft = { ...this.draft, terraformScale: v }; this.render(); }));
+    new Setting(contentEl).setName('Terraforming intensity').setDesc(`${this.draft.terraformIntensity} / 6 - how far a selected world has progressed`)
+      .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.draft.terraformIntensity).setDynamicTooltip()
+        .onChange((v) => { this.draft = { ...this.draft, terraformIntensity: v }; this.render(); }));
 
     this.canvas = contentEl.createEl('canvas', { attr: { width: '360', height: '360' } });
     this.canvas.style.display = 'block';
     this.canvas.style.margin = '12px auto';
     const model = modelFromDraft(this.draft);
-    renderDensityCanvas(this.canvas, model, { x: 0, y: 0, z: 0 }, 20000, 4000, null);
+    paintDensityField(this.canvas, this.fieldForCurrentDraft(model), null);
 
     const nav = contentEl.createDiv();
     nav.createEl('span');
@@ -386,7 +486,10 @@ export class GalaxyScreen1Modal extends Modal {
       // pre-fills the seed that made your last galaxy, so you can find it
       // again after an Obsidian restart), and "Randomise" is right there
       // if a fresh one is wanted instead.
-      this.onSettingsChange({ ...this.settings, lastWorldSeed: seed, defaultTerraformScale: this.draft.terraformScale });
+      this.onSettingsChange({
+        ...this.settings, lastWorldSeed: seed,
+        defaultTerraformScale: this.draft.terraformScale, defaultTerraformIntensity: this.draft.terraformIntensity,
+      });
       this.close();
       new GalaxyScreen2Modal(this.app, { ...this.draft, worldSeed: seed }, this.settings, this.onSettingsChange).open();
     };
@@ -401,6 +504,16 @@ export class GalaxyScreen2Modal extends Modal {
   private topDownCanvas!: HTMLCanvasElement;
   private sideOnCanvas!: HTMLCanvasElement;
 
+  /** The whole-galaxy field for the top-down view (16 Aug 2026) - computed
+   *  ONCE in `onOpen`, never per-render. `this.model` is fixed for this
+   *  modal's whole lifetime (set once in the constructor, from `screen1`),
+   *  and NOTHING on this screen's own draft (angle/R/z/shape/size/density)
+   *  changes the model - every one of those only moves where the sector
+   *  OVERLAY sits on this same fixed picture (the fix for "the top-down
+   *  view doesn't look anything like screen 1's" - it should be, and now
+   *  is, the identical galaxy-wide view, with the sector marked on it). */
+  private galaxyOverview!: DensityDisplayField;
+
   /** `settings`/`onSettingsChange` carried through purely so the "← Back"
    *  button can reconstruct `GalaxyScreen1Modal` faithfully - this screen
    *  never reads or changes them itself. */
@@ -414,6 +527,9 @@ export class GalaxyScreen2Modal extends Modal {
 
   onOpen(): void {
     this.titleEl.setText('Create a Galaxy - Sector Centre');
+    this.galaxyOverview = computeDensityDisplayField(
+      this.model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_PC, GALAXY_OVERVIEW_THICKNESS_PC, GALAXY_OVERVIEW_RES,
+    );
     this.draft = reconcileSizeFields(this.model, this.draft);
     this.render();
   }
@@ -432,7 +548,10 @@ export class GalaxyScreen2Modal extends Modal {
     this.topDownCanvas = contentEl.createEl('canvas', { attr: { width: '400', height: '400' } });
     this.topDownCanvas.style.display = 'block';
     this.topDownCanvas.style.margin = '8px auto';
-    renderDensityCanvas(this.topDownCanvas, this.model, centre, Math.max(this.draft.sizeInPc * 4, 500), thickness, { radiusPc: this.draft.sizeInPc, shape: this.draft.footprintShape });
+    // The cached whole-galaxy field, repainted (cheap - no resampling) with
+    // the sector overlay at its ACTUAL world position every time the draft
+    // changes - see `galaxyOverview`'s own doc comment.
+    paintDensityField(this.topDownCanvas, this.galaxyOverview, { centrePc: centre, radiusPc: this.draft.sizeInPc, shape: this.draft.footprintShape });
 
     this.sideOnCanvas = contentEl.createEl('canvas', { attr: { width: '400', height: '80' } });
     this.sideOnCanvas.style.display = 'block';
@@ -490,7 +609,10 @@ export class GalaxyScreen2Modal extends Modal {
   private runSearch(): void {
     const origin = centrePcFromPolar(this.draft);
     const criteria = assembleSearchCriteria(this.draft);
-    const result = searchNearestSystem(this.screen1.worldSeed, this.model, 2, this.screen1.terraformScale, origin, criteria, Math.max(this.draft.sizeInPc * 20, 2000));
+    const result = searchNearestSystem(
+      this.screen1.worldSeed, this.model, CURRENT_GEN_VERSION, this.screen1.terraformScale, this.screen1.terraformIntensity,
+      origin, criteria, Math.max(this.draft.sizeInPc * 20, 2000),
+    );
     if (!result.found) {
       new Notice(`No matching system found within the search radius - try widening your criteria.`);
       return;
@@ -599,7 +721,8 @@ export class GalaxyScreen3Modal extends Modal {
       if (!populationMeta) continue;
       const inputs: GenerateSystemInputs = {
         sysid: s.sysid, genVersion: CURRENT_GEN_VERSION, worldSeed: this.screen1.worldSeed, positionPc: s.positionPc,
-        population: s.population, populationMeta, formationRank: s.formationRank, terraformScale: this.screen1.terraformScale,
+        population: s.population, populationMeta, formationRank: s.formationRank,
+        terraformScale: this.screen1.terraformScale, terraformIntensity: this.screen1.terraformIntensity,
         conatal: m.conatal,
       };
       // Full conductor runs here (screen 3's own preview deliberately never

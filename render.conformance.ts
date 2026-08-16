@@ -91,7 +91,7 @@ const oldThinPop = SPIRAL_POPULATIONS.find((p) => p.key === 'oldThin')!;
 const coreInputs: GenerateSystemInputs = {
   sysid: '817.0.0.3', genVersion: 3, worldSeed: 'render-gate-seed',
   positionPc: { x: 8180, y: 5, z: -2 }, population: 'oldThin', populationMeta: oldThinPop,
-  formationRank: 0.42, terraformScale: 3,
+  formationRank: 0.42, terraformScale: 3, terraformIntensity: 3,
 };
 const CORE = generateSystemCore(coreInputs);
 const SYSTEM_WITH_CORE: RenderSystemInput = { ...SYSTEM, core: CORE };

@@ -22,7 +22,7 @@ function makeInputs(sysid: string, pop: Population, overrides: Partial<GenerateS
     sysid, genVersion: 2, worldSeed: 'conductor-gate-seed',
     positionPc: { x: 8100 + sysid.length, y: 40, z: 12 },
     population: pop.key, populationMeta: pop, formationRank: 0.5,
-    terraformScale: 3,
+    terraformScale: 3, terraformIntensity: 3,
     ...overrides,
   };
 }
@@ -55,7 +55,7 @@ const cores = TEST_SYSIDS.map((sysid, i) => {
   return generateSystemCore(makeInputs(sysid, pop, {
     formationRank,
     positionPc: { x: 8000 + i * 37, y: (i * 53) % 500 - 250, z: (i * 13) % 200 - 100 },
-    terraformScale: i % 7,
+    terraformScale: i % 7, terraformIntensity: (i * 3) % 7,
   }));
 });
 

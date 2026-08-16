@@ -420,6 +420,41 @@ export function normaliseForDisplay(
 export const ARM_DISPLAY_FADE_SCALE_LENGTHS = 5;
 
 /**
+ * Contrast-boost exponent applied to a cell's deviation from its own ring
+ * mean, BEFORE the percentile stretch (16 Aug 2026, a user-found gap: "never
+ * more than 2 spirals" on a table that names 5). `tunable`, display-only -
+ * `spiralArms.ts`'s own weight table (major arms 1.00, minor 0.55, spur
+ * 0.35, each ALSO diluted by which disc populations even see them -
+ * `oldThin` sees major only, `midThin` adds minor, `youngThin` alone adds
+ * the spur) makes the SUMMED field's major-arm signal roughly 7-8x the
+ * spur's and roughly 2-3x a minor arm's at the reference radius (checked
+ * numerically against `spiralArms.ARMS`/`DEFAULT_ARM_RESPONSE` while
+ * diagnosing this report). A single global percentile stretch, run on the
+ * raw ratio-to-ring-mean, necessarily calibrates its [0,1] range to that
+ * dominant major-arm swing, which crushes the minor/spur signal to a band
+ * too narrow for the stipple renderer's dot-count mapping to resolve as a
+ * SEPARATE visible track - not a rendering-resolution bug (verified
+ * separately, see the grid-resolution bump alongside this fix), an
+ * amplitude one.
+ *
+ * The fix is a standard tone-mapping move, not a new invention: boost a
+ * SMALL deviation from the ring mean proportionally MORE than a large one,
+ * via `sign(dev) * |dev|^GAMMA` with `GAMMA < 1`, before the existing
+ * percentile stretch runs. This still derives every visible pixel from the
+ * real field - nothing is invented that is not there (gate 11 still holds:
+ * on a radially symmetric field every deviation is exactly 0, and 0 raised
+ * to any power is still 0, so a field with no azimuthal structure still
+ * shows none) - it only compresses the RATIO between a strong feature and a
+ * weak one, the same honest trade a photograph's tone curve makes between
+ * a bright sky and a dim foreground. 0.6 was chosen empirically (see the
+ * session's own diagnostic script): it roughly halves the major:spur
+ * amplitude ratio (about 7:1 down to about 3:1) without inflating a spur
+ * into looking as strong as a major arm, which would misrepresent the
+ * calibrated arm-weight table this module owns no science over.
+ */
+const ARM_DISPLAY_CONTRAST_GAMMA = 0.6;
+
+/**
  * Display normalisation FOR SPIRAL/BARRED MORPHOLOGIES ONLY (16 Aug 2026,
  * ported from a sibling build's own `emphasiseArmsForDisplay`) - closes a
  * real bug a user found: `normaliseForDisplay`'s global log min-max
@@ -490,7 +525,15 @@ export function emphasiseArmsForDisplay(
       const r0 = Math.min(nRing, Math.floor(rf));
       const frac = rf - r0;
       const rm = (1 - frac) * mean[r0]! + frac * mean[Math.min(nRing, r0 + 1)]!;
-      rel[i] = rm > 0 ? values[i]! / rm : 1;
+      const ratio = rm > 0 ? values[i]! / rm : 1;
+      // Contrast-boost the DEVIATION from the ring mean, not the ratio
+      // itself - see ARM_DISPLAY_CONTRAST_GAMMA's own doc comment. A cell
+      // exactly at its ring mean (dev = 0) is unaffected regardless of
+      // gamma, which is what keeps gate 11 (no manufactured structure on a
+      // radially symmetric field) true unconditionally.
+      const dev = ratio - 1;
+      const boosted = dev === 0 ? 0 : Math.sign(dev) * Math.pow(Math.abs(dev), ARM_DISPLAY_CONTRAST_GAMMA);
+      rel[i] = 1 + boosted;
       if (fadeAt(R) > 0) lit.push(rel[i]!);
     }
   }

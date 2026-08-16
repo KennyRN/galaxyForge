@@ -84,6 +84,7 @@ const WORLD_SEED = 'golden-master-reference-seed-v1';
 const CONST_UPSILON = 0.7;   // a fixed, plausible stand-in - this fixture does not test upsilonFor's own value
 const upsilonFor = (_p: Population) => CONST_UPSILON;
 const TERRAFORM_SCALE = 3;
+const TERRAFORM_INTENSITY = 3;   // paired with TERRAFORM_SCALE, 16 Aug 2026
 
 interface MorphologyFixture {
   readonly name: string;
@@ -171,7 +172,7 @@ function generateSystemCoreSample(model: GalaxyModel, placed: readonly PlacedSys
     const inputs: GenerateSystemInputs = {
       sysid: s.sysid, genVersion: CURRENT_GEN_VERSION, worldSeed: WORLD_SEED,
       positionPc: s.positionPc, population: s.population, populationMeta: findPop(model, s.population),
-      formationRank: s.formationRank, terraformScale: TERRAFORM_SCALE,
+      formationRank: s.formationRank, terraformScale: TERRAFORM_SCALE, terraformIntensity: TERRAFORM_INTENSITY,
     };
     return generateSystemCore(inputs);
   });
