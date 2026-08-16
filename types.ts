@@ -518,6 +518,14 @@ export const CHANNELS = {
    *  already-placed system's fine position - the same isolation reasoning
    *  as `remnantPlacement`/`conatalGroup`. */
   complexField: 'complexField',
+  /** `spiralArms.generateSeededArms` (16 Aug 2026) - a Tier G, "rolled once
+   *  at galaxy creation" draw (`types.ts`'s own `SectorRecipe.galaxyMassSol`
+   *  comment already names this pattern), producing a per-worldSeed arm
+   *  geometry table for generic 'spiral'/'barredSpiral' choices. Isolated
+   *  from every other channel because it decides galaxy SHAPE, not any one
+   *  system's content - the same reasoning `complexField`'s own comment
+   *  gives for its isolation. */
+  seededArms: 'seededArms',
   planets: 'planets',
   belts: 'belts',
   rotation: (starIndex: number) => `rotation:${starIndex}`,

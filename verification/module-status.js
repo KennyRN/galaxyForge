@@ -55,7 +55,7 @@ const CONCERNS = {
   terraforming:       ['deliberate agency - separate from biosphere by ruling', ['terraforming']],
   humanHabitability:  ['HabTier and support level', []],
   metallicity:        ['[Fe/H] draw, coupled to formationRank opposite age.ts (15 Aug 2026)', ['metallicity']],
-  spiralArms:         ['named-arm log-spiral density modulation, patch v2.3 (15 Aug 2026)', []],
+  spiralArms:         ['named-arm log-spiral density modulation, patch v2.3 (15 Aug 2026); generateSeededArms (16 Aug 2026)', ['seededArms']],
   galaxyParameters:   ['Tier G parameter block, patch v2.3 (15 Aug 2026)', []],
   starFormingComplexes: ['complexTier meso-scale density boost, patch v2.3 (15 Aug 2026)', ['complexField']],
   systemConductor:    ['generates one complete SystemCore end to end (15 Aug 2026)', []],

@@ -48,9 +48,11 @@
 
 import { Modal, Setting, Notice, type App } from 'obsidian';
 import { createSpiralModel, createEllipticalModel, createLenticularModel, type GalaxyModel } from './galaxyModel';
-import { upsilonFor } from './galacticDensity';
+import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
 import { fieldFromModel, projectSlab, sampleVolume, normaliseForDisplay, emphasiseArmsForDisplay, type SlabRegionPc, type VolumeRegionPc } from './densityMap';
-import { DEFAULT_JURIC } from './galaxyParameters';
+import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
+import { generateSeededArms } from './spiralArms';
+import { complexParticipation, complexCellsOverlapping, complexCentresInCell, type ComplexCentre } from './starFormingComplexes';
 import { generateSector, assembleSector } from './sectorFootprint';
 import { searchNearestSystem } from './sectorSearch';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
@@ -122,15 +124,125 @@ const MORPHOLOGY_LABELS: Readonly<Record<MorphologyChoice, string>> = {
   lenticular: 'Lenticular', elliptical: 'Elliptical', barredSpiral: 'Barred', spiral: 'Spiral', milkyWayAnalogue: 'Milky Way Analogue',
 };
 
-/** Builds the real `GalaxyModel` a draft resolves to - the ONE place a
- *  morphology choice becomes an actual model, so screens never build one
- *  independently and risk disagreeing (Law 1). */
-function modelFromDraft(d: Screen1Draft): GalaxyModel {
+/** `modelFromDraft`'s own result - the model AND the params that built it,
+ *  since a caller now genuinely needs both (the model to sample density,
+ *  `params.complexTier`/`worldSeed` to also preview the complex-tier clump
+ *  overlay - see `complexCentresForOverview`). */
+interface DraftModel {
+  readonly model: GalaxyModel;
+  readonly params: GalaxyParameters;
+}
+
+/**
+ * Builds the real `GalaxyModel` a draft resolves to - the ONE place a
+ * morphology choice becomes an actual model, so screens never build one
+ * independently and risk disagreeing (Law 1).
+ *
+ * SEEDED ARMS (16 Aug 2026, a user-found gap): "Milky Way Analogue" keeps
+ * the REAL Reid et al. 2019 arm table (`makeDefaultGalaxyParameters`'s own
+ * default) - it is explicitly meant to model the actual galaxy, so its
+ * shape should not vary by seed. Plain "Spiral"/"Barred" now call
+ * `generateSeededArms(d.worldSeed)` instead - previously EVERY spiral
+ * -family choice used the identical fixed real-arm geometry regardless of
+ * seed, so "Randomise" only ever changed which stars populated a fixed
+ * shape, never the shape itself. See `spiralArms.generateSeededArms`'s own
+ * header for the full design.
+ */
+function modelFromDraft(d: Screen1Draft): DraftModel {
   const name = resolveModelName(d.morphology);
   const sizeValue = sizeValueFor(d.morphology, d.sizeStepIndex);
-  if (name === 'spiral' || name === 'barredSpiral') return createSpiralModel(resolveBarEnabled(d.morphology));
-  if (name === 'elliptical') return createEllipticalModel(sizeValue, upsilonFor);
-  return createLenticularModel(sizeValue, upsilonFor, d.lenticularBulgeType);
+  if (name === 'spiral' || name === 'barredSpiral') {
+    const isRealMilkyWay = d.morphology === 'milkyWayAnalogue';
+    const params = isRealMilkyWay
+      ? makeDefaultGalaxyParameters(d.worldSeed)
+      : makeDefaultGalaxyParameters(d.worldSeed, generateSeededArms(d.worldSeed), 'seeded');
+    return { model: createSpiralModel(resolveBarEnabled(d.morphology), params), params };
+  }
+  const params = makeDefaultGalaxyParameters(d.worldSeed);
+  if (name === 'elliptical') return { model: createEllipticalModel(sizeValue, upsilonFor, params), params };
+  return { model: createLenticularModel(sizeValue, upsilonFor, d.lenticularBulgeType, params), params };
+}
+
+/**
+ * Complex-tier clump positions for the preview (16 Aug 2026, closing a real
+ * promise: the "updated arm-creation method" (`starFormingComplexes.ts`'s
+ * own seeded Poisson hierarchy, already wired into REAL generation via
+ * `sectorFootprint.assembleSector`) was meant to account for clusters/
+ * bright patches on the arms, but this GUI's own preview only ever painted
+ * the smooth continuous field - the real mechanism existed and ran on
+ * every actual "Generate Sector" commit, it just never reached what the
+ * user could SEE beforehand. This draws the REAL complex centres - same
+ * worldSeed, same positions eventual sector generation will actually place
+ * - as small bright clumps layered on the smooth stipple, not invented
+ * decoration.
+ *
+ * DELIBERATE PREVIEW SIMPLIFICATIONS, stated rather than hidden - a
+ * REAL sector's own complex layer places actual, individually-legible
+ * complexes because a sector spans tens to hundreds of pc; the whole
+ * GALAXY spans tens of THOUSANDS of pc, so the real complex population
+ * over that whole area is genuinely enormous (this session's own
+ * diagnostic script measured ~90 000 real complex centres for one typical
+ * seed at the real pipeline's own density) - individually rendering that
+ * many is neither legible (each one is far sub-pixel at this zoom, same
+ * reasoning as the bar's own core scale) nor affordable. So this overlay
+ * is a deliberately THINNED, representative sample of the real seeded
+ * positions, not the true population:
+ *  - `cellMeanSubGridN` is coarsened to `PREVIEW_COMPLEX_SUBGRID_N` (4, vs
+ *    the real pipeline's default 32) and `cellSizePc` widened to
+ *    `PREVIEW_COMPLEX_CELL_SIZE_PC` (3000, vs the real default 1200) - both
+ *    purely computational-budget choices; the quadrature accuracy and fine
+ *    cell binning real generation needs are wasted precision for a few
+ *    hundred on-screen pixels.
+ *  - `youngSurfaceAt` is scaled by `PREVIEW_COMPLEX_SURFACE_SCALE`, a
+ *    DIMENSIONLESS render-budget knob, not a physical slab thickness (the
+ *    galaxy-wide overview has no single real thickness to represent - a
+ *    sector's own generation reads its own actual chosen thickness at
+ *    commit time, completely independently of this preview). Tuned
+ *    empirically (this session's own diagnostic script) to land in the low
+ *    hundreds of complex centres across a typical seed's whole visible
+ *    disc - enough to read as genuine patchy structure along the arms,
+ *    far short of the real population, honestly a SAMPLE rather than a
+ *    census.
+ *  - each centre is drawn as a small FIXED-PIXEL-RADIUS cluster, not
+ *    `sigmaPc` projected to true scale - at a whole-galaxy zoom a genuine
+ *    150 pc complex is sub-pixel, so a literal projection would be
+ *    invisible. Same "legible, not literal" principle the stipple density
+ *    mapping already uses elsewhere in this file (the quadratic dot-count
+ *    curve, the jittered scatter).
+ *  - `MAX_PREVIEW_CLUMPS` is a hard safety cap (deterministic stride
+ *    -thinning, not a random drop) for whatever seed/morphology combination
+ *    produces an unusually high `complexParticipation` - render cost stays
+ *    bounded regardless of how the underlying science happens to weight a
+ *    given population.
+ */
+const PREVIEW_COMPLEX_SUBGRID_N = 4;
+const PREVIEW_COMPLEX_CELL_SIZE_PC = 3000;
+const PREVIEW_COMPLEX_SURFACE_SCALE = 0.05;
+const MAX_PREVIEW_CLUMPS = 900;
+
+function complexCentresForOverview(
+  model: GalaxyModel, worldSeed: string, complexTier: ComplexTierParams,
+  centrePc: { readonly x: number; readonly y: number; readonly z: number }, radiusPc: number,
+): readonly ComplexCentre[] {
+  const youngPop = model.populations.find((p) => p.key === 'youngThin');
+  if (!youngPop) return [];   // elliptical/lenticular/thick/halo-only morphologies: no young disc, no complexes
+  const w = complexParticipation(youngPop, complexTier);
+  if (!(w > 0)) return [];
+  const preview: ComplexTierParams = {
+    ...complexTier, cellMeanSubGridN: PREVIEW_COMPLEX_SUBGRID_N, cellSizePc: PREVIEW_COMPLEX_CELL_SIZE_PC,
+  };
+  const youngSurfaceAt = (x: number, y: number): number => {
+    const d = densityByPopulationAtCartesian(model, x, y, 0);
+    return PREVIEW_COMPLEX_SURFACE_SCALE * (d.youngThin ?? 0);
+  };
+  const guardPc = preview.guardBandSigma * preview.sigmaComplexPc;
+  const cells = complexCellsOverlapping(centrePc.x, centrePc.y, radiusPc, preview.cellSizePc, guardPc, youngSurfaceAt, preview.cellMeanSubGridN);
+  const meanSystemsPerGroup = youngPop.meanGroupSize ?? 12;
+  const out: ComplexCentre[] = [];
+  for (const cell of cells) out.push(...complexCentresInCell(cell, worldSeed, w, youngSurfaceAt, preview, meanSystemsPerGroup));
+  if (out.length <= MAX_PREVIEW_CLUMPS) return out;
+  const stride = Math.ceil(out.length / MAX_PREVIEW_CLUMPS);
+  return out.filter((_, i) => i % stride === 0);
 }
 
 /* ------------------------------- shared canvas rendering ------------------------ */
@@ -185,21 +297,32 @@ const GALAXY_OVERVIEW_RES = { nx: 200, ny: 200 };
 
 /** The reduced-and-display-scaled field a canvas is painted from, computed
  *  once and reusable across repaints (the overlay alone changes far more
- *  often than the field itself does). */
+ *  often than the field itself does). `complexCentres` (16 Aug 2026) rides
+ *  along on the same cache - it is exactly as expensive to recompute as
+ *  the smooth field itself and depends on the same (model, worldSeed,
+ *  region) inputs, so caching one without the other would just move the
+ *  waste rather than remove it. */
 interface DensityDisplayField {
   readonly norm: Float64Array;
   readonly res: { nx: number; ny: number };
   readonly centrePc: { x: number; y: number; z: number };
   readonly halfWidthPc: number;
+  readonly complexCentres: readonly ComplexCentre[];
 }
 
 /** Samples and display-scales a model's density field over a square region
  *  - the expensive half of what used to be `renderDensityCanvas` alone,
  *  split out so a caller whose region never changes (Screen 2's galaxy
- *  overview) can compute it once and only repaint. */
+ *  overview) can compute it once and only repaint. `complexOverlay` (16 Aug
+ *  2026), when supplied, also computes the real seeded complex-tier clump
+ *  positions for the same region - see `complexCentresForOverview`'s own
+ *  header. Omitted entirely for callers that do not want it (Screen 3's
+ *  position-only preview uses its own separate renderer and never reaches
+ *  this at all). */
 function computeDensityDisplayField(
   model: GalaxyModel, centrePc: { x: number; y: number; z: number },
   halfWidthPc: number, thicknessPc: number, res: { nx: number; ny: number } = { nx: 80, ny: 80 },
+  complexOverlay?: { readonly worldSeed: string; readonly complexTier: ComplexTierParams },
 ): DensityDisplayField {
   const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
   const surface = projectSlab(fieldFromModel(model), region, res);
@@ -213,7 +336,10 @@ function computeDensityDisplayField(
   const norm = isSpiralLike
     ? emphasiseArmsForDisplay(surface.values, res.nx, res.ny, halfWidthPc, DEFAULT_JURIC.lThin, 1)
     : normaliseForDisplay(surface.values, { log: true });
-  return { norm, res, centrePc, halfWidthPc };
+  const complexCentres = complexOverlay
+    ? complexCentresForOverview(model, complexOverlay.worldSeed, complexOverlay.complexTier, centrePc, halfWidthPc)
+    : [];
+  return { norm, res, centrePc, halfWidthPc, complexCentres };
 }
 
 /** Renders a precomputed field as a textured scatter (importance-sampled
@@ -237,7 +363,7 @@ function paintDensityField(
   ctx.fillStyle = '#05050a';
   ctx.fillRect(0, 0, w, h);
 
-  const { norm, res, centrePc, halfWidthPc } = field;
+  const { norm, res, centrePc, halfWidthPc, complexCentres } = field;
   const pcToPx = w / (2 * halfWidthPc);
   for (let iy = 0; iy < res.ny; iy++) {
     for (let ix = 0; ix < res.nx; ix++) {
@@ -255,6 +381,24 @@ function paintDensityField(
         ctx.fillStyle = `rgba(205,215,255,${alpha.toFixed(2)})`;
         ctx.fillRect(jx, jy, 1, 1);
       }
+    }
+  }
+
+  // Complex-tier clumps (16 Aug 2026) - the REAL seeded star-forming-complex
+  // positions (`complexCentresForOverview`), drawn as small bright clusters
+  // on top of the smooth stipple above, patchy rather than a uniform band.
+  // See that function's own header for why the visual size here is a fixed
+  // pixel radius rather than a literal projection of `sigmaPc`.
+  for (const c of complexCentres) {
+    const px = w / 2 + (c.x - centrePc.x) * pcToPx, py = h / 2 - (c.y - centrePc.y) * pcToPx;
+    if (px < -8 || px > w + 8 || py < -8 || py > h + 8) continue;   // off-canvas, skip
+    const nDots = 8 + Math.floor(Math.random() * 10);
+    for (let k = 0; k < nDots; k++) {
+      const ang = Math.random() * 2 * Math.PI, r = Math.random() * 3.2;
+      const jx = px + Math.cos(ang) * r, jy = py + Math.sin(ang) * r;
+      const alpha = 0.4 + 0.5 * Math.random();
+      ctx.fillStyle = `rgba(230,238,255,${alpha.toFixed(2)})`;
+      ctx.fillRect(jx, jy, 1, 1);
     }
   }
 
@@ -280,15 +424,16 @@ function paintDensityField(
   }
 }
 
-/** Convenience wrapper for a one-shot render (no caching) - Screen 1's own
- *  canvas, and anywhere else that computes and paints in one step. */
+/** Convenience wrapper for a one-shot render (no caching) - anywhere that
+ *  computes and paints in one step. */
 function renderDensityCanvas(
   canvas: HTMLCanvasElement, model: GalaxyModel,
   centrePc: { x: number; y: number; z: number }, halfWidthPc: number, thicknessPc: number,
   overlay: { readonly radiusPc: number; readonly shape: FootprintShape } | null,
   res?: { nx: number; ny: number },
+  complexOverlay?: { readonly worldSeed: string; readonly complexTier: ComplexTierParams },
 ): void {
-  const field = computeDensityDisplayField(model, centrePc, halfWidthPc, thicknessPc, res);
+  const field = computeDensityDisplayField(model, centrePc, halfWidthPc, thicknessPc, res, complexOverlay);
   paintDensityField(canvas, field, overlay ? { centrePc, radiusPc: overlay.radiusPc, shape: overlay.shape } : null);
 }
 
@@ -387,14 +532,21 @@ export class GalaxyScreen1Modal extends Modal {
   private draft: Screen1Draft;
   private canvas!: HTMLCanvasElement;
 
-  /** Cache key = whatever `modelFromDraft` actually reads (morphology,
-   *  size step, bulge type) - NOT terraforming or the seed, neither of
-   *  which affects the density field at all. Without this, dragging either
-   *  terraforming slider recomputed the full galaxy-overview field on every
-   *  tick for no visible reason (a pre-existing waste this session's own
-   *  resolution bump would otherwise have made noticeably more expensive). */
+  /** Cache key = whatever `modelFromDraft` actually reads (morphology, size
+   *  step, bulge type, AND worldSeed - seeded arms (16 Aug 2026) mean the
+   *  seed now genuinely changes a spiral/barred galaxy's own SHAPE, not
+   *  just its placement, so it belongs in the key too now) - NOT
+   *  terraforming, which affects nothing about the density field. Without
+   *  this, dragging either terraforming slider recomputed the full
+   *  galaxy-overview field on every tick for no visible reason (a
+   *  pre-existing waste this session's own resolution bump would otherwise
+   *  have made noticeably more expensive). */
   private cachedFieldKey: string | null = null;
   private cachedField: DensityDisplayField | null = null;
+  /** Debounce handle for the seed TEXT field's own preview refresh - see
+   *  the `addText` handler below for why this does NOT call `this.render()`
+   *  directly. */
+  private seedRefreshTimer: number | null = null;
 
   /**
    * `settings`/`onSettingsChange` (16 Aug 2026) are a plain data + callback
@@ -413,11 +565,12 @@ export class GalaxyScreen1Modal extends Modal {
     });
   }
 
-  private fieldForCurrentDraft(model: GalaxyModel): DensityDisplayField {
-    const key = `${this.draft.morphology}:${this.draft.sizeStepIndex}:${this.draft.lenticularBulgeType}`;
+  private fieldForCurrentDraft(model: GalaxyModel, params: GalaxyParameters): DensityDisplayField {
+    const key = `${this.draft.morphology}:${this.draft.sizeStepIndex}:${this.draft.lenticularBulgeType}:${this.draft.worldSeed}`;
     if (this.cachedFieldKey !== key || !this.cachedField) {
       this.cachedField = computeDensityDisplayField(
         model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_PC, GALAXY_OVERVIEW_THICKNESS_PC, GALAXY_OVERVIEW_RES,
+        { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
       );
       this.cachedFieldKey = key;
     }
@@ -446,7 +599,20 @@ export class GalaxyScreen1Modal extends Modal {
 
     new Setting(contentEl).setName('Seed')
       .addText((t) => t.setValue(this.draft.worldSeed).setPlaceholder('(random)')
-        .onChange((v) => { this.draft = { ...this.draft, worldSeed: v }; }))
+        .onChange((v) => {
+          this.draft = { ...this.draft, worldSeed: v };
+          // NOT this.render() - that would rebuild this very text input on
+          // every keystroke (contentEl.empty() + rebuild), stealing focus
+          // and the cursor position while typing. Since seeded arms (16 Aug
+          // 2026) mean the typed seed now genuinely changes the preview,
+          // debounce a canvas-only repaint instead of ignoring it entirely
+          // (the prior behaviour, back when the seed never affected shape).
+          if (this.seedRefreshTimer !== null) window.clearTimeout(this.seedRefreshTimer);
+          this.seedRefreshTimer = window.setTimeout(() => {
+            const { model, params } = modelFromDraft(this.draft);
+            paintDensityField(this.canvas, this.fieldForCurrentDraft(model, params), null);
+          }, 400);
+        }))
       .addButton((b) => b.setButtonText('Randomise').onClick(() => {
         const seed = Math.random().toString(36).slice(2);
         this.draft = { ...this.draft, worldSeed: seed };
@@ -474,8 +640,8 @@ export class GalaxyScreen1Modal extends Modal {
     this.canvas = contentEl.createEl('canvas', { attr: { width: '360', height: '360' } });
     this.canvas.style.display = 'block';
     this.canvas.style.margin = '12px auto';
-    const model = modelFromDraft(this.draft);
-    paintDensityField(this.canvas, this.fieldForCurrentDraft(model), null);
+    const { model, params } = modelFromDraft(this.draft);
+    paintDensityField(this.canvas, this.fieldForCurrentDraft(model, params), null);
 
     const nav = contentEl.createDiv();
     nav.createEl('span');
@@ -517,18 +683,23 @@ export class GalaxyScreen2Modal extends Modal {
   /** `settings`/`onSettingsChange` carried through purely so the "← Back"
    *  button can reconstruct `GalaxyScreen1Modal` faithfully - this screen
    *  never reads or changes them itself. */
+  private params: GalaxyParameters;
+
   constructor(
     app: App, private readonly screen1: Screen1Draft,
     private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void,
   ) {
     super(app);
-    this.model = modelFromDraft(screen1);
+    const built = modelFromDraft(screen1);
+    this.model = built.model;
+    this.params = built.params;
   }
 
   onOpen(): void {
     this.titleEl.setText('Create a Galaxy - Sector Centre');
     this.galaxyOverview = computeDensityDisplayField(
       this.model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_PC, GALAXY_OVERVIEW_THICKNESS_PC, GALAXY_OVERVIEW_RES,
+      { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },
     );
     this.draft = reconcileSizeFields(this.model, this.draft);
     this.render();

@@ -1,7 +1,12 @@
 /**
  * spiralArms - the named-arm log-spiral density modulation, patch v2.3.
- * Channel: none (pure geometry, like `galacticDensity`'s coordinate
- * transform - a shape, not a draw).
+ * Channel: none for the REAL Milky Way table and its evaluation (`ARMS`,
+ * `armFactor`, `thetaArmRad`, ... - pure geometry, like `galacticDensity`'s
+ * coordinate transform, a shape not a draw). `CHANNELS.seededArms` (16 Aug
+ * 2026) is the one exception - `generateSeededArms` genuinely rolls a
+ * per-worldSeed arm table for morphologies that are not meant to be the
+ * real galaxy; see that function's own header for why it needs a channel
+ * at all when nothing else here does.
  *
  * -- PROVENANCE ---------------------------------------------------------------
  * ARM TABLE. Reid et al. 2019, ApJ 885, 131: five named arms (pitch angle,
@@ -89,6 +94,8 @@
  */
 
 import { besselI0e } from './mathStats';
+import { channelRng } from './rng';
+import { CHANNELS } from './types';
 
 export type ArmTier = 'major' | 'minor' | 'spur';
 export type ArmResponseSet = 'all' | 'majorMinor' | 'major' | 'none';
@@ -112,6 +119,103 @@ export const ARMS: readonly ArmDefinition[] = [
   { name: 'Perseus',            tier: 'major', pitchDeg: 12.07, RrefPc: 10470, thetaRefDeg: 0, weight: 1.00 },
   { name: 'Norma-Outer',        tier: 'minor', pitchDeg: 12.43, RrefPc: 12289, thetaRefDeg: 0, weight: 0.55 },
 ];
+
+/**
+ * `generateSeededArms` - a genuinely SEEDED arm table (16 Aug 2026),
+ * closing `galaxyParameters.ts`'s own long-declared-but-never-built
+ * `armSource: 'observed-mw' | 'seeded'` gap: a user-found one, since every
+ * worldSeed reproduced the identical real-Milky-Way arm geometry - pressing
+ * "Randomise" only ever changed which STARS populated a FIXED shape, never
+ * the shape itself.
+ *
+ * ROLLED ONCE, like `SectorRecipe.galaxyMassSol` (`types.ts`'s own comment:
+ * "rolled ONCE at creation, then stored") - this is a Tier G, per-galaxy
+ * geometry decision, not a per-cell/per-system draw, so it gets its own
+ * isolated channel (`CHANNELS.seededArms`) rather than riding an existing
+ * one, keyed on `worldSeed` alone - there is only ever ONE arm table per
+ * galaxy.
+ *
+ * DESIGN, stated honestly - `tunable`, invented for this feature, not
+ * fitted to any observed spiral-galaxy population statistic:
+ *  - ARM COUNT: 2, 3 or 4 (uniform) - real grand-design/multi-arm spirals
+ *    span this range; 5+ base arms was judged too visually busy at this
+ *    project's own preview resolution (a genuine spur can still push the
+ *    total to 5 - see below).
+ *  - PITCH ANGLE: one shared value per galaxy, uniform in [10, 22) degrees
+ *    - real spiral pitch angles span roughly 5-40 degrees across the whole
+ *    Hubble sequence; this band was chosen empirically (this session's own
+ *    diagnostic script, ASCII-rendering several candidate ranges) to avoid
+ *    both an under-wound pattern reading as barely spiral and an
+ *    over-wound one self-occluding within the visible disc. SHARED rather
+ *    than independent per arm - grand-design spirals' ridges track one
+ *    common density-wave pattern speed, which one shared pitch
+ *    approximates reasonably for a procedural table with no dynamics
+ *    model behind it.
+ *  - PHASE: one uniform [0, 360) rotation for the whole pattern, then arms
+ *    evenly spaced around it with a further independent +/-20 degree
+ *    jitter each, so the result is not perfectly, suspiciously regular.
+ *  - WEIGHT: the first two arms are 'major' (weight 1.00, matching `ARMS`'s
+ *    own convention); any further base arms are 'minor' (weight uniform in
+ *    [0.45, 0.65) - `ARMS`'s own Sagittarius-Carina/Norma-Outer both sit at
+ *    0.55, inside this band).
+ *  - SPUR: a further, independent 45% chance of ONE extra weak 'spur' arm
+ *    (weight 0.35, matching `ARMS`'s own Local arm), inserted at a random
+ *    base arm's phase offset by a random +/-(30-70) degrees and a random
+ *    +/-15% radius perturbation - a partial, off-pattern feature riding on
+ *    an existing arm, not a fifth independent one.
+ *  - RrefPc: every arm in a table shares one reference radius (the same
+ *    R0_PC anchor `galaxyModel.ts` already uses) - only pitch and phase
+ *    vary per table. Because the log-spiral's angular offset between two
+ *    arms sharing a pitch and reference radius is CONSTANT at every radius
+ *    (their `ln(R/Rref)` terms cancel identically), this alone is enough
+ *    to make every table look genuinely different - a rotated, re-wound
+ *    whole pattern - without a further free parameter this feature does
+ *    not need.
+ *
+ * NOT seeded: `armWidthPc`/`kappaOf`'s own width-vs-radius relation
+ * (`DEFAULT_ARM_WIDTH`) stays the sourced Reid form for every table, seeded
+ * or not - there is no reason to vary how SHARP an arm's edge is from one
+ * galaxy to the next, only how many arms there are and where.
+ *
+ * `'Milky Way Analogue'` (the GUI's own morphology choice, `galaxyCreation
+ * State.ts`) deliberately keeps `ARMS` (`armSource: 'observed-mw'`) rather
+ * than calling this - it is explicitly meant to model the real galaxy, so
+ * its arm geometry is exactly the one thing about it that should NOT vary
+ * by seed.
+ */
+const R0_SEEDED_REF_PC = 8178;   // matches galaxyModel.ts's own R0_PC - shared anchor, not re-derived
+
+export function generateSeededArms(worldSeed: string): readonly ArmDefinition[] {
+  const rng = channelRng(worldSeed, CHANNELS.seededArms);
+  const armCount = 2 + Math.floor(rng() * 3);   // 2, 3 or 4
+  const pitchDeg = 10 + rng() * 12;             // [10, 22)
+  const basePhaseDeg = rng() * 360;
+
+  const arms: ArmDefinition[] = [];
+  for (let i = 0; i < armCount; i++) {
+    const evenSpacingDeg = (360 / armCount) * i;
+    const jitterDeg = (rng() - 0.5) * 40;       // +/-20 deg
+    const thetaRefDeg = basePhaseDeg + evenSpacingDeg + jitterDeg;
+    const isMajor = i < 2;
+    const weight = isMajor ? 1.00 : 0.45 + rng() * 0.2;
+    arms.push({
+      name: `Seeded-${i + 1}`, tier: isMajor ? 'major' : 'minor',
+      pitchDeg, RrefPc: R0_SEEDED_REF_PC, thetaRefDeg, weight,
+    });
+  }
+
+  if (rng() < 0.45) {
+    const host = arms[Math.floor(rng() * arms.length)]!;
+    const offsetDeg = (rng() < 0.5 ? -1 : 1) * (30 + rng() * 40);   // +/-(30-70) deg
+    const radiusJitter = 1 + (rng() - 0.5) * 0.3;                    // +/-15%
+    arms.push({
+      name: 'Seeded-spur', tier: 'spur', pitchDeg,
+      RrefPc: R0_SEEDED_REF_PC * radiusJitter, thetaRefDeg: host.thetaRefDeg + offsetDeg, weight: 0.35,
+    });
+  }
+
+  return arms;
+}
 
 export interface ArmWidthParams {
   readonly refPc: number;
@@ -166,23 +270,43 @@ export function kappaOf(a: ArmDefinition, R_pc: number, w: ArmWidthParams = DEFA
   return (R * Math.sin(pitchRad)) ** 2 / (sw * sw);
 }
 
-// Precomputed once, not re-filtered on every call - `armFactor` is on the hot
-// path of every density-map render (one call per z-sample per population per
-// grid cell), and `ARMS.filter(...)` was allocating a fresh array on every
-// single one of those calls despite the result being constant for the life
-// of the process (16 Aug 2026, perf finding while diagnosing a GUI report -
-// the allocation churn was a real contributor to how expensive a high
-// -resolution preview render was, independent of the display bug it was
-// found alongside).
-const ARMS_MAJOR: readonly ArmDefinition[] = ARMS.filter((a) => a.tier === 'major');
-const ARMS_MAJOR_MINOR: readonly ArmDefinition[] = ARMS.filter((a) => a.tier === 'major' || a.tier === 'minor');
+// Filtered-by-tier subsets, memoised PER ARM TABLE rather than re-filtered on
+// every call - `armFactor` is on the hot path of every density-map render
+// (one call per z-sample per population per grid cell), and `arms.filter
+// (...)` was allocating a fresh array on every single one of those calls
+// despite the result being constant for the life of a given arm table (16
+// Aug 2026, perf finding while diagnosing a GUI report - the allocation
+// churn was a real contributor to how expensive a high-resolution preview
+// render was, independent of the display bug it was found alongside).
+//
+// KEYED BY THE ARRAY ITSELF, not a name - this module no longer has exactly
+// one arm table (`generateSeededArms` below produces a fresh one per
+// worldSeed), so a single pair of module-level constants would silently
+// answer for the WRONG table the moment a second one existed. A `WeakMap`
+// keyed on the `arms` reference gives every distinct table its own cache
+// entry, computed once and reused for as long as that reference is alive -
+// exactly the module-level-constant behaviour `ARMS` itself already got,
+// generalised rather than special-cased.
 const ARMS_NONE: readonly ArmDefinition[] = [];
+const filteredArmsCache = new WeakMap<readonly ArmDefinition[], { readonly major: ArmDefinition[]; readonly majorMinor: ArmDefinition[] }>();
 
-function armsInSet(set: ArmResponseSet): readonly ArmDefinition[] {
+function filteredArmsFor(arms: readonly ArmDefinition[]): { readonly major: ArmDefinition[]; readonly majorMinor: ArmDefinition[] } {
+  let entry = filteredArmsCache.get(arms);
+  if (!entry) {
+    entry = {
+      major: arms.filter((a) => a.tier === 'major'),
+      majorMinor: arms.filter((a) => a.tier === 'major' || a.tier === 'minor'),
+    };
+    filteredArmsCache.set(arms, entry);
+  }
+  return entry;
+}
+
+function armsInSet(set: ArmResponseSet, arms: readonly ArmDefinition[] = ARMS): readonly ArmDefinition[] {
   switch (set) {
-    case 'all': return ARMS;
-    case 'majorMinor': return ARMS_MAJOR_MINOR;
-    case 'major': return ARMS_MAJOR;
+    case 'all': return arms;
+    case 'majorMinor': return filteredArmsFor(arms).majorMinor;
+    case 'major': return filteredArmsFor(arms).major;
     case 'none': return ARMS_NONE;
   }
 }
@@ -217,10 +341,19 @@ export function armRidge(a: ArmDefinition, R_pc: number, theta_rad: number, w: A
  * ever adding them. Never clamped to a floor of 1 or 0 - `spiralArms.
  * conformance.ts` gate 7 verifies the field stays strictly positive across
  * this project's own parameter range without needing one.
+ *
+ * `arms` (16 Aug 2026) defaults to the real Milky Way table (`ARMS`) - an
+ * omitted argument reproduces every prior call site's behaviour exactly, so
+ * this is additive, not a rename. A caller with its own seeded table
+ * (`generateSeededArms`) passes it explicitly; every arithmetic step below
+ * is unchanged, it simply iterates a different table.
  */
-export function armFactor(set: ArmResponseSet, contrast: number, R_pc: number, theta_rad: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH): number {
+export function armFactor(
+  set: ArmResponseSet, contrast: number, R_pc: number, theta_rad: number,
+  w: ArmWidthParams = DEFAULT_ARM_WIDTH, arms: readonly ArmDefinition[] = ARMS,
+): number {
   let total = 0;
-  for (const a of armsInSet(set)) {
+  for (const a of armsInSet(set, arms)) {
     total += a.weight * armRidge(a, R_pc, theta_rad, w);
   }
   return 1 + contrast * total;
@@ -229,12 +362,15 @@ export function armFactor(set: ArmResponseSet, contrast: number, R_pc: number, t
 /** max(armFactor)/min(armFactor) over the full circle at fixed R - the
  *  quantity the patch's own contrast derivation solves against (Drimmel &
  *  Spergel's observed spiral-arm contrast, K ~ 1.326). `n` matches
- *  `precise_block.py`'s own sampling density. */
-export function armContrastRatio(set: ArmResponseSet, contrast: number, R_pc: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH, n = 14401): number {
+ *  `precise_block.py`'s own sampling density. `arms` - see `armFactor`. */
+export function armContrastRatio(
+  set: ArmResponseSet, contrast: number, R_pc: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH,
+  n = 14401, arms: readonly ArmDefinition[] = ARMS,
+): number {
   let max = -Infinity, min = Infinity;
   for (let i = 0; i < n; i++) {
     const theta = (2 * Math.PI * i) / n;
-    const v = armFactor(set, contrast, R_pc, theta, w);
+    const v = armFactor(set, contrast, R_pc, theta, w, arms);
     if (v > max) max = v;
     if (v < min) min = v;
   }
@@ -263,8 +399,22 @@ export const DRIMMEL_SPERGEL_K = 1.14 / 0.86;
  * Derives this module's own `oldThin`/`midThin`/`youngThin` contrast
  * constants by the patch's own target-driven procedure - see header for why
  * these are `calibrated (derived here)`, not `sourced`, and do not match
- * the patch's own stated 4-dp figures exactly. Computed once, lazily,
- * memoised (it is a root-find over a 14401-point circle sweep - not free).
+ * the patch's own stated 4-dp figures exactly. Computed once per distinct
+ * (arms, referenceRPc, w) combination, lazily, memoised (it is a root-find
+ * over a 14401-point circle sweep - not free).
+ *
+ * CACHING, REVISED 16 Aug 2026: this used to be a SINGLE module-level slot
+ * (`let cachedContrasts`), safe only because every call site in the project
+ * happened to share the same `referenceRPc`/`w`/(implicit) `ARMS` table. The
+ * moment a second, seeded arm table exists (`generateSeededArms`), that
+ * single slot would have silently served one worldSeed's contrast constants
+ * to every OTHER worldSeed's galaxy - a real correctness bug, not a
+ * hypothetical one. The cache is now keyed on the `arms` array's own
+ * identity (a `WeakMap`, so a table that goes out of scope is reclaimed
+ * normally) and, within that, on the numeric inputs - `deriveArmContrasts
+ * (8200)` still returns the IDENTICAL object on repeat calls (gate 5 in
+ * `spiralArms.conformance.ts` asserts this unchanged), it just no longer
+ * conflates two different tables' answers.
  */
 export interface ArmContrastSet {
   readonly oldThin: number;
@@ -272,12 +422,17 @@ export interface ArmContrastSet {
   readonly youngThin: number;
 }
 
-let cachedContrasts: ArmContrastSet | null = null;
+const contrastCache = new WeakMap<readonly ArmDefinition[], Map<string, ArmContrastSet>>();
 
-export function deriveArmContrasts(referenceRPc: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH): ArmContrastSet {
-  if (cachedContrasts) return cachedContrasts;
+export function deriveArmContrasts(referenceRPc: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH, arms: readonly ArmDefinition[] = ARMS): ArmContrastSet {
+  let byKey = contrastCache.get(arms);
+  if (!byKey) { byKey = new Map(); contrastCache.set(arms, byKey); }
+  const key = `${referenceRPc}|${w.refPc}|${w.slopePcPerKpc}|${w.r0Kpc}|${w.broadening}`;
+  const cached = byKey.get(key);
+  if (cached) return cached;
+
   const cOldFull = bisect(
-    (c) => armContrastRatio('major', c, referenceRPc, w),
+    (c) => armContrastRatio('major', c, referenceRPc, w, 14401, arms),
     1e-4, 3.0, DRIMMEL_SPERGEL_K,
   );
   // Patch S4's own stated multipliers (1.4x, 2.0x over oldThin) - calibrated,
@@ -289,8 +444,9 @@ export function deriveArmContrasts(referenceRPc: number, w: ArmWidthParams = DEF
   const oldThin = Math.round(cOldFull * 1e4) / 1e4;
   const midThin = Math.round(cOldFull * 1.4 * 1e4) / 1e4;
   const youngThin = Math.round(cOldFull * 2.0 * 1e4) / 1e4;
-  cachedContrasts = { oldThin, midThin, youngThin };
-  return cachedContrasts;
+  const result: ArmContrastSet = { oldThin, midThin, youngThin };
+  byKey.set(key, result);
+  return result;
 }
 
 /**
@@ -298,13 +454,15 @@ export function deriveArmContrasts(referenceRPc: number, w: ArmWidthParams = DEF
  * contrasts per the patch's own S7 self-consistency rule - "round the
  * inputs first, then derive". This is what a population's own `nLocal`
  * normalisation must be divided by so `densityAt(reference)` equals
- * `nLocal` exactly rather than as a ring mean (patch S4).
+ * `nLocal` exactly rather than as a ring mean (patch S4). `arms` - see
+ * `armFactor`'s own doc comment.
  */
 export function anchorArmCorrection(
-  set: ArmResponseSet, contrasts: ArmContrastSet, referenceRPc: number, referenceThetaRad: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH,
+  set: ArmResponseSet, contrasts: ArmContrastSet, referenceRPc: number, referenceThetaRad: number,
+  w: ArmWidthParams = DEFAULT_ARM_WIDTH, arms: readonly ArmDefinition[] = ARMS,
 ): number {
   const c = set === 'all' ? contrasts.youngThin : set === 'majorMinor' ? contrasts.midThin : set === 'major' ? contrasts.oldThin : 0;
-  return armFactor(set, c, referenceRPc, referenceThetaRad, w);
+  return armFactor(set, c, referenceRPc, referenceThetaRad, w, arms);
 }
 
 /* -------------------------------- glossary ----------------------------------- */
@@ -334,5 +492,10 @@ export const glossary: GlossaryEntry[] = [
     short: 'How much denser a spiral arm\'s crest is than the gap between arms, for a given population.',
     long: 'Solved (not quoted) against Drimmel & Spergel 2001\'s observed near-infrared arm contrast (K ~ 1.326), using a mean-subtracted von Mises ridge per arm (`besselI0e(kappa)` removes each arm\'s own circular mean, so arms redistribute density rather than add to it). Reproduces the patch\'s own stated figures (0.3096/0.4335/0.6193) to full double precision - the missing combining-function piece was recovered 16 Aug 2026 by auditing a sibling build of this project that still had the original derivation script.',
     source: 'Drimmel & Spergel 2001, ApJ 556, 181 (target); patch v2.3 S3/S9 (procedure); besselI0e mean-subtraction ported from the sibling `galaxyforge` build\'s galaxyParameters.ts/mathStats.ts',
+  },
+  {
+    term: 'Seeded arm geometry', status: 'tunable',
+    short: 'A per-worldSeed procedural arm table (count, pitch, phase) for galaxies that are not meant to model the real Milky Way.',
+    long: 'Closes a real, previously-declared-but-unbuilt gap (`galaxyParameters.armSource: \'seeded\'`) - every worldSeed used to reproduce the identical real-arm table, so no galaxy-shape choice actually varied by seed. 2-4 base arms (uniform), one shared pitch angle in [10,22) degrees, an independent phase rotation and per-arm jitter, an optional weak spur (45% chance) - invented for this feature, not fitted to any survey. The real Reid et al. 2019 table stays reserved for the "Milky Way Analogue" choice specifically, which is explicitly meant to be the real galaxy.',
   },
 ];

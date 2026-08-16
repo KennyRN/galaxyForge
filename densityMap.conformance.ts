@@ -200,6 +200,37 @@ check('11 on a RADIALLY SYMMETRIC field (no azimuthal structure at all), the ' +
   return ringVals.every((v) => Math.abs(v - mean) < 0.15);
 })());
 
+check('12 emphasiseArmsForDisplay never renders a lit interarm/background cell as literal ' +
+  'black - a genuinely below-ring-mean trough still clears INTERARM_FLOOR once the fade ' +
+  'multiplier itself is not the thing zeroing it (the fix for "between arms is black, the ' +
+  'reference image has stars between arms")', (() => {
+  const out = emphasiseArmsForDisplay(radialPlusArm, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+  // Sample a ring of cells at a moderate radius, well inside the fade
+  // reach, that sit OFF the artificial arm boost (x < 0) - the "interarm"
+  // side of this fixture's own bump. None should be darker than the floor
+  // scaled by their own (near-1, this close in) fade factor.
+  let sampled = 0;
+  for (let iy = 0; iy < NY; iy++) {
+    for (let ix = 0; ix < NX; ix++) {
+      const x = -HALF_PC + (ix + 0.5) * (2 * HALF_PC / NX), y = -HALF_PC + (iy + 0.5) * (2 * HALF_PC / NY);
+      const R = Math.hypot(x, y);
+      if (x >= 0 || R > DISC_SCALE_PC * 3 || R < DISC_SCALE_PC * 0.5) continue;
+      sampled++;
+      if (out[ix + NX * iy]! <= 0) return false;
+    }
+  }
+  return sampled > 0;
+})());
+
+check('13 the interarm floor does NOT erase the arm-vs-interarm contrast gate 8 already ' +
+  'proved - an on-arm cell still reads meaningfully brighter than an off-arm cell at the ' +
+  'same radius, floor and all', (() => {
+  const out = emphasiseArmsForDisplay(radialPlusArm, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+  const onArmIdx = (NX / 2 + 20) + NX * (NY / 2);
+  const offArmIdx = (NX / 2 - 20) + NX * (NY / 2);
+  return out[onArmIdx]! > out[offArmIdx]! + 0.1;
+})());
+
 if (failures > 0) throw new Error(`${failures} densityMap conformance failure(s)`);
 console.log('\nall densityMap conformance checks passed');
 

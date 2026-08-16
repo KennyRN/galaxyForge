@@ -255,8 +255,21 @@ export interface GalaxyParameters {
  * `deriveArmContrasts`/`anchorArmCorrection` are wrapped in closures rather
  * than eagerly evaluated so a parameter set can be constructed cheaply and
  * only pays the arm-contrast root-find cost if a caller actually reads it.
+ *
+ * `arms`/`armSource` (16 Aug 2026, additive - see `spiralArms
+ * .generateSeededArms`'s own header) let a caller supply a DIFFERENT arm
+ * table (a per-worldSeed procedural one) instead of the real Milky Way's.
+ * Omitting either reproduces every prior call site's behaviour exactly -
+ * `arms` defaults to `ARMS`, `armSource` to `'observed-mw'`, so
+ * `createSpiralModel`'s own default path (no `params` argument at all) and
+ * every existing conformance/golden-master call are untouched bit-for-bit.
+ * `armContrast`'s own closure captures `arms` too - the memoisation this
+ * function's own comment already documents is now correct per-table (see
+ * `deriveArmContrasts`'s own header) rather than merely per-process.
  */
-export function makeDefaultGalaxyParameters(worldSeed = ''): GalaxyParameters {
+export function makeDefaultGalaxyParameters(
+  worldSeed = '', arms: readonly ArmDefinition[] = ARMS, armSource: 'observed-mw' | 'seeded' = 'observed-mw',
+): GalaxyParameters {
   const referenceRPc = 8200;
   const referenceThetaDeg = 0;
   return {
@@ -266,11 +279,11 @@ export function makeDefaultGalaxyParameters(worldSeed = ''): GalaxyParameters {
     worldSeed,
     morphology: 'spiral',
     scale: 1.0,
-    armSource: 'observed-mw',
-    arms: ARMS,
+    armSource,
+    arms,
     armWidth: DEFAULT_ARM_WIDTH,
     armResponse: DEFAULT_ARM_RESPONSE,
-    armContrast: () => deriveArmContrasts(referenceRPc),
+    armContrast: () => deriveArmContrasts(referenceRPc, DEFAULT_ARM_WIDTH, arms),
     armStartInnerPc: 3500,
     armStartOuterPc: 5500,
     referenceRPc,
@@ -303,7 +316,7 @@ export const DEFAULT_GALAXY_PARAMETERS: GalaxyParameters = makeDefaultGalaxyPara
  */
 export function anchorArmCorrectionFor(params: GalaxyParameters, set: ArmResponseSet): number {
   return computeAnchorArmCorrection(
-    set, params.armContrast(), params.referenceRPc, (params.referenceThetaDeg * Math.PI) / 180, params.armWidth,
+    set, params.armContrast(), params.referenceRPc, (params.referenceThetaDeg * Math.PI) / 180, params.armWidth, params.arms,
   );
 }
 

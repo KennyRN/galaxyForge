@@ -461,7 +461,16 @@ function discTerm(pop: Population, R: number, theta: number, z: number, params: 
   const contrasts = params.armContrast();
   const cFull = set === 'all' ? contrasts.youngThin : set === 'majorMinor' ? contrasts.midThin : contrasts.oldThin;
   const c = cFull * armInnerTaper(R, params);
-  const raw = armFactor(set, c, R, theta, params.armWidth);
+  // params.arms (16 Aug 2026): previously OMITTED here despite being a real
+  // field on GalaxyParameters - every caller silently got the module-global
+  // ARMS table regardless of what params.arms actually held, the exact
+  // "declared but not wired" gap this file's own header names for other
+  // fields (juric/erwin/halo). DEFAULT_GALAXY_PARAMETERS.arms === ARMS, so
+  // every existing call site (main.ts's test command, goldenMaster, every
+  // conformance gate) is bit-for-bit unaffected - this only changes
+  // behaviour for a caller that supplies a DIFFERENT arms table
+  // (`galaxyCreationModals.ts`'s own seeded-arm construction).
+  const raw = armFactor(set, c, R, theta, params.armWidth, params.arms);
   const correction = anchorArmCorrectionFor(params, set);
   return smooth * (raw / correction);
 }

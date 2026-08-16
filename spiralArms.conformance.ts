@@ -6,7 +6,10 @@
  * figures exactly (see spiralArms.ts's own header on `armContrast`).
  */
 
-import { ARMS, DEFAULT_ARM_WIDTH, armWidthPc, thetaArmRad, kappaOf, armFactor, armContrastRatio, deriveArmContrasts, anchorArmCorrection, DRIMMEL_SPERGEL_K } from './spiralArms';
+import {
+  ARMS, DEFAULT_ARM_WIDTH, armWidthPc, thetaArmRad, kappaOf, armFactor, armContrastRatio,
+  deriveArmContrasts, anchorArmCorrection, generateSeededArms, DRIMMEL_SPERGEL_K,
+} from './spiralArms';
 
 let failures = 0;
 function check(name: string, cond: boolean) {
@@ -131,6 +134,93 @@ check('armContrastRatio is monotonically increasing in contrast, at fixed R', ((
   check('anchorArmCorrection reproduces from the STORED contrast to 1e-12 (patch S7 self-consistency rule)', close(corrOld, corrRecomputed, 1e-12));
   check('anchorArmCorrection("none", ...) === 1 (thick/halo see no arms, no correction needed)', anchorArmCorrection('none', c, 8200, 0) === 1);
 }
+
+/* 8. generateSeededArms (16 Aug 2026) - the seeded-arm-table feature itself -- */
+
+check('8a generateSeededArms is deterministic - the same worldSeed always gives the same table',
+  JSON.stringify(generateSeededArms('gate-seed-alpha')) === JSON.stringify(generateSeededArms('gate-seed-alpha')));
+
+check('8b a different worldSeed gives a genuinely different table (checked over many seeds, not just one)', (() => {
+  const seeds = Array.from({ length: 50 }, (_, i) => `seed-${i}`);
+  const tables = seeds.map((s) => generateSeededArms(s));
+  const serialised = tables.map((t) => JSON.stringify(t));
+  return new Set(serialised).size === seeds.length;   // every seed's table is unique
+})());
+
+check('8c generateSeededArms(worldSeed) is NEVER === ARMS (the real Milky Way table) - ' +
+  'a seeded table replaces it entirely, it does not fall back to it',
+  (() => {
+    for (let i = 0; i < 100; i++) {
+      const t = generateSeededArms(`fallback-check-${i}`);
+      if (JSON.stringify(t) === JSON.stringify(ARMS)) return false;
+    }
+    return true;
+  })());
+
+check('8d every seeded table has 2, 3, 4 or (with a spur) 5 arms, over many seeds - never fewer than 2, never more than 5',
+  (() => {
+    for (let i = 0; i < 300; i++) {
+      const n = generateSeededArms(`count-check-${i}`).length;
+      if (n < 2 || n > 5) return false;
+    }
+    return true;
+  })());
+
+check('8e every seeded table has AT LEAST two "major" arms (the grand-design backbone is never optional)',
+  (() => {
+    for (let i = 0; i < 300; i++) {
+      const majors = generateSeededArms(`major-check-${i}`).filter((a) => a.tier === 'major').length;
+      if (majors < 2) return false;
+    }
+    return true;
+  })());
+
+check('8f every seeded table has at most ONE "spur" arm, and it is always a strict WEAKER partial ' +
+  'feature (weight 0.35, below every major and every minor weight in this project\'s own convention)',
+  (() => {
+    for (let i = 0; i < 300; i++) {
+      const arms = generateSeededArms(`spur-check-${i}`);
+      const spurs = arms.filter((a) => a.tier === 'spur');
+      if (spurs.length > 1) return false;
+      if (spurs.some((s) => s.weight !== 0.35)) return false;
+    }
+    return true;
+  })());
+
+check('8g a seeded table\'s own arms all share ONE pitch angle (the "grand-design, one pattern speed" design choice)',
+  (() => {
+    for (let i = 0; i < 100; i++) {
+      const arms = generateSeededArms(`pitch-check-${i}`);
+      const pitches = new Set(arms.map((a) => a.pitchDeg));
+      if (pitches.size !== 1) return false;
+    }
+    return true;
+  })());
+
+check('8h a seeded table is a valid drop-in ArmDefinition table - armFactor/deriveArmContrasts ' +
+  'run against it without throwing and stay mean-preserving, exactly as they do for the real ARMS table',
+  (() => {
+    const arms = generateSeededArms('drop-in-check');
+    const c = deriveArmContrasts(8200, DEFAULT_ARM_WIDTH, arms);
+    const n = 2048;
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += armFactor('all', c.youngThin, 8200, (2 * Math.PI * i) / n, DEFAULT_ARM_WIDTH, arms);
+    return close(sum / n, 1, 1e-9);
+  })());
+
+check('8i deriveArmContrasts keeps SEPARATE, non-colliding memoised results for two different arm ' +
+  'tables at the SAME (referenceRPc, w) - the multi-table cache fix: a single shared slot would have ' +
+  'served one seed\'s contrast constants to a different seed\'s table', (() => {
+  const armsA = generateSeededArms('cache-check-A');
+  const armsB = generateSeededArms('cache-check-B');
+  const cA = deriveArmContrasts(8200, DEFAULT_ARM_WIDTH, armsA);
+  const cB = deriveArmContrasts(8200, DEFAULT_ARM_WIDTH, armsB);
+  const cArmsDefault = deriveArmContrasts(8200);   // the real ARMS table, unaffected by either
+  return cArmsDefault.oldThin === 0.3096 &&
+    // re-fetching either seeded table's contrasts still returns ITS OWN values, not the other's
+    deriveArmContrasts(8200, DEFAULT_ARM_WIDTH, armsA).oldThin === cA.oldThin &&
+    deriveArmContrasts(8200, DEFAULT_ARM_WIDTH, armsB).oldThin === cB.oldThin;
+})());
 
 /* --------------------------------- result ------------------------------------ */
 

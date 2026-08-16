@@ -455,6 +455,26 @@ export const ARM_DISPLAY_FADE_SCALE_LENGTHS = 5;
 const ARM_DISPLAY_CONTRAST_GAMMA = 0.6;
 
 /**
+ * Minimum display brightness for any LIT cell (`fadeAt(R) > 0`), applied
+ * AFTER the percentile stretch and BEFORE the fade multiply (16 Aug 2026, a
+ * user-found gap: interarm gaps were rendering as literal black, "between
+ * arms in the screenshot is black and in the [reference] image there's
+ * stars between arms"). This is a genuine, correct property of the field
+ * being crushed by DISPLAY scaling, not invented: an interarm trough
+ * legitimately sits below the local ring mean (`armFactor`'s ridge is
+ * mean-subtracting, so it dips as well as rises - see `spiralArms.ts`'s own
+ * header), and a percentile stretch calibrated to the strong on-arm/bar
+ * swing naturally maps a modest below-mean cell close to 0. Real disc
+ * populations are never actually empty between arms, only sparser - a
+ * floor says exactly that: never fewer than a handful of scattered dots in
+ * any cell that is part of the lit galaxy at all, only fully black once
+ * `fadeAt` itself reaches 0 (which this floor is multiplied BY, not
+ * instead of - the true outer edge/void still fades to exact black, only
+ * genuine interarm/background cells within the disc are floored).
+ */
+const INTERARM_FLOOR = 0.22;
+
+/**
  * Display normalisation FOR SPIRAL/BARRED MORPHOLOGIES ONLY (16 Aug 2026,
  * ported from a sibling build's own `emphasiseArmsForDisplay`) - closes a
  * real bug a user found: `normaliseForDisplay`'s global log min-max
@@ -552,7 +572,8 @@ export function emphasiseArmsForDisplay(
   for (let iy = 0; iy < ny; iy++) {
     for (let ix = 0; ix < nx; ix++) {
       const i = ix + nx * iy;
-      out[i] = Math.min(1, Math.max(0, (rel[i]! - LO) / span)) * fadeAt(Rof(ix, iy));
+      const stretched = Math.min(1, Math.max(0, (rel[i]! - LO) / span));
+      out[i] = Math.max(INTERARM_FLOOR, stretched) * fadeAt(Rof(ix, iy));
     }
   }
   return out;
@@ -600,5 +621,10 @@ export function emphasiseArmsForDisplay(
  *      emphasiseArmsForDisplay's relative field is uniform at every fixed
  *      radius (up to floating-point tolerance) - it does not manufacture
  *      structure that is not there.
+ *  12. emphasiseArmsForDisplay never renders a LIT interarm/background cell
+ *      as literal black - INTERARM_FLOOR guarantees a minimum brightness
+ *      for any cell the fade multiplier has not itself zeroed.
+ *  13. The floor does not erase the on-arm/off-arm contrast gate 8 proved -
+ *      an arm still reads meaningfully brighter than its own interarm gap.
  */
-export const DENSITY_MAP_GATES = 11 as const;
+export const DENSITY_MAP_GATES = 13 as const;
