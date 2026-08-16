@@ -3,22 +3,26 @@
  * provenance headers and ledgers, same as `render`/`vault`.
  *
  * -- WHAT THIS IS, HONESTLY -----------------------------------------------------
- * A REAL, loadable plugin skeleton, not a mock-up: `onload` registers one
- * working command that exercises the actual pipeline built so far
- * (`galaxyModel` -> `sectorFootprint` -> `vault`) end to end, writing real
- * system notes into the vault. It is deliberately NOT the full product the
- * brief describes - there is no galaxy-creation modal, no settings tab, no
- * sector-map view (S4.8's two views), no sector-centring search UI wired in
- * (the engine behind it, `sectorSearch.ts`, exists and is gated - only the
- * UI to drive it does not). This command is scoped to what IS wired
- * together: a real circular-footprint sector, positions/population/
- * formationRank per system.
+ * A REAL, loadable plugin, not a mock-up. `onload` registers TWO entry
+ * points into the same galaxy-creation flow - a command AND a ribbon icon,
+ * both opening `GalaxyScreen1Modal` - plus the older single-command test
+ * harness kept for direct pipeline exercise. The three-screen GUI
+ * (`galaxyCreationModals.ts`) drives the full built pipeline: morphology ->
+ * `galaxyModel` -> `sectorSearch`/`sectorFootprint` -> `systemConductor` ->
+ * `vault`, writing real system notes. Still deliberately NOT the full
+ * product the brief describes - there is still no settings tab and no
+ * standalone sector-map view (S4.8's second view; the GUI's screen-3
+ * position-only preview covers the same ground for this workflow).
  *
  * UPDATED 15 Aug 2026: previously walked a fixed, unfiltered 3x3 cell block
  * - this module's own header named that as a placeholder standing in for
  * work that did not exist yet. `sectorFootprint.generateSector` is that
  * work, now real: a proper circumradius-clipped, exclusion-resolved
  * sector, not a crude cell-block approximation.
+ *
+ * UPDATED 16 Aug 2026: added the ribbon icon (`sparkles`) alongside the
+ * command palette entry - both open the same modal, so neither is more
+ * "canonical" than the other.
  */
 
 import { Plugin, Notice, type TFile } from 'obsidian';
@@ -44,6 +48,9 @@ export default class StarForgePlugin extends Plugin {
       id: 'starforge-create-galaxy',
       name: 'StarForge: create a galaxy',
       callback: () => { new GalaxyScreen1Modal(this.app).open(); },
+    });
+    this.addRibbonIcon('sparkles', 'StarForge: create a galaxy', () => {
+      new GalaxyScreen1Modal(this.app).open();
     });
   }
 
