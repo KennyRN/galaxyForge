@@ -1,5 +1,5 @@
 import {
-  sampleVolume, projectSlab, expectedSystemCount, normaliseForDisplay,
+  sampleVolume, projectSlab, expectedSystemCount, normaliseForDisplay, emphasiseArmsForDisplay,
   SLAB_THICKNESSES_PC, isSlabThickness, Z_SAMPLES,
   type DensityField, type PointPc, type SlabRegionPc,
 } from './densityMap';
@@ -107,6 +107,98 @@ check('+ normaliseForDisplay returns a new array in [0,1] and leaves raw untouch
 const vol = sampleVolume(uniform, { min: { x: 0, y: 0, z: -5 }, max: { x: 10, y: 10, z: 5 } }, { nx: 4, ny: 4, nz: 4 });
 check('+ sampleVolume returns a populated 3D grid (the v2 map, exercised today)',
   vol.values.length === 64 && vol.values.every((v) => v === N0));
+
+/* -- emphasiseArmsForDisplay (16 Aug 2026) --------------------------------------- */
+
+const NX = 64, NY = 64, HALF_PC = 20000, DISC_SCALE_PC = 2600;
+
+function gridOf(f: (x: number, y: number) => number): Float64Array {
+  const out = new Float64Array(NX * NY);
+  const cellX = (2 * HALF_PC) / NX, cellY = (2 * HALF_PC) / NY;
+  for (let iy = 0; iy < NY; iy++) {
+    for (let ix = 0; ix < NX; ix++) {
+      const x = -HALF_PC + (ix + 0.5) * cellX, y = -HALF_PC + (iy + 0.5) * cellY;
+      out[ix + NX * iy] = f(x, y);
+    }
+  }
+  return out;
+}
+
+// A pure radial exponential falloff, NO azimuthal structure at all -
+// exactly the "arms invisible" failure mode's own input shape (a smooth
+// disc with no arm bump).
+const radialOnly = gridOf((x, y) => {
+  const R = Math.hypot(x, y);
+  return Math.exp(-R / DISC_SCALE_PC);
+});
+
+// The SAME radial falloff, but with a real +40% azimuthal bump in one
+// half-plane (x > 0) - a crude stand-in for "an arm is here".
+const radialPlusArm = gridOf((x, y) => {
+  const R = Math.hypot(x, y);
+  const armBoost = x > 0 ? 1.4 : 1.0;
+  return armBoost * Math.exp(-R / DISC_SCALE_PC);
+});
+
+check('8 emphasiseArmsForDisplay genuinely removes the radial gradient: a field ' +
+  'WITH a real azimuthal bump shows far more spread in the OUTPUT than the SAME ' +
+  'field run through normaliseForDisplay alone (which is dominated by the radial ' +
+  'falloff, not the arm) - this is the actual bug the port closes',
+  (() => {
+    const armEmphasised = emphasiseArmsForDisplay(radialPlusArm, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+    const plainLog = normaliseForDisplay(radialPlusArm, { log: true });
+    // Compare the value at a point ON the arm boost against a point at the
+    // SAME radius but off it - emphasiseArmsForDisplay should show a much
+    // bigger difference (the arm should visibly stand out) than plain log
+    // normalisation does (where the radial gradient swamps it).
+    const onArmIdx = (NX / 2 + 20) + NX * (NY / 2);        // x > 0, near y=0
+    const offArmIdx = (NX / 2 - 20) + NX * (NY / 2);       // x < 0, near y=0, SAME |R|
+    const emphDiff = Math.abs(armEmphasised[onArmIdx]! - armEmphasised[offArmIdx]!);
+    const plainDiff = Math.abs(plainLog[onArmIdx]! - plainLog[offArmIdx]!);
+    return emphDiff > plainDiff * 3;
+  })());
+
+check('9 emphasiseArmsForDisplay always returns values in [0, 1]',
+  (() => {
+    const out = emphasiseArmsForDisplay(radialPlusArm, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+    return out.every((v) => v >= 0 && v <= 1);
+  })());
+
+check('10 emphasiseArmsForDisplay fades toward 0 with radius - no hard cutoff, a ' +
+  'smooth ramp: the mean value in the outermost ring is measurably smaller than ' +
+  'in a middle ring', (() => {
+  const out = emphasiseArmsForDisplay(radialOnly, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+  let innerSum = 0, innerN = 0, outerSum = 0, outerN = 0;
+  for (let iy = 0; iy < NY; iy++) {
+    for (let ix = 0; ix < NX; ix++) {
+      const x = -HALF_PC + (ix + 0.5) * (2 * HALF_PC / NX), y = -HALF_PC + (iy + 0.5) * (2 * HALF_PC / NY);
+      const R = Math.hypot(x, y);
+      const v = out[ix + NX * iy]!;
+      if (R < HALF_PC * 0.3) { innerSum += v; innerN++; }
+      if (R > HALF_PC * 0.9) { outerSum += v; outerN++; }
+    }
+  }
+  return outerN > 0 && innerN > 0 && (outerSum / outerN) < (innerSum / innerN);
+})());
+
+check('11 on a RADIALLY SYMMETRIC field (no azimuthal structure at all), the ' +
+  'relative (post-detrend) value is uniform at fixed radius - within the lit ' +
+  'region, every cell in a thin ring lands within a tight band, not spread out ' +
+  '(nothing manufactured that is not there)', (() => {
+  const out = emphasiseArmsForDisplay(radialOnly, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+  const ringVals: number[] = [];
+  const targetR = HALF_PC * 0.2;
+  for (let iy = 0; iy < NY; iy++) {
+    for (let ix = 0; ix < NX; ix++) {
+      const x = -HALF_PC + (ix + 0.5) * (2 * HALF_PC / NX), y = -HALF_PC + (iy + 0.5) * (2 * HALF_PC / NY);
+      const R = Math.hypot(x, y);
+      if (Math.abs(R - targetR) < HALF_PC * 0.02) ringVals.push(out[ix + NX * iy]!);
+    }
+  }
+  if (ringVals.length < 4) return false;
+  const mean = ringVals.reduce((a, b) => a + b, 0) / ringVals.length;
+  return ringVals.every((v) => Math.abs(v - mean) < 0.15);
+})());
 
 if (failures > 0) throw new Error(`${failures} densityMap conformance failure(s)`);
 console.log('\nall densityMap conformance checks passed');

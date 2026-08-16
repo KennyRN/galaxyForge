@@ -412,6 +412,109 @@ export function normaliseForDisplay(
   return out;
 }
 
+/**
+ * Radial fade reach, in disc scale lengths (16 Aug 2026, ported from a
+ * sibling build). `tunable` - purely a display choice, not a model
+ * constant.
+ */
+export const ARM_DISPLAY_FADE_SCALE_LENGTHS = 5;
+
+/**
+ * Display normalisation FOR SPIRAL/BARRED MORPHOLOGIES ONLY (16 Aug 2026,
+ * ported from a sibling build's own `emphasiseArmsForDisplay`) - closes a
+ * real bug a user found: `normaliseForDisplay`'s global log min-max
+ * ALWAYS washes out arm contrast on a galaxy-wide view, because the
+ * RADIAL falloff (dense centre to near-empty outskirts, many orders of
+ * magnitude) utterly dominates the AZIMUTHAL arm-vs-interarm contrast
+ * (a Drimmel & Spergel K~1.3, a few tens of percent) - both get log
+ * -compressed into the same [0,1] range, and the radial gradient wins
+ * completely. A user correctly saw "a uniform collection of dots from
+ * denser inside to less sparse outside" with no visible arm structure at
+ * all - not a rendering-resolution problem, a NORMALISATION problem.
+ *
+ * The fix: for each cell, divide by the MEAN density at its own radius
+ * (computed over 160 concentric rings) before display-scaling - this
+ * REMOVES the radial gradient entirely, leaving only the ratio to the
+ * local ring mean, which is exactly what an arm's contrast IS. The
+ * resulting relative field is then percentile-stretched (2nd-99.5th) to
+ * use the full display range, and faded toward 0 with radius (a smooth
+ * `1.15 - 0.9*(R/rFade)` ramp, not a hard cutoff) so the outskirts settle
+ * to black gracefully instead of either amplifying ring-mean noise where
+ * the true density is negligible, or stopping abruptly at a truncation
+ * radius (the same bug report's "outer edge too sharp"/"zoom wrong,
+ * stars appear to be cut off before fading" symptoms - both are
+ * consequences of having no fade term at all, not a separate bug).
+ *
+ * Returns values already in [0, 1] with the fade baked in - do NOT
+ * log-normalise the result a second time (that would re-introduce the
+ * exact problem this function exists to remove).
+ */
+export function emphasiseArmsForDisplay(
+  values: Float64Array, nx: number, ny: number, halfPc: number,
+  discScaleLengthPc: number, scale: number,
+): Float64Array {
+  const cellX = (2 * halfPc) / nx;
+  const cellY = (2 * halfPc) / ny;
+  const nRing = 160;
+  const Rmax = Math.SQRT2 * halfPc;
+  const Rof = (ix: number, iy: number): number =>
+    Math.hypot(-halfPc + (ix + 0.5) * cellX, -halfPc + (iy + 0.5) * cellY);
+
+  const sum = new Float64Array(nRing + 1);
+  const cnt = new Float64Array(nRing + 1);
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const r = Math.min(nRing, Math.floor((Rof(ix, iy) / Rmax) * nRing));
+      sum[r]! += values[ix + nx * iy]!;
+      cnt[r]! += 1;
+    }
+  }
+  const mean = new Float64Array(nRing + 1);
+  for (let r = 0; r <= nRing; r++) mean[r] = cnt[r]! > 0 ? sum[r]! / cnt[r]! : 0;
+  // A ring with zero samples (can happen at the very centre, or a coarse
+  // grid's outermost corner ring) inherits its neighbour's mean rather
+  // than dividing by zero.
+  for (let r = 1; r <= nRing; r++) if (mean[r]! === 0) mean[r] = mean[r - 1]!;
+
+  const rFade = ARM_DISPLAY_FADE_SCALE_LENGTHS * discScaleLengthPc * scale;
+  const fadeAt = (R: number): number =>
+    Math.min(1, Math.max(0, 1.15 - 0.9 * (R / Math.max(rFade, 1e-9))));
+
+  const rel = new Float64Array(values.length);
+  const lit: number[] = [];
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const i = ix + nx * iy;
+      const R = Rof(ix, iy);
+      const rf = (R / Rmax) * nRing;
+      const r0 = Math.min(nRing, Math.floor(rf));
+      const frac = rf - r0;
+      const rm = (1 - frac) * mean[r0]! + frac * mean[Math.min(nRing, r0 + 1)]!;
+      rel[i] = rm > 0 ? values[i]! / rm : 1;
+      if (fadeAt(R) > 0) lit.push(rel[i]!);
+    }
+  }
+
+  // Percentile stretch over the LIT region only (faded-out cells would
+  // otherwise pull the stretch toward their own, irrelevant, statistics).
+  lit.sort((a, b) => a - b);
+  const q = (p: number): number => (lit.length
+    ? lit[Math.min(lit.length - 1, Math.floor(p * lit.length))]!
+    : 1);
+  const LO = lit.length ? q(0.02) : 0.95;
+  const HI = lit.length ? q(0.995) : 1.50;
+  const span = Math.max(1e-6, HI - LO);
+
+  const out = new Float64Array(values.length);
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const i = ix + nx * iy;
+      out[i] = Math.min(1, Math.max(0, (rel[i]! - LO) / span)) * fadeAt(Rof(ix, iy));
+    }
+  }
+  return out;
+}
+
 /* --------------------------------- gates ---------------------------------- */
 
 /**
@@ -440,5 +543,19 @@ export function normaliseForDisplay(
  *  7. RESOLUTION INDEPENDENCE - `expectedSystemCount` at 16x16 and at 256x256
  *     agree to better than 0.5 % on a smooth field. Catches a cell-centre or
  *     cell-area error that a single fixed resolution would hide.
+ *  8. emphasiseArmsForDisplay (16 Aug 2026) REMOVES the radial gradient - a
+ *     field with a real azimuthal bump but a strong radial falloff shows a
+ *     LARGER value spread across azimuth at fixed radius than
+ *     `normaliseForDisplay` alone would leave visible relative to the
+ *     radial spread - the property that fixes the "arms invisible" bug
+ *     this was ported to close.
+ *  9. emphasiseArmsForDisplay always returns values in [0, 1].
+ *  10. emphasiseArmsForDisplay fades toward 0 as R grows past
+ *      `ARM_DISPLAY_FADE_SCALE_LENGTHS * discScaleLengthPc` - no hard
+ *      cutoff, a smooth ramp (the fix for "outer edge too sharp").
+ *  11. On a field with NO azimuthal structure at all (radially symmetric),
+ *      emphasiseArmsForDisplay's relative field is uniform at every fixed
+ *      radius (up to floating-point tolerance) - it does not manufacture
+ *      structure that is not there.
  */
-export const DENSITY_MAP_GATES = 7 as const;
+export const DENSITY_MAP_GATES = 11 as const;

@@ -49,7 +49,8 @@
 import { Modal, Setting, Notice, type App } from 'obsidian';
 import { createSpiralModel, createEllipticalModel, createLenticularModel, type GalaxyModel } from './galaxyModel';
 import { upsilonFor } from './galacticDensity';
-import { fieldFromModel, projectSlab, sampleVolume, normaliseForDisplay, type SlabRegionPc, type VolumeRegionPc } from './densityMap';
+import { fieldFromModel, projectSlab, sampleVolume, normaliseForDisplay, emphasiseArmsForDisplay, type SlabRegionPc, type VolumeRegionPc } from './densityMap';
+import { DEFAULT_JURIC } from './galaxyParameters';
 import { generateSector, assembleSector } from './sectorFootprint';
 import { searchNearestSystem } from './sectorSearch';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
@@ -83,6 +84,39 @@ const SPINNER_SVG = '<svg width="24" height="24" viewBox="0 0 24 24">' +
   '<path class="spinner_7mtw" d="M2,12A11.2,11.2,0,0,1,13,1.05C12.67,1,12.34,1,12,1a11,11,0,0,0,0,22c.34,0,.67,0,1-.05C6,23,2,17.74,2,12Z" fill="currentColor"/>' +
   '</svg>';
 const SPINNER_DELAY_MS = 200;
+
+/**
+ * Shape-selector icons (16 Aug 2026, a user-found gap): the original
+ * wireframe used icons for footprint shape deliberately, minimal-words by
+ * design - a text dropdown was a placeholder that never got swapped out.
+ * Each glyph matches `sectorFootprint.ts`'s own geometry convention (the
+ * hexagon's vertex on the +x axis, "pointy" toward 3 o'clock - the same
+ * orientation `isWithinFootprint`/`boundaryPointsPc` already draw).
+ */
+const SHAPE_ICONS: Readonly<Record<FootprintShape, string>> = {
+  circle: '<svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  square: '<svg width="22" height="22" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  hexagon: '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M21,12 L16.5,4.2 L7.5,4.2 L3,12 L7.5,19.8 L16.5,19.8 Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+};
+const SHAPE_LABELS: Readonly<Record<FootprintShape, string>> = { circle: 'Circle', square: 'Square', hexagon: 'Hexagon' };
+
+/**
+ * A row of icon buttons, one per footprint shape - replaces a text
+ * dropdown with the icon-only, minimal-words control the wireframe
+ * actually called for. `title`/`aria-label` carry the name for
+ * accessibility without putting it on screen.
+ */
+function renderShapeSelector(container: HTMLElement, selected: FootprintShape, onSelect: (shape: FootprintShape) => void): void {
+  const row = container.createDiv();
+  row.style.cssText = 'display:flex;gap:8px;margin:4px 0 12px;';
+  for (const shape of ['circle', 'square', 'hexagon'] as FootprintShape[]) {
+    const btn = row.createEl('button', { attr: { title: SHAPE_LABELS[shape], 'aria-label': SHAPE_LABELS[shape] } });
+    btn.style.cssText = 'display:flex;align-items:center;justify-content:center;padding:6px;';
+    btn.innerHTML = SHAPE_ICONS[shape];
+    if (shape === selected) btn.addClass('mod-cta');
+    btn.onclick = () => onSelect(shape);
+  }
+}
 
 const MORPHOLOGY_LABELS: Readonly<Record<MorphologyChoice, string>> = {
   lenticular: 'Lenticular', elliptical: 'Elliptical', barredSpiral: 'Barred', spiral: 'Spiral', milkyWayAnalogue: 'Milky Way Analogue',
@@ -140,7 +174,16 @@ function renderDensityCanvas(
   const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
   const res = { nx: 80, ny: 80 };
   const surface = projectSlab(fieldFromModel(model), region, res);
-  const norm = normaliseForDisplay(surface.values, { log: true });
+  // emphasiseArmsForDisplay (16 Aug 2026) for spiral/barred - plain log
+  // normalisation was found to make arm structure invisible on a
+  // galaxy-wide view: the radial falloff (centre to outskirts, many
+  // orders of magnitude) swamps the much smaller azimuthal arm contrast
+  // once both are log-compressed into the same [0,1] range. Elliptical/
+  // lenticular have no arms to lose, so they stay on the simpler path.
+  const isSpiralLike = model.morphology === 'spiral' || model.morphology === 'barredSpiral';
+  const norm = isSpiralLike
+    ? emphasiseArmsForDisplay(surface.values, res.nx, res.ny, halfWidthPc, DEFAULT_JURIC.lThin, 1)
+    : normaliseForDisplay(surface.values, { log: true });
 
   const pcToPx = w / (2 * halfWidthPc);
   for (let iy = 0; iy < res.ny; iy++) {
@@ -189,7 +232,21 @@ function renderDensityCanvas(
  * 2D render already goes through it"), summing over x here instead of
  * reimplementing the field sampling loop (Law 1 - one sampling primitive).
  */
-function renderEdgeOnCanvas(canvas: HTMLCanvasElement, model: GalaxyModel, centrePc: { x: number; y: number; z: number }, halfDepthPc: number, halfHeightPc: number): void {
+/**
+ * `slabThicknessPc` (16 Aug 2026, a user-found gap): the actual slab this
+ * sector will be cut from was invisible on the side view - only the
+ * broader density field showed, with nothing marking WHERE within it the
+ * chosen "sys density" (slab thickness) band actually sits. Drawn as a
+ * horizontal band centred on the view's own z-centre (`centrePc.z`, which
+ * this function's own coordinate convention always places at the canvas's
+ * vertical midline), height floored at 3px so a genuinely thin slab
+ * (5-15 pc against a hundreds-to-thousands-of-pc view) stays visible
+ * rather than rounding to nothing.
+ */
+function renderEdgeOnCanvas(
+  canvas: HTMLCanvasElement, model: GalaxyModel, centrePc: { x: number; y: number; z: number },
+  halfDepthPc: number, halfHeightPc: number, slabThicknessPc: number | null = null,
+): void {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const w = canvas.width, h = canvas.height;
@@ -226,6 +283,18 @@ function renderEdgeOnCanvas(canvas: HTMLCanvasElement, model: GalaxyModel, centr
         ctx.fillRect(jx, jy, 1, 1);
       }
     }
+  }
+
+  if (slabThicknessPc !== null) {
+    const bandPx = Math.max(3, slabThicknessPc * pcToPxZ);
+    ctx.fillStyle = 'rgba(224,178,90,0.22)';
+    ctx.fillRect(0, h / 2 - bandPx / 2, w, bandPx);
+    ctx.strokeStyle = '#e0b25a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2 - bandPx / 2); ctx.lineTo(w, h / 2 - bandPx / 2);
+    ctx.moveTo(0, h / 2 + bandPx / 2); ctx.lineTo(w, h / 2 + bandPx / 2);
+    ctx.stroke();
   }
 }
 
@@ -369,7 +438,7 @@ export class GalaxyScreen2Modal extends Modal {
     this.sideOnCanvas.style.display = 'block';
     this.sideOnCanvas.style.margin = '4px auto 12px';
     const halfDepthPc = Math.max(this.draft.sizeInPc * 4, 500);
-    renderEdgeOnCanvas(this.sideOnCanvas, this.model, centre, halfDepthPc, Math.max(thickness * 3, 400));
+    renderEdgeOnCanvas(this.sideOnCanvas, this.model, centre, halfDepthPc, Math.max(thickness * 3, 400), thickness);
 
     new Setting(contentEl).setName('Angle (θ)').setDesc(`${(this.draft.angleRad * 180 / Math.PI).toFixed(0)}°`)
       .addSlider((s) => s.setLimits(0, 359, 1).setValue(Math.round(this.draft.angleRad * 180 / Math.PI))
@@ -381,9 +450,8 @@ export class GalaxyScreen2Modal extends Modal {
       .addSlider((s) => s.setLimits(-2000, 2000, 10).setValue(this.draft.distanceFromPlanePc)
         .onChange((v) => this.setDraft({ distanceFromPlanePc: v })));
 
-    new Setting(contentEl).setName('Sector shape')
-      .addDropdown((d) => d.addOption('circle', 'Circle').addOption('square', 'Square').addOption('hexagon', 'Hexagon')
-        .setValue(this.draft.footprintShape).onChange((v) => this.setDraft({ footprintShape: v as FootprintShape })));
+    contentEl.createEl('div', { text: 'Sector shape', cls: 'setting-item-name' });
+    renderShapeSelector(contentEl, this.draft.footprintShape, (shape) => this.setDraft({ footprintShape: shape }));
     new Setting(contentEl).setName('Sys density').setDesc('Thin (5 pc) / Standard (10 pc) / Thick (15 pc) slab thickness')
       .addDropdown((d) => d.addOption('thin', 'Thin').addOption('standard', 'Standard').addOption('thick', 'Thick')
         .setValue(this.draft.sysDensity).onChange((v) => this.setDraft({ sysDensity: v as Screen2Draft['sysDensity'] })));
