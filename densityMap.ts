@@ -471,8 +471,17 @@ const ARM_DISPLAY_CONTRAST_GAMMA = 0.6;
  * `fadeAt` itself reaches 0 (which this floor is multiplied BY, not
  * instead of - the true outer edge/void still fades to exact black, only
  * genuine interarm/background cells within the disc are floored).
+ *
+ * RAISED 0.22 -> 0.4 (16 Aug 2026, a direct user follow-up: the first pass
+ * closed literal black to a bare handful of dots, but the user wanted the
+ * overall arm/interarm contrast reduced further still - "so that you can
+ * see more stars between the arms", also noting it would make the complex
+ * -tier clumps (`galaxyCreationModals.ts`'s own overlay) "feel less odd and
+ * more normal" against a sparser background. Still a floor, not a
+ * flattening - the on-arm/off-arm gate (13) still requires a real, visible
+ * gap between the two, just a narrower one than before.
  */
-const INTERARM_FLOOR = 0.22;
+const INTERARM_FLOOR = 0.4;
 
 /**
  * Display normalisation FOR SPIRAL/BARRED MORPHOLOGIES ONLY (16 Aug 2026,

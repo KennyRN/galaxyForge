@@ -88,6 +88,56 @@ const SPINNER_SVG = '<svg width="24" height="24" viewBox="0 0 24 24">' +
 const SPINNER_DELAY_MS = 200;
 
 /**
+ * `showBusyOverlay`/`hideBusyOverlay`/`nextPaint` (16 Aug 2026) - extracted
+ * from Screen 3's own commit flow (the only place this pattern existed
+ * before) so Screen 1/2's own density-preview recompute can use the
+ * identical spinner, closing a real gap a user found: the seeded-arm
+ * table's own one-time cost (`spiralArms.generateSeededArms`'s contrast
+ * -calibration re-solve, ~0.5-1s on a new seed) made those two screens
+ * visibly "jump" - the whole preview freezing then updating with no
+ * feedback in between.
+ *
+ * `nextPaint` is the part Screen 3's OWN commit flow never needed: that
+ * flow's real work is a sequence of `await`ed I/O calls (`writeSystemNote`
+ * per system), so the event loop gets real chances to run a pending
+ * `setTimeout` between them and the delayed-show race just works. The
+ * density-field recompute here is ONE long SYNCHRONOUS call with no
+ * `await` inside it at all - a `setTimeout(..., SPINNER_DELAY_MS)` raced
+ * against it would never fire: by the time the synchronous work returns
+ * and the event loop is free to run the timer, the calling code has
+ * already reached its own `finally` block and cancelled it in the same
+ * tick, so the overlay would never actually paint. `nextPaint` sidesteps
+ * the race entirely - show the overlay, explicitly yield past TWO animation
+ * frames (one frame is not enough to guarantee the FIRST has already been
+ * flushed to the screen; two is the standard reliable pattern), THEN run
+ * the blocking computation. The tradeoff, stated honestly: unlike Screen
+ * 3's delayed show, this shows unconditionally rather than only past a
+ * threshold - a fast recompute (elliptical/lenticular, or any cache hit
+ * that skips this path entirely) shows the overlay for only the ~2 frames
+ * the yield itself takes, which reads as a brief flicker rather than a
+ * freeze either way.
+ */
+function showBusyOverlay(contentEl: HTMLElement, label: string): HTMLElement {
+  const overlay = contentEl.createDiv();
+  overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;' +
+    'align-items:center;justify-content:center;gap:8px;background:var(--background-primary);opacity:0.92;z-index:10;';
+  const spinner = overlay.createDiv();
+  spinner.innerHTML = SPINNER_SVG;
+  overlay.createEl('span', { text: label });
+  contentEl.style.position = 'relative';
+  contentEl.appendChild(overlay);
+  return overlay;
+}
+
+function hideBusyOverlay(overlay: HTMLElement | null): void {
+  overlay?.remove();
+}
+
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+/**
  * Shape-selector icons (16 Aug 2026, a user-found gap): the original
  * wireframe used icons for footprint shape deliberately, minimal-words by
  * design - a text dropdown was a placeholder that never got swapped out.
@@ -371,9 +421,18 @@ function paintDensityField(
       const cxPc = -halfWidthPc + ((ix + 0.5) / res.nx) * 2 * halfWidthPc;
       const cyPc = -halfWidthPc + ((iy + 0.5) / res.ny) * 2 * halfWidthPc;
       const px = w / 2 + cxPc * pcToPx, py = h / 2 - cyPc * pcToPx;
-      // Quadratic in v: pushes contrast toward a clumpy, high-dynamic-range
-      // starfield look rather than a smooth linear wash.
-      const n = Math.round(v * v * 18);
+      // v^1.5 (softened from a straight square, 16 Aug 2026, alongside
+      // densityMap.ts's own INTERARM_FLOOR raise) - still pushes contrast
+      // toward a clumpy, high-dynamic-range starfield look rather than a
+      // smooth linear wash, just less starkly than v^2 did: a direct user
+      // follow-up ("reduce the contrast more, so you can see more stars
+      // between the arms") - v^2 was itself compounding densityMap's own
+      // stretch on top of an already-floored value, so even a floored
+      // interarm cell (v=0.4) rounded down to very few dots. At v^1.5 the
+      // SAME floor value keeps noticeably more of its own brightness
+      // relative to a bright arm peak (v=1), reading as sparser stars
+      // rather than emptiness, without flattening the arms themselves.
+      const n = Math.round(Math.pow(v, 1.5) * 18);
       for (let p = 0; p < n; p++) {
         const jx = px + (Math.random() - 0.5) * (w / res.nx);
         const jy = py + (Math.random() - 0.5) * (h / res.ny);
@@ -547,6 +606,7 @@ export class GalaxyScreen1Modal extends Modal {
    *  the `addText` handler below for why this does NOT call `this.render()`
    *  directly. */
   private seedRefreshTimer: number | null = null;
+  private busyOverlay: HTMLElement | null = null;
 
   /**
    * `settings`/`onSettingsChange` (16 Aug 2026) are a plain data + callback
@@ -565,24 +625,54 @@ export class GalaxyScreen1Modal extends Modal {
     });
   }
 
-  private fieldForCurrentDraft(model: GalaxyModel, params: GalaxyParameters): DensityDisplayField {
+  /**
+   * The cache-miss path, WITH a spinner - split out of the old synchronous
+   * `fieldForCurrentDraft` (16 Aug 2026, a user-found gap: "a slight
+   * jumpy" - the seeded-arm table's own one-time contrast-calibration cost,
+   * ~0.5-1s, made the whole preview freeze then jump with no feedback).
+   * Shows the overlay unconditionally, yields to let it actually paint
+   * (`nextPaint`'s own header explains why a delayed-show race does not
+   * work for a synchronous computation), THEN runs the real work.
+   */
+  private async computeAndCacheField(model: GalaxyModel, params: GalaxyParameters, key: string): Promise<DensityDisplayField> {
+    this.busyOverlay = showBusyOverlay(this.contentEl, 'Rendering preview…');
+    await nextPaint();
+    const field = computeDensityDisplayField(
+      model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_PC, GALAXY_OVERVIEW_THICKNESS_PC, GALAXY_OVERVIEW_RES,
+      { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
+    );
+    this.cachedField = field;
+    this.cachedFieldKey = key;
+    hideBusyOverlay(this.busyOverlay);
+    this.busyOverlay = null;
+    return field;
+  }
+
+  private async fieldForCurrentDraft(model: GalaxyModel, params: GalaxyParameters): Promise<DensityDisplayField> {
     const key = `${this.draft.morphology}:${this.draft.sizeStepIndex}:${this.draft.lenticularBulgeType}:${this.draft.worldSeed}`;
-    if (this.cachedFieldKey !== key || !this.cachedField) {
-      this.cachedField = computeDensityDisplayField(
-        model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_PC, GALAXY_OVERVIEW_THICKNESS_PC, GALAXY_OVERVIEW_RES,
-        { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
-      );
-      this.cachedFieldKey = key;
-    }
-    return this.cachedField;
+    if (this.cachedFieldKey === key && this.cachedField) return this.cachedField;
+    return this.computeAndCacheField(model, params, key);
   }
 
   onOpen(): void {
     this.titleEl.setText('Create a Galaxy - Morphology, Size, Seed');
-    this.render();
+    void this.render();
   }
 
-  private render(): void {
+  /**
+   * ASYNC (16 Aug 2026) so the field recompute above can genuinely show its
+   * spinner before blocking - `buildDom` below still does the synchronous
+   * `contentEl.empty()` + rebuild, but only AFTER the (possibly slow) field
+   * is already in hand, so the DOM never sits half-built while a spinner is
+   * up.
+   */
+  private async render(): Promise<void> {
+    const { model, params } = modelFromDraft(this.draft);
+    const field = await this.fieldForCurrentDraft(model, params);
+    this.buildDom(field);
+  }
+
+  private buildDom(field: DensityDisplayField): void {
     const { contentEl } = this;
     contentEl.empty();
 
@@ -590,33 +680,36 @@ export class GalaxyScreen1Modal extends Modal {
     for (const choice of ['lenticular', 'elliptical', 'barredSpiral', 'spiral', 'milkyWayAnalogue'] as MorphologyChoice[]) {
       const btn = morphRow.createEl('button', { text: MORPHOLOGY_LABELS[choice] });
       if (choice === this.draft.morphology) btn.addClass('mod-cta');
-      btn.onclick = () => { this.draft = { ...this.draft, morphology: choice }; this.render(); };
+      btn.onclick = () => { this.draft = { ...this.draft, morphology: choice }; void this.render(); };
     }
 
     new Setting(contentEl).setName('Galaxy size').setDesc(sizeStepsFor(this.draft.morphology)[this.draft.sizeStepIndex]!.label)
       .addSlider((s) => s.setLimits(0, 4, 1).setValue(this.draft.sizeStepIndex).setDynamicTooltip()
-        .onChange((v) => { this.draft = { ...this.draft, sizeStepIndex: v }; this.render(); }));
+        .onChange((v) => { this.draft = { ...this.draft, sizeStepIndex: v }; void this.render(); }));
 
     new Setting(contentEl).setName('Seed')
       .addText((t) => t.setValue(this.draft.worldSeed).setPlaceholder('(random)')
         .onChange((v) => {
           this.draft = { ...this.draft, worldSeed: v };
-          // NOT this.render() - that would rebuild this very text input on
-          // every keystroke (contentEl.empty() + rebuild), stealing focus
-          // and the cursor position while typing. Since seeded arms (16 Aug
-          // 2026) mean the typed seed now genuinely changes the preview,
-          // debounce a canvas-only repaint instead of ignoring it entirely
-          // (the prior behaviour, back when the seed never affected shape).
+          // NOT void this.render() - that would rebuild this very text
+          // input on every keystroke (contentEl.empty() + rebuild),
+          // stealing focus and the cursor position while typing. Since
+          // seeded arms (16 Aug 2026) mean the typed seed now genuinely
+          // changes the preview, debounce a canvas-only repaint instead of
+          // ignoring it entirely (the prior behaviour, back when the seed
+          // never affected shape).
           if (this.seedRefreshTimer !== null) window.clearTimeout(this.seedRefreshTimer);
           this.seedRefreshTimer = window.setTimeout(() => {
-            const { model, params } = modelFromDraft(this.draft);
-            paintDensityField(this.canvas, this.fieldForCurrentDraft(model, params), null);
+            void (async () => {
+              const { model, params } = modelFromDraft(this.draft);
+              paintDensityField(this.canvas, await this.fieldForCurrentDraft(model, params), null);
+            })();
           }, 400);
         }))
       .addButton((b) => b.setButtonText('Randomise').onClick(() => {
         const seed = Math.random().toString(36).slice(2);
         this.draft = { ...this.draft, worldSeed: seed };
-        this.render();
+        void this.render();
       }));
 
     contentEl.createEl('h4', { text: 'Other options' });
@@ -629,19 +722,22 @@ export class GalaxyScreen1Modal extends Modal {
     // Two independent dials (16 Aug 2026, a user-found gap): a single
     // "prevalence" slider conflated HOW MANY worlds get terraformed with
     // HOW FAR each one has progressed - see `terraforming.ts`'s own header
-    // for why one number could not carry both questions honestly.
+    // for why one number could not carry both questions honestly. Neither
+    // slider triggers a recompute (`this.render()`) any more than it used
+    // to - terraforming affects nothing about the density field, so both
+    // just update the draft's own description text via a full rebuild,
+    // which hits the CACHE (no spinner, no recompute).
     new Setting(contentEl).setName('Terraforming coverage').setDesc(`${this.draft.terraformScale} / 6 - how many worlds get selected`)
       .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.draft.terraformScale).setDynamicTooltip()
-        .onChange((v) => { this.draft = { ...this.draft, terraformScale: v }; this.render(); }));
+        .onChange((v) => { this.draft = { ...this.draft, terraformScale: v }; void this.render(); }));
     new Setting(contentEl).setName('Terraforming intensity').setDesc(`${this.draft.terraformIntensity} / 6 - how far a selected world has progressed`)
       .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.draft.terraformIntensity).setDynamicTooltip()
-        .onChange((v) => { this.draft = { ...this.draft, terraformIntensity: v }; this.render(); }));
+        .onChange((v) => { this.draft = { ...this.draft, terraformIntensity: v }; void this.render(); }));
 
     this.canvas = contentEl.createEl('canvas', { attr: { width: '360', height: '360' } });
     this.canvas.style.display = 'block';
     this.canvas.style.margin = '12px auto';
-    const { model, params } = modelFromDraft(this.draft);
-    paintDensityField(this.canvas, this.fieldForCurrentDraft(model, params), null);
+    paintDensityField(this.canvas, field, null);
 
     const nav = contentEl.createDiv();
     nav.createEl('span');
@@ -697,10 +793,25 @@ export class GalaxyScreen2Modal extends Modal {
 
   onOpen(): void {
     this.titleEl.setText('Create a Galaxy - Sector Centre');
+    void this.initAndRender();
+  }
+
+  /**
+   * Async (16 Aug 2026) so the initial `galaxyOverview` computation - the
+   * same potentially-slow seeded-arm field build Screen 1 pays, since
+   * `this.model` was built by the same `modelFromDraft` - can show a
+   * spinner instead of freezing the transition from Screen 1. See
+   * `showBusyOverlay`'s own header for why this yields via `nextPaint`
+   * rather than racing a delayed `setTimeout` against synchronous work.
+   */
+  private async initAndRender(): Promise<void> {
+    const overlay = showBusyOverlay(this.contentEl, 'Rendering preview…');
+    await nextPaint();
     this.galaxyOverview = computeDensityDisplayField(
       this.model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_PC, GALAXY_OVERVIEW_THICKNESS_PC, GALAXY_OVERVIEW_RES,
       { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },
     );
+    hideBusyOverlay(overlay);
     this.draft = reconcileSizeFields(this.model, this.draft);
     this.render();
   }
@@ -834,23 +945,6 @@ export class GalaxyScreen3Modal extends Modal {
     nav.createEl('button', { text: 'Generate Sector', cls: 'mod-cta' }).onclick = () => { void this.commit(centre); };
   }
 
-  private showBusyOverlay(): void {
-    const overlay = this.contentEl.createDiv();
-    overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;' +
-      'align-items:center;justify-content:center;gap:8px;background:var(--background-primary);opacity:0.92;z-index:10;';
-    const spinner = overlay.createDiv();
-    spinner.innerHTML = SPINNER_SVG;
-    overlay.createEl('span', { text: 'Generating…' });
-    this.contentEl.style.position = 'relative';
-    this.contentEl.appendChild(overlay);
-    this.busyOverlay = overlay;
-  }
-
-  private hideBusyOverlay(): void {
-    this.busyOverlay?.remove();
-    this.busyOverlay = null;
-  }
-
   /**
    * `sectorFootprint.assembleSector` (16 Aug 2026) is called ONLY here, not
    * from the cheap position-only preview above - it composes the stellar,
@@ -864,17 +958,22 @@ export class GalaxyScreen3Modal extends Modal {
    * Guarded against a second concurrent commit (`this.generating`), and
    * shows a busy overlay (spinner + label) ONLY if the commit is still
    * running after `SPINNER_DELAY_MS` - a commit fast enough to finish
-   * before then never flashes it at all.
+   * before then never flashes it at all. Safe to race a plain `setTimeout`
+   * here (unlike Screen 1/2's own recompute, see `showBusyOverlay`'s own
+   * header) because `commitInner` is a sequence of `await`ed I/O calls, not
+   * one long synchronous block - the event loop gets real chances to run
+   * the pending timer between them.
    */
   private async commit(centrePc: { x: number; y: number; z: number }): Promise<void> {
     if (this.generating) return;
     this.generating = true;
-    const spinnerTimer = window.setTimeout(() => this.showBusyOverlay(), SPINNER_DELAY_MS);
+    const spinnerTimer = window.setTimeout(() => { this.busyOverlay = showBusyOverlay(this.contentEl, 'Generating…'); }, SPINNER_DELAY_MS);
     try {
       await this.commitInner(centrePc);
     } finally {
       window.clearTimeout(spinnerTimer);
-      this.hideBusyOverlay();
+      hideBusyOverlay(this.busyOverlay);
+      this.busyOverlay = null;
       this.generating = false;
     }
   }
