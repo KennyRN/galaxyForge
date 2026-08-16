@@ -46,7 +46,7 @@
  * that showing and immediately hiding it would just be visual noise.
  */
 
-import { Modal, Setting, Notice, type App } from 'obsidian';
+import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App } from 'obsidian';
 import { createSpiralModel, createEllipticalModel, createLenticularModel, type GalaxyModel } from './galaxyModel';
 import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
 import { fieldFromModel, projectSlab, sampleVolume, normaliseForDisplay, emphasiseArmsForDisplay, type SlabRegionPc, type VolumeRegionPc } from './densityMap';
@@ -60,7 +60,7 @@ import { CURRENT_GEN_VERSION } from './genVersion';
 import { writeSystemNote } from './vault';
 import type { RenderSystemInput } from './render';
 import {
-  type MorphologyChoice, type Screen1Draft, type Screen2Draft,
+  type MorphologyChoice, type Screen1Draft, type Screen2Draft, type SysDensityChoice,
   defaultScreen1Draft, defaultScreen2Draft, resolveModelName, resolveBarEnabled,
   sizeStepsFor, sizeValueFor, sizeIsMass, thicknessPcFor, centrePcFromPolar,
   reconcileSizeFields, assembleSearchCriteria, isWithinFootprint,
@@ -144,30 +144,93 @@ function nextPaint(): Promise<void> {
  * Each glyph matches `sectorFootprint.ts`'s own geometry convention (the
  * hexagon's vertex on the +x axis, "pointy" toward 3 o'clock - the same
  * orientation `isWithinFootprint`/`boundaryPointsPc` already draw).
+ *
+ * Sized 26px inside a 40px box (16 Aug 2026, a user follow-up) - up from a
+ * 22px glyph in a bare padded button.
  */
 const SHAPE_ICONS: Readonly<Record<FootprintShape, string>> = {
-  circle: '<svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
-  square: '<svg width="22" height="22" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
-  hexagon: '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M21,12 L16.5,4.2 L7.5,4.2 L3,12 L7.5,19.8 L16.5,19.8 Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  circle: '<svg width="26" height="26" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  square: '<svg width="26" height="26" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  hexagon: '<svg width="26" height="26" viewBox="0 0 24 24"><path d="M21,12 L16.5,4.2 L7.5,4.2 L3,12 L7.5,19.8 L16.5,19.8 Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
 };
 const SHAPE_LABELS: Readonly<Record<FootprintShape, string>> = { circle: 'Circle', square: 'Square', hexagon: 'Hexagon' };
 
+const SYS_DENSITY_LABELS: Readonly<Record<SysDensityChoice, string>> = {
+  thin: 'Low density', standard: 'Standard density', thick: 'High density',
+};
+
 /**
- * A row of icon buttons, one per footprint shape - replaces a text
- * dropdown with the icon-only, minimal-words control the wireframe
- * actually called for. `title`/`aria-label` carry the name for
- * accessibility without putting it on screen.
+ * Shape icons + the sys-density dropdown, ONE row, no header, no label text
+ * (16 Aug 2026, a user follow-up on the icon-only shape selector above):
+ * previously a "Sector shape" heading sat above the icon row, and "Sys
+ * density" was its own `Setting` (name + description) underneath. The user
+ * asked for both on a single line with none of that chrome - shape choice
+ * plus density both read at a glance from icon/dropdown alone.
+ *
+ * The icons are DIVs, not `<button>`s - a real button carries Obsidian's
+ * own border/background chrome, which reads as "a button" rather than the
+ * "highlighted icon" look asked for; selection is shown purely as a
+ * background highlight (`--interactive-accent`), same information as the
+ * old `mod-cta` class conveyed, different visual language. `role="button"`
+ * plus a keydown handler keep it keyboard-operable since a div carries
+ * neither by default.
  */
-function renderShapeSelector(container: HTMLElement, selected: FootprintShape, onSelect: (shape: FootprintShape) => void): void {
+function renderShapeAndDensityRow(
+  container: HTMLElement,
+  selectedShape: FootprintShape, onSelectShape: (shape: FootprintShape) => void,
+  selectedDensity: SysDensityChoice, onSelectDensity: (density: SysDensityChoice) => void,
+): void {
   const row = container.createDiv();
-  row.style.cssText = 'display:flex;gap:8px;margin:4px 0 12px;';
+  row.style.cssText = 'display:flex;align-items:center;gap:10px;margin:8px 0 12px;';
   for (const shape of ['circle', 'square', 'hexagon'] as FootprintShape[]) {
-    const btn = row.createEl('button', { attr: { title: SHAPE_LABELS[shape], 'aria-label': SHAPE_LABELS[shape] } });
-    btn.style.cssText = 'display:flex;align-items:center;justify-content:center;padding:6px;';
-    btn.innerHTML = SHAPE_ICONS[shape];
-    if (shape === selected) btn.addClass('mod-cta');
-    btn.onclick = () => onSelect(shape);
+    const isSelected = shape === selectedShape;
+    const icon = row.createDiv({ attr: { title: SHAPE_LABELS[shape], 'aria-label': SHAPE_LABELS[shape], role: 'button', tabindex: '0' } });
+    icon.style.cssText = 'flex:0 0 40px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;'
+      + `border-radius:6px;cursor:pointer;color:${isSelected ? 'var(--text-on-accent)' : 'var(--text-muted)'};`
+      + `background:${isSelected ? 'var(--interactive-accent)' : 'transparent'};`;
+    icon.innerHTML = SHAPE_ICONS[shape];
+    icon.onclick = () => onSelectShape(shape);
+    icon.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSelectShape(shape); } };
   }
+  row.createDiv().style.cssText = 'flex:1 1 auto;';   // pushes the dropdown to the far side of the shape icons
+  new DropdownComponent(row)
+    .addOption('thin', SYS_DENSITY_LABELS.thin).addOption('standard', SYS_DENSITY_LABELS.standard).addOption('thick', SYS_DENSITY_LABELS.thick)
+    .setValue(selectedDensity)
+    .onChange((v) => onSelectDensity(v as SysDensityChoice));
+}
+
+/**
+ * Angle/distance icons (16 Aug 2026, a user follow-up): "at-icons--angle",
+ * "ci--arrow-left-right" and "ci--arrow-down-up" from the same icon set the
+ * spinner/shape glyphs already draw from, `xmlns` stripped as `renderShape
+ * Selector`'s own glyphs already do (Gate S1 flags the `http://www.w3.org/...`
+ * namespace URL as network-looking text otherwise).
+ */
+const ANGLE_ICON = '<svg width="22" height="22" viewBox="0 0 16 16"><path fill="currentColor" d="M8.106 2.43A1 1 0 0 1 9.75 3.57L6.766 7.874a7 7 0 0 1 1.39 1.79A7 7 0 0 1 8.925 12H14a1 1 0 0 1 0 2H2a1 1 0 0 1-.822-1.57zM3.91 12h2.988a5 5 0 0 0-.5-1.382a5 5 0 0 0-.787-1.075z"/></svg>';
+const DISTANCE_FROM_CENTRE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m16 13l3 3m0 0l-3 3m3-3H5m3-5L5 8m0 0l3-3M5 8h14"/></svg>';
+const DISTANCE_FROM_PLANE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m11 16l-3 3m0 0l-3-3m3 3V5m5 3l3-3m0 0l3 3m-3-3v14"/></svg>';
+
+/**
+ * Icon + slider, ONE row, no name/description text at all (16 Aug 2026, a
+ * user follow-up: "use the icon to replace ALL the text"). Deliberately
+ * NOT built on `Setting`'s own `.addSlider` - Obsidian's `.setting-item
+ * -control` reserves a fixed max-width for a slider control that would
+ * leave dead space on the right; rule 4 asks the slider to fill every
+ * pixel between the 30px icon and the far edge, so this is a bare flex row
+ * plus a raw `SliderComponent` (still real Obsidian slider behaviour -
+ * dynamic tooltip, native drag - just laid out by hand) instead.
+ */
+function renderIconSlider(
+  container: HTMLElement, icon: string, label: string,
+  min: number, max: number, step: number, value: number, onChange: (v: number) => void,
+): void {
+  const row = container.createDiv();
+  row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:8px 0;';
+  const iconEl = row.createDiv({ attr: { title: label, 'aria-label': label } });
+  iconEl.style.cssText = 'flex:0 0 30px;width:30px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);';
+  iconEl.innerHTML = icon;
+  const slider = new SliderComponent(row).setLimits(min, max, step).setValue(value).setDynamicTooltip().onChange(onChange);
+  slider.sliderEl.style.cssText = 'flex:1 1 auto;width:100%;';
 }
 
 const MORPHOLOGY_LABELS: Readonly<Record<MorphologyChoice, string>> = {
@@ -813,6 +876,10 @@ export class GalaxyScreen2Modal extends Modal {
   private topDownCanvas!: HTMLCanvasElement;
   private sideOnCanvas!: HTMLCanvasElement;
 
+  /** Debounce timer for the Total systems / Size (pc) text fields - see
+   *  their own `onChange` handlers below for why this exists. */
+  private sizeFieldRefreshTimer: number | null = null;
+
   /** The whole-galaxy field for the top-down view (16 Aug 2026) - computed
    *  ONCE in `onOpen`, never per-render. `this.model` is fixed for this
    *  modal's whole lifetime (set once in the constructor, from `screen1`),
@@ -892,28 +959,46 @@ export class GalaxyScreen2Modal extends Modal {
     const halfDepthPc = Math.max(this.draft.sizeInPc * 4, 500);
     renderEdgeOnCanvas(this.sideOnCanvas, this.model, centre, halfDepthPc, EDGE_ON_HALF_HEIGHT_PC, thickness);
 
-    new Setting(contentEl).setName('Angle (θ)').setDesc(`${(this.draft.angleRad * 180 / Math.PI).toFixed(0)}°`)
-      .addSlider((s) => s.setLimits(0, 359, 1).setValue(Math.round(this.draft.angleRad * 180 / Math.PI))
-        .onChange((v) => this.setDraft({ angleRad: (v * Math.PI) / 180 })));
-    new Setting(contentEl).setName('Distance from centre (R)').setDesc(`${this.draft.distanceFromCentrePc.toFixed(0)} pc`)
-      .addSlider((s) => s.setLimits(0, 20000, 50).setValue(this.draft.distanceFromCentrePc)
-        .onChange((v) => this.setDraft({ distanceFromCentrePc: v })));
-    new Setting(contentEl).setName('Distance from galactic plane (z)').setDesc(`${this.draft.distanceFromPlanePc.toFixed(0)} pc`)
-      .addSlider((s) => s.setLimits(-2000, 2000, 10).setValue(this.draft.distanceFromPlanePc)
-        .onChange((v) => this.setDraft({ distanceFromPlanePc: v })));
+    renderIconSlider(contentEl, ANGLE_ICON, `Angle (θ) - ${(this.draft.angleRad * 180 / Math.PI).toFixed(0)}°`,
+      0, 359, 1, Math.round(this.draft.angleRad * 180 / Math.PI), (v) => this.setDraft({ angleRad: (v * Math.PI) / 180 }));
+    renderIconSlider(contentEl, DISTANCE_FROM_CENTRE_ICON, `Distance from centre (R) - ${this.draft.distanceFromCentrePc.toFixed(0)} pc`,
+      0, 20000, 50, this.draft.distanceFromCentrePc, (v) => this.setDraft({ distanceFromCentrePc: v }));
+    renderIconSlider(contentEl, DISTANCE_FROM_PLANE_ICON, `Distance from galactic plane (z) - ${this.draft.distanceFromPlanePc.toFixed(0)} pc`,
+      -2000, 2000, 10, this.draft.distanceFromPlanePc, (v) => this.setDraft({ distanceFromPlanePc: v }));
 
-    contentEl.createEl('div', { text: 'Sector shape', cls: 'setting-item-name' });
-    renderShapeSelector(contentEl, this.draft.footprintShape, (shape) => this.setDraft({ footprintShape: shape }));
-    new Setting(contentEl).setName('Sys density').setDesc('Thin (5 pc) / Standard (10 pc) / Thick (15 pc) slab thickness')
-      .addDropdown((d) => d.addOption('thin', 'Thin').addOption('standard', 'Standard').addOption('thick', 'Thick')
-        .setValue(this.draft.sysDensity).onChange((v) => this.setDraft({ sysDensity: v as Screen2Draft['sysDensity'] })));
+    renderShapeAndDensityRow(
+      contentEl, this.draft.footprintShape, (shape) => this.setDraft({ footprintShape: shape }),
+      this.draft.sysDensity, (density) => this.setDraft({ sysDensity: density }),
+    );
 
+    // Debounced (16 Aug 2026, a user-found gap: "lag... sometimes I can't
+    // even write 15 into size") - `setDraft` runs `reconcileSizeFields`
+    // (a root-find over the density model, not free) then a full
+    // `contentEl.empty()` + rebuild, which includes THIS very text field.
+    // Calling it straight from `onChange` meant every single keystroke
+    // rebuilt the input out from under itself mid-type, dropping focus and
+    // the caret - typing "15" could land as "1", or as nothing at all if
+    // the rebuild landed between keydown events. Same fix as Screen 1's
+    // seed field (`seedRefreshTimer`): wait for a pause in typing before
+    // touching the draft at all, so the browser's own native text-input
+    // behaviour (which needs no help from us) carries every keystroke
+    // while the user is still typing.
     new Setting(contentEl).setName('Total systems')
       .addText((t) => t.setValue(String(this.draft.totalSystems))
-        .onChange((v) => { const n = Number(v); if (Number.isFinite(n) && n >= 0) this.setDraft({ sizeEditMode: 'totalSystems', totalSystems: Math.round(n) }); }));
+        .onChange((v) => {
+          const n = Number(v);
+          if (!Number.isFinite(n) || n < 0) return;
+          if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
+          this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'totalSystems', totalSystems: Math.round(n) }), 400);
+        }));
     new Setting(contentEl).setName('Size (pc)')
       .addText((t) => t.setValue(this.draft.sizeInPc.toFixed(1))
-        .onChange((v) => { const n = Number(v); if (Number.isFinite(n) && n > 0) this.setDraft({ sizeEditMode: 'sizeInPc', sizeInPc: n }); }));
+        .onChange((v) => {
+          const n = Number(v);
+          if (!Number.isFinite(n) || n <= 0) return;
+          if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
+          this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'sizeInPc', sizeInPc: n }), 400);
+        }));
 
     new Setting(contentEl).setName('System at centre').setDesc('Search for a specific system to centre the sector on, instead of the point above')
       .addToggle((t) => t.setValue(this.draft.systemAtCentre).onChange((v) => this.setDraft({ systemAtCentre: v })));
