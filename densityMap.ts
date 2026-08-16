@@ -416,8 +416,25 @@ export function normaliseForDisplay(
  * Radial fade reach, in disc scale lengths (16 Aug 2026, ported from a
  * sibling build). `tunable` - purely a display choice, not a model
  * constant.
+ *
+ * RAISED 5 -> 8 (16 Aug 2026, a direct user follow-up: "no gradual fading
+ * of the stars, but a solid cutoff"). Verified numerically (this session's
+ * own diagnostic script) that at 5 scale lengths (rFade=13000pc) the
+ * display value hits exactly 0 by R~=17000pc, well inside this project's
+ * own 20000pc half-width preview - so real, if faint, DISC material past
+ * that radius (still measured non-zero out to at least 24000pc) was being
+ * cut off outright rather than fading into it. At 8 scale lengths the same
+ * sweep stays in a smooth 0.12-0.86 range all the way to the view's own
+ * corner, with no hard floor - genuinely gradual. This does NOT make the
+ * stellar halo (`haloTerm`) show as a DISTINCT structure in this top-down,
+ * full-z-integrated view - verified separately that halo never exceeds a
+ * few percent of the in-plane total density at any radius within its own
+ * truncation, so it is never locally dominant here no matter how far the
+ * fade reaches; the halo's real visual signature is at high |z|, which is
+ * what the edge-on view's own widened height (see `galaxyCreationModals
+ * .ts`'s own `EDGE_ON_HALF_HEIGHT_PC`) is for.
  */
-export const ARM_DISPLAY_FADE_SCALE_LENGTHS = 5;
+export const ARM_DISPLAY_FADE_SCALE_LENGTHS = 8;
 
 /**
  * Contrast-boost exponent applied to a cell's deviation from its own ring

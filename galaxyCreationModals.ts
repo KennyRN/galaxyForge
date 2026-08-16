@@ -297,6 +297,25 @@ function complexCentresForOverview(
 
 /* ------------------------------- shared canvas rendering ------------------------ */
 
+/**
+ * Stochastic rounding (16 Aug 2026, a direct user follow-up: "no gradual
+ * fading of the stars, but a solid cutoff") - `Math.round` on a fractional
+ * expected dot-count has a hard threshold: any cell whose expected count
+ * sits below 0.5 rounds to EXACTLY 0, every time, at exactly the same
+ * display value. Near a fade edge that produces a visible wall - a whole
+ * band of cells all crossing that 0.5 threshold together, dots simply
+ * stopping rather than thinning out. Rounding stochastically instead means
+ * a cell expecting 0.3 dots still DRAWS one about 30% of the time - across
+ * many neighbouring cells that reads as a genuinely gradual thinning
+ * (fewer and fewer cells still drawing anything as the expectation drops
+ * toward 0), the same trick dithering uses to fake a smooth gradient from
+ * discrete pixels.
+ */
+function stochasticRound(expected: number): number {
+  const whole = Math.floor(expected);
+  return whole + (Math.random() < expected - whole ? 1 : 0);
+}
+
 function boundaryPointsPc(radiusPc: number, shape: FootprintShape): { x: number; y: number }[] {
   if (shape === 'circle') {
     return Array.from({ length: 65 }, (_, i) => {
@@ -344,6 +363,26 @@ const GALAXY_OVERVIEW_CENTRE_PC = { x: 0, y: 0, z: 0 } as const;
 const GALAXY_OVERVIEW_HALF_WIDTH_PC = 20000;
 const GALAXY_OVERVIEW_THICKNESS_PC = 4000;
 const GALAXY_OVERVIEW_RES = { nx: 200, ny: 200 };
+
+/**
+ * The edge-on view's own vertical half-extent (16 Aug 2026, a direct user
+ * follow-up: "I can see no stars in the halo at all"). Previously
+ * `Math.max(thickness * 3, 400)` - since `thickness` is the 5/10/15 pc slab
+ * choice, that floor of 400 pc was in practice the ENTIRE vertical range
+ * shown, always. Verified numerically (this session's own diagnostic
+ * script, sampling `densityByPopulation` at R0 across a spread of |z|) that
+ * the halo never exceeds a few percent of the local total below |z| ~
+ * 1000 pc, crosses 18% around 2000 pc, 38% around 3000 pc and dominates
+ * (80%+) by 5000 pc - so a 400 pc window could not have shown so much as a
+ * trace of it, regardless of any display tuning; the halo is a real,
+ * physically distinct off-plane population (`haloTerm`'s own oblate power
+ * law) that this view was simply never tall enough to reach. 6000 pc
+ * reaches well into the region where halo genuinely dominates while still
+ * leaving the thin/thick disc resolvable as a distinct central band -
+ * `renderEdgeOnCanvas`'s own `nz` resolution was raised alongside this so
+ * that band does not collapse to 1-2 blurry cells at the new scale.
+ */
+const EDGE_ON_HALF_HEIGHT_PC = 6000;
 
 /** The reduced-and-display-scaled field a canvas is painted from, computed
  *  once and reusable across repaints (the overlay alone changes far more
@@ -432,7 +471,8 @@ function paintDensityField(
       // SAME floor value keeps noticeably more of its own brightness
       // relative to a bright arm peak (v=1), reading as sparser stars
       // rather than emptiness, without flattening the arms themselves.
-      const n = Math.round(Math.pow(v, 1.5) * 18);
+      // stochasticRound, not Math.round - see that function's own header.
+      const n = stochasticRound(Math.pow(v, 1.5) * 18);
       for (let p = 0; p < n; p++) {
         const jx = px + (Math.random() - 0.5) * (w / res.nx);
         const jy = py + (Math.random() - 0.5) * (h / res.ny);
@@ -526,7 +566,14 @@ function renderEdgeOnCanvas(
   ctx.fillStyle = '#05050a';
   ctx.fillRect(0, 0, w, h);
 
-  const res = { nx: 24, ny: 80, nz: 40 };
+  // nx=3, not the earlier 24 (16 Aug 2026, freed up budget for the nz bump
+  // just below): the x range sampled here is `centrePc.x +/- 1` pc - a
+  // slice 2 pc wide, so 24 sub-samples across it were 24 near-identical
+  // values, pure waste. nz=110, up from 40 - see EDGE_ON_HALF_HEIGHT_PC's
+  // own header for why the vertical range this now covers is far larger
+  // than before; without a matching resolution bump the thin disc (300 pc
+  // scale height) would collapse to 1-2 blurry cells against it.
+  const res = { nx: 3, ny: 80, nz: 110 };
   const region: VolumeRegionPc = {
     min: { x: centrePc.x - 1, y: centrePc.y - halfDepthPc, z: centrePc.z - halfHeightPc },
     max: { x: centrePc.x + 1, y: centrePc.y + halfDepthPc, z: centrePc.z + halfHeightPc },
@@ -548,7 +595,7 @@ function renderEdgeOnCanvas(
       const yPc = -halfDepthPc + ((iy + 0.5) / res.ny) * 2 * halfDepthPc;
       const zPc = -halfHeightPc + ((iz + 0.5) / res.nz) * 2 * halfHeightPc;
       const px = (yPc + halfDepthPc) * pcToPxY, py = h - (zPc + halfHeightPc) * pcToPxZ;
-      const n = Math.round(v * v * 10);
+      const n = stochasticRound(v * v * 10);   // stochasticRound - see that function's own header
       for (let p = 0; p < n; p++) {
         const jx = px + (Math.random() - 0.5) * (w / res.ny);
         const jy = py + (Math.random() - 0.5) * (h / res.nz);
@@ -835,11 +882,15 @@ export class GalaxyScreen2Modal extends Modal {
     // changes - see `galaxyOverview`'s own doc comment.
     paintDensityField(this.topDownCanvas, this.galaxyOverview, { centrePc: centre, radiusPc: this.draft.sizeInPc, shape: this.draft.footprintShape });
 
-    this.sideOnCanvas = contentEl.createEl('canvas', { attr: { width: '400', height: '80' } });
+    // height 80 -> 220 (16 Aug 2026, alongside EDGE_ON_HALF_HEIGHT_PC's own
+    // widening) - a 12 000 pc total vertical range read at 80px was ~150 pc
+    // per pixel, too coarse to show the thin disc as anything but a hairline
+    // even before the halo fix; 220px brings that down to a legible ~55 pc/px.
+    this.sideOnCanvas = contentEl.createEl('canvas', { attr: { width: '400', height: '220' } });
     this.sideOnCanvas.style.display = 'block';
     this.sideOnCanvas.style.margin = '4px auto 12px';
     const halfDepthPc = Math.max(this.draft.sizeInPc * 4, 500);
-    renderEdgeOnCanvas(this.sideOnCanvas, this.model, centre, halfDepthPc, Math.max(thickness * 3, 400), thickness);
+    renderEdgeOnCanvas(this.sideOnCanvas, this.model, centre, halfDepthPc, EDGE_ON_HALF_HEIGHT_PC, thickness);
 
     new Setting(contentEl).setName('Angle (θ)').setDesc(`${(this.draft.angleRad * 180 / Math.PI).toFixed(0)}°`)
       .addSlider((s) => s.setLimits(0, 359, 1).setValue(Math.round(this.draft.angleRad * 180 / Math.PI))
