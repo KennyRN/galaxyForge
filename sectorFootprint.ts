@@ -45,13 +45,18 @@
  * own `SectorRecipe` comments, not repeated here.
  */
 
-import type { GalaxyModel } from './galaxyModel';
+import type { GalaxyModel, Population } from './galaxyModel';
+import { channelRng } from './rng';
 import {
   rollCell, applyExclusion, mergeLocalSymmetric, CELL_SIZE_PC, EXCLUSION_RADIUS_PC,
   type CellKey, type PlacedSystem, type MergeCandidate,
 } from './placement';
 import { rollRemnantCell, type RemnantSystem } from './remnants';
 import { conatalProbability, drawGroup, groupRng } from './conatal';
+import { complexParticipation, placeYoungClustered, type ComplexPlacedCandidate } from './starFormingComplexes';
+import { densityByPopulationAtCartesian } from './galacticDensity';
+import type { GalaxyParameters } from './galaxyParameters';
+import { DEFAULT_GALAXY_PARAMETERS } from './galaxyParameters';
 
 export type FootprintShape = 'circle' | 'square' | 'hexagon';
 
@@ -165,10 +170,33 @@ export interface AssembledSector {
  *     companion, `multiplicity.ts`'s own WD-companion promotion already
  *     models that case, and merging here too would double-count it.
  */
+/** Sentinel `cellKey.iz` for a complex-tier candidate - the complex grid has
+ *  no z-cell at all (z is continuous within the slab, see
+ *  `starFormingComplexes.placeYoungClustered`), so this exists purely to
+ *  give complex-tier systems a well-formed `CellKey`. Collision with an
+ *  ordinary 10 pc placement cell is prevented by the sysid PREFIX
+ *  (`complex.`), not by this value being numerically special - the same
+ *  belt-and-braces disambiguation `remnants.ts` uses (`remnant.` prefix). */
+const COMPLEX_CELL_IZ = -1_000_000;
+
+/** One conatal-group lookup, computed once per (cellKeyString, parentOrdinal)
+ *  and shared between the ordinary Thomas path and the complex-tier path -
+ *  both produce genuine parent/offspring clusters, and `SystemContext`'s own
+ *  ruling is that EVERY placed group is conatal, regardless of which
+ *  mechanism placed it. */
+function conatalGroupFor(
+  worldSeed: string, cellKey: CellKey, parentOrdinal: number, popMeta: Population,
+): { groupId: string; ageGyr: number; fehMeanDex: number } | undefined {
+  if (conatalProbability(popMeta) <= 0) return undefined;
+  const group = drawGroup(groupRng(worldSeed, cellKey, parentOrdinal), cellKey, parentOrdinal, popMeta);
+  return { groupId: group.groupId, ageGyr: group.ageGyr, fehMeanDex: group.fehMeanDex };
+}
+
 export function assembleSector(
   worldSeed: string, model: GalaxyModel,
   centrePc: { readonly x: number; readonly y: number; readonly z: number },
   radiusPc: number, thicknessPc: number, footprintShape: FootprintShape,
+  params: GalaxyParameters = DEFAULT_GALAXY_PARAMETERS,
 ): AssembledSector {
   const cells = cellsTouchingFootprint(centrePc, radiusPc, thicknessPc);
 
@@ -176,8 +204,23 @@ export function assembleSector(
   const remnantCandidates: RemnantSystem[] = [];
   const conatalByGroupKey = new Map<string, { groupId: string; ageGyr: number; fehMeanDex: number }>();
 
+  // -- complex-tier participation: how much of youngThin is complex-organised,
+  //    and the wrapped model that reduces its SMOOTH density by (1 - w) so
+  //    the two paths partition the total rather than one adding to the other
+  //    (see starFormingComplexes.ts's own header on count conservation). ----
+  const youngPop = model.populations.find((p) => p.key === 'youngThin');
+  const complexW = youngPop ? complexParticipation(youngPop, params.complexTier) : 0;
+  const meanSystemsPerGroup = youngPop?.meanGroupSize ?? 12;
+  const smoothModel: GalaxyModel = complexW > 0 ? {
+    ...model,
+    densityByPopulation: (R: number, theta: number, z: number) => {
+      const d = model.densityByPopulation(R, theta, z);
+      return { ...d, youngThin: (d.youngThin ?? 0) * (1 - complexW) };
+    },
+  } : model;
+
   for (const cell of cells) {
-    const cellStellar = rollCell(worldSeed, model, cell);
+    const cellStellar = rollCell(worldSeed, smoothModel, cell);
     stellarCandidates.push(...cellStellar);
     remnantCandidates.push(...rollRemnantCell(worldSeed, model, cell));
 
@@ -189,12 +232,46 @@ export function assembleSector(
       const parent = cellStellar.find((s) => s.ordinal === parentOrdinal && !s.isOffspring);
       if (!parent) continue;   // a parentOrdinal always has its own parent record; defensive only
       const popMeta = model.populations.find((p) => p.key === parent.population);
-      if (!popMeta || conatalProbability(popMeta) <= 0) continue;
-      const group = drawGroup(groupRng(worldSeed, cell, parentOrdinal), cell, parentOrdinal, popMeta);
-      conatalByGroupKey.set(
-        `${cell.ix}.${cell.iy}.${cell.iz}.${parentOrdinal}`,
-        { groupId: group.groupId, ageGyr: group.ageGyr, fehMeanDex: group.fehMeanDex },
-      );
+      if (!popMeta) continue;
+      const group = conatalGroupFor(worldSeed, cell, parentOrdinal, popMeta);
+      if (group) conatalByGroupKey.set(`${cell.ix}.${cell.iy}.${cell.iz}.${parentOrdinal}`, group);
+    }
+  }
+
+  // -- complex-tier stellar candidates - a SEPARATE Poisson hierarchy over
+  //    the whole footprint (its own cell grid, 1200 pc by default), not
+  //    the ordinary 10 pc Thomas process. Every complex-tier group is
+  //    conatal too, by the same ruling as the ordinary path. -------------
+  if (complexW > 0 && youngPop) {
+    const youngSurfaceAt = (x: number, y: number): number => {
+      const d = densityByPopulationAtCartesian(model, x, y, 0);
+      return thicknessPc * (d.youngThin ?? 0);
+    };
+    const complexCandidates: ComplexPlacedCandidate[] = placeYoungClustered(
+      worldSeed, centrePc.x, centrePc.y, centrePc.z, radiusPc, thicknessPc, complexW,
+      youngSurfaceAt, params.complexTier, meanSystemsPerGroup, params.placement.jitterSigmaPc,
+    );
+    const byParent = new Map<number, ComplexPlacedCandidate[]>();
+    for (const c of complexCandidates) {
+      const key = c.isOffspring ? c.parentOrdinal! : c.ordinal;
+      const arr = byParent.get(key) ?? [];
+      arr.push(c);
+      byParent.set(key, arr);
+    }
+    for (const [parentOrdinal, members] of byParent) {
+      const cellKey: CellKey = { ix: members[0]!.cellIx, iy: members[0]!.cellIy, iz: COMPLEX_CELL_IZ };
+      const group = conatalGroupFor(worldSeed, cellKey, parentOrdinal, youngPop);
+      if (group) conatalByGroupKey.set(`${cellKey.ix}.${cellKey.iy}.${cellKey.iz}.${parentOrdinal}`, group);
+      for (const c of members) {
+        const cKey: CellKey = { ix: c.cellIx, iy: c.cellIy, iz: COMPLEX_CELL_IZ };
+        const sysid = `complex.${c.cellIx}.${c.cellIy}.${c.ordinal}${c.isOffspring ? `.${c.parentOrdinal}` : ''}`;
+        const formationRank = channelRng(worldSeed, 'formationRank', sysid)();
+        stellarCandidates.push({
+          cellKey: cKey, ordinal: c.ordinal, sysid,
+          positionPc: { x: c.x, y: c.y, z: c.z }, population: 'youngThin', formationRank,
+          isOffspring: c.isOffspring, parentOrdinal: c.parentOrdinal,
+        });
+      }
     }
   }
 
@@ -264,8 +341,12 @@ export function assembleSector(
  *      EXACTLY the same age, verified directly.
  *  11. Exclusion runs across the stellar AND remnant layers TOGETHER, not
  *      as two independent passes that could leave a too-close pair standing.
+ *  12. The complex-tier placement path (`placeYoungClustered`, wired 16 Aug
+ *      2026) is actually exercised by assembleSector - a "complex." sysid
+ *      appears in at least one of several nearby sectors, not merely
+ *      latent code that compiles but never runs.
  */
-export const SECTOR_FOOTPRINT_GATES = 11 as const;
+export const SECTOR_FOOTPRINT_GATES = 12 as const;
 
 /* -------------------------------- glossary ----------------------------------- */
 

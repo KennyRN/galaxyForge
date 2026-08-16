@@ -24,7 +24,7 @@
 import type { GalaxyParameters, BarParams } from './galaxyParameters';
 import { DEFAULT_GALAXY_PARAMETERS, anchorArmCorrectionFor } from './galaxyParameters';
 import { armFactor, type ArmResponseSet } from './spiralArms';
-import { complexIntensityAt } from './starFormingComplexes';
+import { smootherstep } from './mathStats';
 
 export type GalaxyModelName = 'spiral' | 'barredSpiral' | 'elliptical' | 'lenticular';
 
@@ -252,8 +252,11 @@ export interface GalaxyModel {
  * `theta` and multiplies by `spiralArms.armFactor` for whichever arm set
  * `params.armResponse` assigns each population, divided by
  * `anchorArmCorrectionFor` so the reference point still reads exactly
- * `nLocal` rather than a ring mean (patch S4/S7). `youngThin` additionally
- * carries `starFormingComplexes.complexIntensityAt`'s meso-scale boost.
+ * `nLocal` rather than a ring mean (patch S4/S7). `youngThin`'s meso-scale
+ * complex-tier boost is NOT part of this continuous field (removed 16 Aug
+ * 2026 - see `createSpiralModel`'s own comment) - it is a discrete
+ * placement-time mechanism now, `starFormingComplexes.placeYoungClustered`,
+ * composed at the sector level, not the density-field level.
  * `Population.armAmplitude` (S4.2's original field) is UNCHANGED and still
  * carried on every population, but is now the SUPERSEDED, pre-patch
  * mechanism - never read by `discTerm` below. It remains only because (a)
@@ -466,10 +469,7 @@ function hernquistMassDensity(rPc: number, totalMassSol: number, aPc: number): n
 
 /* ------------------------------- bar geometry --------------------------------- */
 
-function smootherstep(edge0: number, edge1: number, x: number): number {
-  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
-  return t * t * t * (t * (t * 6 - 15) + 10);
-}
+// smootherstep moved to mathStats.ts (16 Aug 2026) - imported above.
 
 // Wegg & Gerhard 2013 / Wegg, Gerhard & Portail 2015 bar geometry - sourced
 // except the taper window and strength (tunable, S4.4's own ledger). NO
@@ -508,7 +508,6 @@ function barFactor(enabled: boolean, bar: BarParams, R: number, theta: number, z
  */
 export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters = DEFAULT_GALAXY_PARAMETERS): GalaxyModel {
   const populations = SPIRAL_POPULATIONS;
-  const youngThinClustered = populations.find((p) => p.key === 'youngThin')?.clusteredFraction ?? 0;
   return {
     morphology: barEnabled ? 'barredSpiral' : 'spiral',
     populations,
@@ -524,19 +523,18 @@ export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters 
           out[pop.key] = haloTerm(pop.nLocal, R, z);    // AXISYMMETRIC - never barred, never arm-modulated
           continue;
         }
-        let d = discTerm(pop, R, theta, z, params) * bar;
-        if (pop.key === 'youngThin') {
-          // Complex-scale coordinates need Cartesian (x,y,z), not (R,theta,z) -
-          // the same conversion `galacticDensity`'s own polarToCartesian
-          // performs; duplicated as a two-line local rather than imported,
-          // since importing `galacticDensity` FROM `galaxyModel` would
-          // invert this project's own one-way import direction (this
-          // module's own header: "galacticDensity -> galaxyModel", never
-          // the reverse).
-          const x = R * Math.cos(theta), y = R * Math.sin(theta);
-          d *= complexIntensityAt(params.worldSeed, params, youngThinClustered, x, y, z);
-        }
-        out[pop.key] = d;
+        // youngThin's complex-tier boost is NOT applied here (removed 16 Aug
+        // 2026, ported architecture from a sibling build) - it is a
+        // DISCRETE PLACEMENT-time mechanism now (`starFormingComplexes.
+        // placeYoungClustered`, called from `sectorFootprint.assembleSector`),
+        // not a continuous multiplier on this smooth field. The two were
+        // never meant to compose: this field IS the count a placed sector
+        // should sum to, and the placement layer partitions that count
+        // between smooth and complex-clustered systems (w scales BOTH,
+        // per `complexParticipation` - see that module's header) rather
+        // than the complex layer adding on top of an already-full field,
+        // which is what this multiplier used to do.
+        out[pop.key] = discTerm(pop, R, theta, z, params) * bar;
       }
       return out;
     },

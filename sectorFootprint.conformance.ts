@@ -161,7 +161,21 @@ check('generateSector is deterministic', (() => {
   })());
 }
 
-check('gate count matches SECTOR_FOOTPRINT_GATES', SECTOR_FOOTPRINT_GATES === 11);
+/* 12. the complex-tier path is actually exercised, not merely latent -------------- */
+
+check('12 a complex-tier stellar system ("complex." sysid prefix) appears in at ' +
+  'least one of several nearby sectors - proves placeYoungClustered/complexParticipation ' +
+  'are actually wired into assembleSector, not just compiling', (() => {
+  const model = createSpiralModel(false);
+  const centre = { x: 8178, y: 0, z: 0 };
+  for (let i = 0; i < 20; i++) {
+    const s = assembleSector(`complex-tier-gate-seed-${i}`, model, centre, 40, 15, 'circle');
+    if (s.stellar.some((m) => m.placed.sysid.startsWith('complex.'))) return true;
+  }
+  return false;
+})());
+
+check('gate count matches SECTOR_FOOTPRINT_GATES', SECTOR_FOOTPRINT_GATES === 12);
 
 /* --------------------------------- result ------------------------------------ */
 

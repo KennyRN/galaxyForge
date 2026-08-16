@@ -1,163 +1,383 @@
 /**
- * starFormingComplexes - the meso-scale `complexTier` density boost, patch
+ * starFormingComplexes - the meso-scale star-forming-complex tier, patch
  * v2.3 S4/S5. Channel `complexField`, cell-scoped at `complexTier.cellSizePc`
  * (1200 pc by default) - a coarser, separate grid from `placement`'s own
  * 10 pc cells, so a complex-tier parameter change can never move an
  * already-placed system's fine position (Law 4, same isolation reasoning as
  * `remnantPlacement`/`conatalGroup`).
  *
- * -- WHAT THIS IS, AND THE HONEST LIMIT OF WHAT COULD BE RECOVERED -----------
- * `placement.ts`'s own per-cell clustering (mean group size ~12,
- * 1.5 pc jitter) is the FINE structure - individual open clusters and
- * associations. Efremov 1978's star-forming complexes are the COARSE
- * structure one level up: patches ~600 pc across containing SEVERAL such
- * clusters, tracing the spiral pattern more loosely than any one cluster
- * does. This module is that coarse layer: a second, independent Poisson
- * process of "complex" parent points, each contributing a Gaussian
- * intensity bump to nearby youngThin density, modulated by an age-decay
- * window so a complex's boost fades once its own star formation episode is
- * spent.
+ * REARCHITECTED 16 Aug 2026, ported from a sibling build (`galaxyforge`)
+ * that has already solved the problem this module's own header used to
+ * flag as an honest, interpretive gap. Previously this module was a
+ * CONTINUOUS density-field multiplier, composed into `galaxyModel.ts`'s
+ * `discTerm` - which meant complexes only ever ADDED expected density on
+ * top of an already-complete smooth field, with no compensating
+ * subtraction anywhere (a real double-counting bug, not a style choice).
+ * This module is now a DISCRETE PLACEMENT-TIME mechanism, composed at
+ * `sectorFootprint.assembleSector`'s level, exactly parallel to
+ * `placement.ts`'s own Thomas process one level down:
  *
- * The patch names the fields (`sigmaComplexPc`, `meanGroupsPerComplex`,
- * `complexFraction`, `ageDecayStartGyr/EndGyr`, `cellSizePc`,
- * `guardBandSigma`, `cellMeanSubGridN`) and a consumer function name
- * (`complexIntensityAt`) but - by its own admission (S5: "I have not seen
- * the disc, bar or co-natal modules... I cannot hand you their key names or
- * defaults") - does not specify the exact combining formula. This module's
- * implementation is therefore `calibrated (interpretive)`: a real,
- * deterministic, seeded, testable mechanism using every named field for
- * what its own name says it should do, not a byte-identical reconstruction
- * of an unspecified original (the same honesty posture as
- * `spiralArms.ts`'s own `armContrast` derivation, for the same underlying
- * reason - no original script exists to check against).
+ *   complex centres (Poisson, intensity proportional to the arm-modulated
+ *   young surface density) -> each centre spawns
+ *   nGroups ~ Poisson(meanGroupsPerComplex) co-natal-style groups -> each
+ *   group spawns nOffspring ~ Poisson(meanSystemsPerGroup - 1) members,
+ *   jittered around the group centre.
  *
- * `meanGroupsPerComplex` is used exactly as named: how many co-natal groups
- * (`conatal.ts`'s own concern - chemistry, not position) a live complex is
- * associated with, informational for now (no conductor yet threads a
- * complex's identity into which conatal groups spawn near it - the same
- * "every science module exists, nothing composes them into one call" gap
- * `galacticDensity.ts`'s own header already names). `complexFraction` is
- * INJECTED by the caller as `youngThin.clusteredFraction` (0.6) rather than
- * duplicated as a second literal here - the patch's own Law-1 instruction,
- * kept real by NOT importing `galaxyModel.ts` to read it directly: this
- * module sits below `galaxyModel` in the one-way import direction that
- * module's own header already establishes (`galacticDensity -> galaxyModel`,
- * never the reverse), so - exactly like `upsilonFor` in `galacticDensity.ts`
- * - the value is a parameter, not an import.
+ * COUNT CONSERVATION - the correction the previous architecture lacked. `w`
+ * (this population's `complexParticipation`) scales BOTH the complex-tier
+ * intensity AND reduces the smooth background's youngThin density by
+ * `(1 - w)` (done at the `sectorFootprint.ts` call site, via a wrapped
+ * `GalaxyModel` whose `densityByPopulation` scales youngThin down before
+ * `placement.rollCell` ever sees it - Law 1, no second copy of the smooth
+ * field). The two partition the population's own total, they do not add.
+ *
+ * EXPANSION INVARIANCE - `placeYoungClustered` generates every complex-tier
+ * cell within a `guardBandSigma`-wide guard band and clips afterwards; every
+ * offspring is DRAWN then clipped, so the PRNG stream advances identically
+ * regardless of which final footprint is requested (draw-then-clip, the
+ * same discipline `placement.ts`'s own Thomas process and
+ * `sectorFootprint.ts`'s exclusion pass already use).
+ *
+ * -- SOURCES --------------------------------------------------------------------
+ * Efremov 1978, Sov. Astron. Lett. 4, 66 - ~35 Milky Way star complexes,
+ * mean diameter ~600 pc -> sigmaComplexPc = 150 (+/-2 sigma spans 600 pc),
+ * `sourced`. Efremov & Elmegreen 1998, MNRAS 299, 588 - size range
+ * ~300-700 pc, corroborating. `meanGroupsPerComplex`, `complexFraction`,
+ * the age-decay window and every grid/guard-band constant remain
+ * `calibrated` narrative-scale tunables - the patch's own ledger, unchanged
+ * by this rearchitecture.
+ *
+ * AGE-WEIGHT BUG FIX, carried over from the sibling build's own audit note
+ * (their "AUDIT B2"): a population's complex-tier participation must be the
+ * EXPECTATION of the age-decay weight over that population's own age
+ * DISTRIBUTION (`expectationOverAgePdf`), not the weight evaluated at the
+ * population's mean age. youngThin's `ageMeanGyr` (1.5 Gyr) sits well above
+ * `ageDecayEndGyr` (0.5 Gyr) - evaluating at the mean would give a weight of
+ * exactly ZERO, silently disabling the whole tier for the one population it
+ * exists for. This module was never wired into a real generator before this
+ * rearchitecture, so it never shipped that specific bug, but the correct
+ * (expectation, not point-evaluation) form is adopted directly rather than
+ * risk introducing it now.
  *
  * genVersion: any constant or formula change here is genVersion-bumping for
  * every spiral/barredSpiral-generated youngThin system.
  */
 
 import { channelRng } from './rng';
-import type { GalaxyParameters } from './galaxyParameters';
+import { LAMBDA_MAX, Phi, poissonInvCdf, truncGaussQuantile, smootherstep } from './mathStats';
+import type { GalaxyParameters, ComplexTierParams } from './galaxyParameters';
+import type { Population } from './galaxyModel';
 
-interface ComplexParent {
-  readonly x: number; readonly y: number; readonly z: number;
-  readonly ageGyr: number;
-  readonly amplitude: number;
+/**
+ * Per-star complex participation weight. Coherence survives ~100 Myr and
+ * fades to near-Poisson by a few hundred Myr - 1 at age <= startGyr, 0 at
+ * age >= endGyr, smootherstep between. `calibrated`, the patch's own
+ * ageDecayStartGyr/ageDecayEndGyr, NOT sourced.
+ */
+export function complexAgeWeight(ageGyr: number, startGyr: number, endGyr: number): number {
+  return 1 - smootherstep(startGyr, endGyr, ageGyr);
 }
 
-function cellIndexOf(coordPc: number, cellSizePc: number): number { return Math.floor(coordPc / cellSizePc); }
+/**
+ * Expectation of `f(age)` over a population's own truncated-Gaussian age
+ * PDF - a quantile average (each of `samples` equal-probability slices
+ * contributes equally). Deterministic, no PRNG - this is a property of the
+ * population's DEFINITION, not a draw.
+ */
+export function expectationOverAgePdf(
+  pop: Pick<Population, 'ageGyr' | 'ageMeanGyr' | 'ageSigmaGyr'>,
+  f: (ageGyr: number) => number,
+  samples = 64,
+): number {
+  const [lo, hi] = pop.ageGyr;
+  if (!(hi > lo)) return f(pop.ageMeanGyr);
+  let sum = 0;
+  for (let i = 0; i < samples; i++) {
+    const u = (i + 0.5) / samples;
+    const age = truncGaussQuantile(u, pop.ageMeanGyr, pop.ageSigmaGyr, lo, hi);
+    sum += f(age);
+  }
+  return sum / samples;
+}
 
-/** Complex parent points in ONE coarse cell - own channel, own cell grid.
- *  Draw budget: one Poisson count, then (position x3, age x1, amplitude x1)
- *  per complex - fixed regardless of outcome. */
-// A complex's own birth time is drawn over a FIXED observation window,
-// independent of `ageDecayEndGyr` - the decay-window fields shape ONLY how
-// fast a complex fades once born, never how far back in time complexes are
-// drawn from. Coupling the two (e.g. sampling ages up to `ageDecayEndGyr`
-// itself) would make "shorten the decay window" ALSO concentrate every
-// drawn age nearer zero, silently inflating the mean boost instead of
-// reducing it - the opposite of the intended effect. `tunable`.
-const AGE_SAMPLING_WINDOW_GYR = 3.0;
+/**
+ * Per-population complex participation weight - the EXPECTATION of
+ * `complexAgeWeight` over the population's own age distribution, not the
+ * weight at its mean age (see header - this is the correctness property
+ * that matters here).
+ */
+export function complexAgeWeightForBin(
+  pop: Pick<Population, 'ageGyr' | 'ageMeanGyr' | 'ageSigmaGyr'>,
+  startGyr: number,
+  endGyr: number,
+): number {
+  return expectationOverAgePdf(pop, (age) => complexAgeWeight(age, startGyr, endGyr));
+}
 
-function complexesInCell(worldSeed: string, params: GalaxyParameters, ix: number, iy: number, iz: number): ComplexParent[] {
-  const { cellSizePc, meanGroupsPerComplex } = params.complexTier;
-  const rng = channelRng(worldSeed, 'complexField', ix, iy, iz);
+/**
+ * Complex-centre intensity, centres per pc^2. `derived`, not invented: if a
+ * fraction `w` of a population's systems end up bound in complexes, and
+ * each complex holds on average (groups per complex) x (systems per group)
+ * systems, then lambda = w * youngSurfacePc2 / (meanGroupsPerComplex *
+ * meanSystemsPerGroup).
+ */
+export function complexIntensityAt(
+  youngSurfacePc2: number, w: number, meanGroupsPerComplex: number, meanSystemsPerGroup: number,
+): number {
+  if (!(w > 0) || !(meanGroupsPerComplex > 0) || !(meanSystemsPerGroup > 0)) return 0;
+  return (w * youngSurfacePc2) / (meanGroupsPerComplex * meanSystemsPerGroup);
+}
 
-  // Expected complexes per cell: a small, `calibrated` mean tied to
-  // meanGroupsPerComplex (a richer complex population is rarer, per the
-  // patch's own naming - more groups implies a bigger, less common
-  // structure) - one Poisson draw, deterministic given the cell.
-  const lambda = Math.max(0.05, 2.0 / meanGroupsPerComplex);
-  // Small-lambda Poisson via direct multiplication (Knuth's algorithm) -
-  // adequate here since lambda is always small (<1) by construction; the
-  // project's own `poissonInvCdf` is reserved for the larger-lambda cases
-  // elsewhere and is not needed for this narrow range.
-  let count = 0; { let p = 1, L = Math.exp(-lambda); do { count++; p *= rng(); } while (p > L); count -= 1; }
+/**
+ * Effective complex participation for a population, under this galaxy's own
+ * pinned complex-tier block. Zero for a population with no clustering at
+ * all; old/thick/halo land near zero via the age-decay weight even if they
+ * were clustered, since they are far too old to still be in a complex's
+ * coherence window; youngThin lands near its own `complexFraction` (0.6 by
+ * default), scaled down by how much of its age DISTRIBUTION still falls
+ * inside the decay window.
+ */
+export function complexParticipation(pop: Population, p: ComplexTierParams): number {
+  if (pop.clusteredFraction === undefined || pop.clusteredFraction <= 0) return 0;
+  const ageW = complexAgeWeightForBin(pop, p.ageDecayStartGyr, p.ageDecayEndGyr);
+  return p.complexFraction * ageW;
+}
 
-  const out: ComplexParent[] = [];
-  for (let i = 0; i < count; i++) {
-    const ux = rng(), uy = rng(), uz = rng();
-    const uAge = rng(), uAmp = rng();
-    out.push({
-      x: ix * cellSizePc + ux * cellSizePc,
-      y: iy * cellSizePc + uy * cellSizePc,
-      z: iz * cellSizePc + uz * cellSizePc,
-      ageGyr: uAge * AGE_SAMPLING_WINDOW_GYR,   // uniform over a fixed window - see AGE_SAMPLING_WINDOW_GYR above
-      amplitude: 0.5 + uAmp,               // calibrated, order-unity so complexFraction sets the overall scale
-    });
+export interface ComplexCell {
+  readonly cellIx: number;
+  readonly cellIy: number;
+  readonly x0: number;
+  readonly y0: number;
+  readonly widthPc: number;
+  readonly heightPc: number;
+  /** Exact cell mean of `youngSurfaceAt` by sub-grid quadrature. */
+  readonly meanYoungSurface: number;
+}
+
+/**
+ * Exact mean of `youngSurfaceAt` over a square cell by sub-grid quadrature.
+ * `cellMeanSubGridN` must resolve sigma_perp/4 at the narrowest arm radius
+ * in the gate band - `galaxyParameters.conformance.ts`'s own gate 30 checks
+ * this against `spiralArms.armWidthPc`.
+ */
+export function meanYoungSurfaceInCell(
+  x0: number, y0: number, widthPc: number, heightPc: number,
+  youngSurfaceAt: (x: number, y: number) => number, subGridN: number,
+): number {
+  const n = Math.max(1, Math.floor(subGridN));
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const x = x0 + ((i + 0.5) / n) * widthPc;
+    for (let j = 0; j < n; j++) {
+      const y = y0 + ((j + 0.5) / n) * heightPc;
+      sum += youngSurfaceAt(x, y);
+    }
+  }
+  return sum / (n * n);
+}
+
+/** Complex-tier cells overlapping a footprint, expanded by a guard band. */
+export function complexCellsOverlapping(
+  centreX: number, centreY: number, radiusPc: number, cellSizePc: number, guardPc: number,
+  youngSurfaceAt: (x: number, y: number) => number, subGridN: number,
+): ComplexCell[] {
+  const reach = radiusPc + guardPc;
+  const reach2 = reach * reach;
+  const i0 = Math.floor((centreX - reach) / cellSizePc);
+  const i1 = Math.floor((centreX + reach) / cellSizePc);
+  const j0 = Math.floor((centreY - reach) / cellSizePc);
+  const j1 = Math.floor((centreY + reach) / cellSizePc);
+  const out: ComplexCell[] = [];
+  for (let ix = i0; ix <= i1; ix++) {
+    for (let iy = j0; iy <= j1; iy++) {
+      const x0 = ix * cellSizePc, y0 = iy * cellSizePc;
+      const nx = Math.min(Math.max(centreX, x0), x0 + cellSizePc);
+      const ny = Math.min(Math.max(centreY, y0), y0 + cellSizePc);
+      if ((nx - centreX) ** 2 + (ny - centreY) ** 2 > reach2) continue;
+      out.push({
+        cellIx: ix, cellIy: iy, x0, y0, widthPc: cellSizePc, heightPc: cellSizePc,
+        meanYoungSurface: meanYoungSurfaceInCell(x0, y0, cellSizePc, cellSizePc, youngSurfaceAt, subGridN),
+      });
+    }
+  }
+  out.sort((a, b) => (a.cellIx - b.cellIx) || (a.cellIy - b.cellIy));
+  return out;
+}
+
+export interface ComplexCentre {
+  readonly x: number;
+  readonly y: number;
+  readonly sigmaPc: number;
+}
+
+function peakYoungSurface(cell: ComplexCell, youngSurfaceAt: (x: number, y: number) => number, n: number): number {
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const x = cell.x0 + ((i + 0.5) / n) * cell.widthPc;
+      const y = cell.y0 + ((j + 0.5) / n) * cell.heightPc;
+      peak = Math.max(peak, youngSurfaceAt(x, y));
+    }
+  }
+  return peak;
+}
+
+/**
+ * Deterministic complex centres for one complex-tier cell. Thinned Poisson
+ * with intensity proportional to the arm-modulated young surface density.
+ * When the cell's expected count would exceed `LAMBDA_MAX`, the cell splits
+ * into a fixed sub-tile grid (each under the ceiling) - sum-of-Poissons
+ * equals Poisson(sum-of-lambdas), so parent-cell statistics are preserved.
+ */
+export function complexCentresInCell(
+  cell: ComplexCell, worldSeed: string, w: number,
+  youngSurfaceAt: (x: number, y: number) => number, p: ComplexTierParams,
+  meanSystemsPerGroup: number, channelSuffix = '',
+): ComplexCentre[] {
+  if (!(w > 0)) return [];
+  const areaPc2 = cell.widthPc * cell.heightPc;
+  const meanN = areaPc2 * complexIntensityAt(cell.meanYoungSurface, w, p.meanGroupsPerComplex, meanSystemsPerGroup);
+  if (!(meanN > 0)) return [];
+
+  if (meanN >= LAMBDA_MAX) {
+    const div = Math.max(2, Math.ceil(Math.sqrt(meanN / (LAMBDA_MAX * 0.25))));
+    const dw = cell.widthPc / div, dh = cell.heightPc / div;
+    const out: ComplexCentre[] = [];
+    for (let i = 0; i < div; i++) {
+      for (let j = 0; j < div; j++) {
+        const x0 = cell.x0 + i * dw, y0 = cell.y0 + j * dh;
+        const sub: ComplexCell = {
+          cellIx: cell.cellIx, cellIy: cell.cellIy, x0, y0, widthPc: dw, heightPc: dh,
+          meanYoungSurface: meanYoungSurfaceInCell(x0, y0, dw, dh, youngSurfaceAt, p.cellMeanSubGridN),
+        };
+        out.push(...complexCentresInCell(sub, worldSeed, w, youngSurfaceAt, p, meanSystemsPerGroup, `${channelSuffix}:${i}:${j}`));
+      }
+    }
+    return out;
+  }
+
+  const rng = channelRng(worldSeed, 'complexField', cell.cellIx, cell.cellIy, channelSuffix);
+  const n = poissonInvCdf(meanN, rng());
+  const out: ComplexCentre[] = [];
+  const peak = peakYoungSurface(cell, youngSurfaceAt, 8);
+  for (let i = 0; i < n; i++) {
+    let x = cell.x0, y = cell.y0;
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const sx = cell.x0 + rng() * cell.widthPc;
+      const sy = cell.y0 + rng() * cell.heightPc;
+      const s = youngSurfaceAt(sx, sy);
+      if (peak <= 0 || rng() * peak <= s) { x = sx; y = sy; break; }
+    }
+    out.push({ x, y, sigmaPc: p.sigmaComplexPc });
   }
   return out;
 }
 
-/** 1 at full strength, 0 once fully decayed - linear fade between the
- *  patch's own `ageDecayStartGyr`/`ageDecayEndGyr` (calibrated, NOT
- *  sourced - the patch's own ledger says so explicitly). */
-function ageFactor(ageGyr: number, params: GalaxyParameters): number {
-  const { ageDecayStartGyr, ageDecayEndGyr } = params.complexTier;
-  if (ageGyr <= ageDecayStartGyr) return 1;
-  if (ageGyr >= ageDecayEndGyr) return 0;
-  return 1 - (ageGyr - ageDecayStartGyr) / (ageDecayEndGyr - ageDecayStartGyr);
+/** One system drawn by the complex-tier fill (pre-clip). */
+export interface ComplexPlacedCandidate {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly cellIx: number;
+  readonly cellIy: number;
+  readonly ordinal: number;
+  readonly parentOrdinal?: number;
+  readonly isOffspring: boolean;
 }
 
 /**
- * The youngThin density multiplier at (x,y,z) from nearby complexes - `1`
- * far from any live complex, rising with proximity to and richness of
- * whichever complexes are within `guardBandSigma * sigmaComplexPc`.
- * Deterministic, seeded, isolated on its own channel and cell grid.
- * `complexFraction` is INJECTED (see header) - the caller's own
- * `youngThin.clusteredFraction`, never re-declared here.
+ * Count-conserving young clustered placement over a footprint. Generates
+ * every complex-tier cell within a `guardBandSigma`-wide guard band and
+ * clips afterwards; fill uses a per-centre PRNG stream so centres that
+ * cannot reach the footprint may be skipped without advancing a shared
+ * stream - expanding the region then fills newly-reachable centres under
+ * stable keys, preserving expansion invariance. The smooth `(1 - w)`
+ * remainder is NOT placed here - the caller (`sectorFootprint.
+ * assembleSector`) scales the smooth youngThin density in the ordinary
+ * cell-based path instead.
  */
-export function complexIntensityAt(worldSeed: string, params: GalaxyParameters, complexFraction: number, x: number, y: number, z: number): number {
-  const { cellSizePc, sigmaComplexPc, guardBandSigma } = params.complexTier;
-  const reachPc = guardBandSigma * sigmaComplexPc;
-  const ixLo = cellIndexOf(x - reachPc, cellSizePc), ixHi = cellIndexOf(x + reachPc, cellSizePc);
-  const iyLo = cellIndexOf(y - reachPc, cellSizePc), iyHi = cellIndexOf(y + reachPc, cellSizePc);
-  const izLo = cellIndexOf(z - reachPc, cellSizePc), izHi = cellIndexOf(z + reachPc, cellSizePc);
+export function placeYoungClustered(
+  worldSeed: string, centreX: number, centreY: number, centreZ: number,
+  radiusPc: number, thicknessPc: number, w: number,
+  youngSurfaceAt: (x: number, y: number) => number, p: ComplexTierParams,
+  meanSystemsPerGroup: number, jitterSigmaPc: number,
+): ComplexPlacedCandidate[] {
+  if (!(w > 0)) return [];
+  const guardPc = p.guardBandSigma * p.sigmaComplexPc;
+  const cells = complexCellsOverlapping(centreX, centreY, radiusPc, p.cellSizePc, guardPc, youngSurfaceAt, p.cellMeanSubGridN);
+  const placed: ComplexPlacedCandidate[] = [];
+  const jitterLo = -3 * jitterSigmaPc, jitterHi = 3 * jitterSigmaPc;
+  const zLo = centreZ - thicknessPc / 2;
+  const complexLo = -p.guardBandSigma * p.sigmaComplexPc, complexHi = p.guardBandSigma * p.sigmaComplexPc;
+  // With complex scatter truncated at the guard band, a centre farther than
+  // this cannot place a system into the footprint - so the cull is exact
+  // and expansion-invariant.
+  const reachPc = radiusPc + p.guardBandSigma * p.sigmaComplexPc + 3 * jitterSigmaPc;
+  const reach2 = reachPc * reachPc;
 
-  let boost = 0;
-  for (let ix = ixLo; ix <= ixHi; ix++) {
-    for (let iy = iyLo; iy <= iyHi; iy++) {
-      for (let iz = izLo; iz <= izHi; iz++) {
-        for (const c of complexesInCell(worldSeed, params, ix, iy, iz)) {
-          const d2 = (x - c.x) ** 2 + (y - c.y) ** 2 + (z - c.z) ** 2;
-          if (d2 > reachPc * reachPc) continue;   // guard-band clip (patch S4)
-          const spatial = Math.exp(-d2 / (2 * sigmaComplexPc * sigmaComplexPc));
-          boost += c.amplitude * ageFactor(c.ageGyr, params) * spatial;
+  for (const cell of cells) {
+    const nearestX = Math.min(Math.max(centreX, cell.x0), cell.x0 + cell.widthPc);
+    const nearestY = Math.min(Math.max(centreY, cell.y0), cell.y0 + cell.heightPc);
+    if ((nearestX - centreX) ** 2 + (nearestY - centreY) ** 2 > reach2) continue;
+
+    const centres = complexCentresInCell(cell, worldSeed, w, youngSurfaceAt, p, meanSystemsPerGroup);
+    for (let ci = 0; ci < centres.length; ci++) {
+      const cx = centres[ci]!;
+      const dx = cx.x - centreX, dy = cx.y - centreY;
+      if (dx * dx + dy * dy > reach2) continue;
+
+      const rng = channelRng(worldSeed, 'complexField', cell.cellIx, cell.cellIy, `fill:${ci}`);
+      const nGroups = poissonInvCdf(p.meanGroupsPerComplex, rng());
+      for (let g = 0; g < nGroups; g++) {
+        const gx = cx.x + truncGaussQuantile(rng(), 0, cx.sigmaPc, complexLo, complexHi);
+        const gy = cx.y + truncGaussQuantile(rng(), 0, cx.sigmaPc, complexLo, complexHi);
+        const gz = zLo + rng() * thicknessPc;
+        const parentOrdinal = ci * 1024 + g;   // stable across region size - never a running counter
+        placed.push({ x: gx, y: gy, z: gz, cellIx: cell.cellIx, cellIy: cell.cellIy, ordinal: parentOrdinal, isOffspring: false });
+
+        const offspringLambda = Math.max(0, meanSystemsPerGroup - 1);
+        const nOff = offspringLambda > 0 ? poissonInvCdf(offspringLambda, rng()) : 0;
+        for (let k = 0; k < nOff; k++) {
+          placed.push({
+            x: gx + truncGaussQuantile(rng(), 0, jitterSigmaPc, jitterLo, jitterHi),
+            y: gy + truncGaussQuantile(rng(), 0, jitterSigmaPc, jitterLo, jitterHi),
+            z: gz + truncGaussQuantile(rng(), 0, jitterSigmaPc, jitterLo, jitterHi),
+            cellIx: cell.cellIx, cellIy: cell.cellIy, ordinal: k, parentOrdinal, isOffspring: true,
+          });
         }
       }
     }
   }
-  return 1 + complexFraction * boost;
+  return placed;
 }
 
 /* --------------------------------- gates ------------------------------------ */
 
 /**
  * Invariants this module owes:
- *  1. DETERMINISM - same worldSeed/params/point gives a bit-identical result.
- *  2. FAR-FIELD LIMIT - `complexIntensityAt` returns exactly 1 far from every
- *     complex (no complexes reachable within the guard band).
- *  3. NEVER BELOW 1 - complexes only ADD density, never remove it.
- *  4. AGE DECAY - `ageFactor` is 1 at age 0, 0 at/after `ageDecayEndGyr`, and
- *     monotonically non-increasing across the decay window.
- *  5. EXPANSION STABILITY - a wider guard-band search never changes the
- *     contribution already found within a narrower one (no double-counting,
- *     no order dependence).
+ *  1. DETERMINISM - same worldSeed/params/footprint gives a bit-identical result.
+ *  2. complexAgeWeight is 1 at age 0, 0 at/after endGyr, monotonically
+ *     non-increasing across the decay window.
+ *  3. complexAgeWeightForBin uses the EXPECTATION over the population's own
+ *     age distribution, not the weight at its mean - verified directly: a
+ *     population whose mean age sits above the decay window but whose age
+ *     RANGE dips below it still gets a strictly positive weight.
+ *  4. complexParticipation is 0 for any unclustered population.
+ *  5. COUNT CONSERVATION - complexIntensityAt(youngSurfacePc2, w, ...)
+ *     integrated over a cell, times (meanGroupsPerComplex *
+ *     meanSystemsPerGroup), reproduces w * youngSurfacePc2 * area to within
+ *     quadrature tolerance - the complex layer's own expected system count
+ *     matches what it claims to be drawing from the smooth field, not an
+ *     arbitrary extra.
+ *  6. EXPANSION INVARIANCE - a wider footprint's placeYoungClustered result
+ *     is a strict superset of a narrower one's, for every already-included
+ *     candidate (same position, same ordinal - no re-draw, no double-count).
+ *  7. LAMBDA_MAX SPLITTING preserves the mean - a cell whose meanN exceeds
+ *     LAMBDA_MAX, split into sub-tiles, has the same EXPECTED total centre
+ *     count as the unsplit formula would give (checked via the sum of
+ *     sub-tile means, not a single stochastic draw).
  */
-export const STAR_FORMING_COMPLEXES_GATES = 5 as const;
+export const STAR_FORMING_COMPLEXES_GATES = 7 as const;
 
 /* -------------------------------- glossary ----------------------------------- */
 
@@ -165,9 +385,14 @@ import type { GlossaryEntry } from './types';
 
 export const glossary: GlossaryEntry[] = [
   {
-    term: 'Star-forming-complex intensity boost', status: 'calibrated',
-    short: 'A patchy extra boost to how many young stars are forming in one part of the disc, above the smooth average.',
-    long: 'A meso-scale (Efremov-anchored, ~150 pc sigma) Poisson parent-point field with an age-decay window - a real, deterministic, seeded mechanism reusing every field the patch names, but an interpretive one: the patch describes the fields and a consumer function name without a full combining formula, since its own author had not seen this module at the time of writing.',
-    source: 'Efremov 1978 (sigmaComplexPc anchor); patch v2.3 S4/S5 (field names, not formula)',
+    term: 'Star-forming complex', status: 'sourced',
+    short: 'A patch of the disc ~600 pc across containing several open clusters, tracing the spiral pattern more loosely than any one cluster does.',
+    long: 'sigmaComplexPc = 150 pc, from Efremov 1978\'s ~600 pc typical complex extent (+/-2 sigma spans the full diameter); Efremov & Elmegreen 1998\'s ~300-700 pc size range corroborates. A real, deterministic, seeded two-level Poisson hierarchy (complex centres -> groups -> members), ported 16 Aug 2026 from a sibling build - previously this module was a continuous density-field multiplier with no count-conservation guarantee.',
+    source: 'Efremov 1978, Sov. Astron. Lett. 4, 66; Efremov & Elmegreen 1998, MNRAS 299, 588',
+  },
+  {
+    term: 'Complex-tier count conservation', status: 'derived',
+    short: 'A system is either in the smooth field or in a complex, never counted in both.',
+    long: 'A population\'s complexParticipation fraction w scales BOTH the complex-tier intensity (this module) AND the smooth background\'s density (the caller reduces it by (1-w) before the ordinary Thomas-process path runs) - the two partition the population\'s own total rather than one adding on top of the other.',
   },
 ];

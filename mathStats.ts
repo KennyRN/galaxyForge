@@ -183,6 +183,24 @@ export function besselI0e(x: number): number {
 }
 
 /**
+ * C2-continuous smoothstep: exactly 0 below `edge0`, exactly 1 above
+ * `edge1`, and both its first and second derivatives vanish at the edges
+ * (unlike the classic 3t^2-2t^3 smoothstep, which only has a zero FIRST
+ * derivative there) - the standard Perlin "smootherstep" form. `sourced
+ * (form)`, a named general-purpose window function, not a derivation of
+ * ours. Moved here 16 Aug 2026 (previously a private copy inside
+ * `galaxyModel.ts`) so `starFormingComplexes.ts`'s age-decay window can
+ * reuse it without importing `galaxyModel.ts` - this module sits BELOW
+ * `galaxyModel` in the project's one-way import direction, and a shared
+ * general-purpose window function belongs in the same "classical maths,
+ * not project science" tier as `erf`/`Phi`/`probit`, per Law 1.
+ */
+export function smootherstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/**
  * Guard against `Math.exp(-lambda)` underflowing to exactly zero
  * (lambda >= 746), which would otherwise make every draw return `kMax`
  * silently. Verified in the S4.8 audit: with a fixed 1000-ceiling and no

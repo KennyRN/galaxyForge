@@ -287,10 +287,7 @@ export const glossary: GlossaryEntry[] = [
     long: 'From the restricted (hydrogen-burning-only) Reyle 10 pc anchor query, run 15 August 2026 against the live GAVO TAP service.',
     source: 'Reyle et al. 2021/2022 (10 pc catalogue), via verification/reyle_anchor.py',
   },
-  {
-    term: 'Star-forming complex', status: 'sourced',
-    short: 'A patch of the young disc where multiple star clusters are forming together, at a larger scale than one cluster.',
-    long: 'sigmaComplexPc=150 pc from Efremov\'s ~600 pc typical complex extent (+/-2 sigma); the remaining complexTier constants are calibrated narrative-scale tunables, not independently sourced.',
-    source: 'Efremov 1978',
-  },
+  // 'Star-forming complex' term lives in starFormingComplexes.ts (16 Aug
+  // 2026 - moved there rather than duplicated, since that module is now
+  // the actual mechanism's owner, not just a parameter block reader).
 ];
