@@ -25,6 +25,7 @@ import type { GalaxyParameters, BarParams } from './galaxyParameters';
 import { DEFAULT_GALAXY_PARAMETERS, anchorArmCorrectionFor } from './galaxyParameters';
 import { armFactor, type ArmResponseSet } from './spiralArms';
 import { smootherstep } from './mathStats';
+import { prugnielSimienMassDensity } from './prugnielSimien';
 
 export type GalaxyModelName = 'spiral' | 'barredSpiral' | 'elliptical' | 'lenticular';
 
@@ -156,6 +157,19 @@ export interface Population {
    *  not rise with radius as 2.3a requires. Per-population radii are what make
    *  the accreted halo expressible at all. */
   scaleRadiusPc?: number;
+
+  /** Sersic index for a Prugniel-Simien spheroid (16 Aug 2026) - set
+   *  alongside `scaleRadiusPc` ONLY for `lenticularClassicalBulge`.
+   *  UNSET means "use the Hernquist profile at `scaleRadiusPc`" (the
+   *  spiral halo and both elliptical populations); SET means "use
+   *  `prugnielSimien.prugnielSimienMassDensity` with this index instead" -
+   *  Terzic & Graham 2005's own reason the lenticular classical bulge
+   *  needs a free-index profile Hernquist cannot give it (see
+   *  `prugnielSimien.ts`'s own header). `Re` here is the actual
+   *  Prugniel-Simien effective radius, unlike Hernquist's `scaleRadiusPc`
+   *  which needs `hernquistK()`'s own conversion to relate to a half-light
+   *  radius. */
+  sersicN?: number;
 
   /** 0..~1, discs only. S0s set 0 on EVERY population, structurally rather
    *  than by remembering to leave a flag off (3.4). */
@@ -375,7 +389,13 @@ export const LENTICULAR_POPULATIONS: Population[] = [
     ageMeanGyr: 11.0, ageSigmaGyr: 1.0, massFractionGalaxy: ERWIN.classical * (1 - F_HALO),
     fehMeanDex: 0.10, fehSigmaDex: 0.20,
     fehGradientForm: 'logarithmic', fehGradient: -0.2, fehGradientRefPc: 143,
-    scaleRadiusPc: 143 / hernquistK(), armAmplitude: 0 },
+    // Prugniel-Simien (16 Aug 2026), not Hernquist - see Population.sersicN's
+    // own doc comment. scaleRadiusPc IS the effective radius directly here
+    // (no hernquistK() conversion needed); this is Erwin's own composite-
+    // configuration Re/n. The 'classical' (Gao) bulgeType below overrides
+    // both to a different Re/n, matching the sibling build's own two
+    // configurations.
+    scaleRadiusPc: 143, sersicN: 1.52, armAmplitude: 0 },
   { key: 'lenticularHalo', label: 'Stellar halo', nLocal: 0, ageGyr: [11, 13.5],
     ageMeanGyr: 12.0, ageSigmaGyr: 0.9, massFractionGalaxy: F_HALO,
     fehMeanDex: -1.6, fehSigmaDex: 0.4, armAmplitude: 0 },
@@ -462,9 +482,54 @@ function haloTerm(nLocalHalo: number, R: number, z: number): number {
   return nLocalHalo * Math.pow(rEffRef / r, HALO_INDEX);
 }
 
+/**
+ * The SAME truncated oblate power-law shape as `haloTerm`, but normalised
+ * so `INT rho dV` equals `total` EXACTLY (via `truncatedPowerLawNorm`)
+ * rather than anchored to equal a given value at one reference point.
+ * Point-anchoring (`haloTerm`) is correct for the spiral, which HAS a
+ * genuine local anchor (the Sun's own neighbourhood, R0); the lenticular
+ * halo has no such anchor - `massFractionGalaxy` is a total, so its density
+ * field must integrate to that total, not merely pass through it at one
+ * radius (ported 16 Aug 2026 - previously `createLenticularModel` used
+ * `haloTerm`'s own R0-anchor form for this too, a real gap the anchor form
+ * cannot close).
+ */
+function haloTermMassNormalized(total: number, R: number, z: number): number {
+  const rEff = Math.hypot(R, z / HALO_FLATTENING);
+  if (rEff > HALO_TRUNCATION_PC) return 0;
+  const r = Math.max(rEff, CORE_FLOOR_PC);
+  const A = truncatedPowerLawNorm(total, HALO_INDEX, HALO_FLATTENING, CORE_FLOOR_PC, HALO_TRUNCATION_PC);
+  return A * Math.pow(r, -HALO_INDEX);
+}
+
 function hernquistMassDensity(rPc: number, totalMassSol: number, aPc: number): number {
   if (rPc <= 0) return Number.POSITIVE_INFINITY;
   return (totalMassSol * aPc) / (2 * Math.PI * rPc * Math.pow(rPc + aPc, 3));
+}
+
+/**
+ * Closed-form normalisation of a truncated oblate power law (16 Aug 2026,
+ * ported from a sibling build) so it holds exactly `total` - including the
+ * core-floor clamp, which is not a rounding detail here. For
+ * rho(m) = A * m^-index with m = hypot(R, z/flattening), held CONSTANT
+ * inside `floorPc` (which is what this project's own `haloTerm`/
+ * `haloTermMassNormalized` actually evaluate), the volume integral gives
+ *
+ *   total = 4*pi*flattening*A * [ floorPc^(3-index)/3
+ *           + (truncationPc^(3-index) - floorPc^(3-index)) / (3-index) ]
+ *
+ * so A is solved directly. THE FLOOR ENTERS THE NORMALISATION AND MUST NOT
+ * BE MOVED CASUALLY: a cusp of index 2.8 (Juric's own halo index) assigns
+ * the untruncated integral about 22% of its mass inside 10 pc; clamping
+ * cuts that to about 1.8%, and the difference is absorbed here rather than
+ * left as a silent ~20% normalisation error - the r^-2.8 cusp is
+ * unphysical at small radius and Juric's own fit was never calibrated
+ * there, recorded rather than hidden.
+ */
+function truncatedPowerLawNorm(total: number, index: number, flattening: number, floorPc: number, truncationPc: number): number {
+  const p = 3 - index;
+  const shape = Math.pow(floorPc, p) / 3 + (Math.pow(truncationPc, p) - Math.pow(floorPc, p)) / p;
+  return total / (4 * Math.PI * flattening * shape);
 }
 
 /* ------------------------------- bar geometry --------------------------------- */
@@ -580,10 +645,18 @@ export function createLenticularModel(
   bulgeType: 'composite' | 'classical' = 'composite',
 ): GalaxyModel {
   const CLASSICAL_BT = 0.38;   // calibrated, Gao, Ho, Barth & Li 2018 (unbarred)
+  // Gao's own classical-bulge Re/n differ from Erwin's composite-config
+  // values (16 Aug 2026, ported) - Re = bulgeReOverDiscH * thinScaleLengthPc
+  // = 0.20 * 2600 pc = 520 pc, n = 2.62 (Gao's own steeper, more classical
+  // Sersic index vs Erwin's 1.52). Both are `calibrated` scaling relations,
+  // not independently re-derived here.
+  const GAO_CLASSICAL_RE_PC = 0.20 * JURIC.lThin;
+  const GAO_CLASSICAL_N = 2.62;
   const populations = bulgeType === 'composite'
     ? LENTICULAR_POPULATIONS
     : LENTICULAR_POPULATIONS.filter((p) => p.key !== 'lenticularPseudoBulge').map((p) =>
-      p.key === 'lenticularClassicalBulge' ? { ...p, massFractionGalaxy: CLASSICAL_BT * (1 - F_HALO) }
+      p.key === 'lenticularClassicalBulge'
+        ? { ...p, massFractionGalaxy: CLASSICAL_BT * (1 - F_HALO), scaleRadiusPc: GAO_CLASSICAL_RE_PC, sersicN: GAO_CLASSICAL_N }
         : p.key === 'lenticularThinDisc' || p.key === 'lenticularThickDisc'
           ? { ...p, massFractionGalaxy: p.massFractionGalaxy * (1 - CLASSICAL_BT) / ERWIN.disc }
           : p);
@@ -601,7 +674,20 @@ export function createLenticularModel(
       for (const pop of populations) {
         const massSol = galaxyMassSol * pop.massFractionGalaxy;
         if (pop.key === 'lenticularHalo') {
-          out[pop.key] = haloTerm(1, R, z) * (massSol * upsilonFor(pop)) / haloTerm(1, R0_PC, 0);
+          // Closed-form mass normalisation (16 Aug 2026), replacing an
+          // R0-point-anchor that never actually guaranteed INT rho dV
+          // equalled this population's own total - see
+          // `haloTermMassNormalized`'s own doc comment.
+          out[pop.key] = haloTermMassNormalized(massSol * upsilonFor(pop), R, z);
+        } else if (pop.scaleRadiusPc !== undefined && pop.sersicN !== undefined) {
+          // Prugniel-Simien (16 Aug 2026) - the classical bulge, replacing
+          // a Hernquist reuse the profile's own literature (Terzic &
+          // Graham 2005) says is a poor fit at this Sersic index. `r` here
+          // is spherical (matches this function's own floor-clamped `r`,
+          // computed once above); prugnielSimienMassDensity floors it again
+          // internally (CORE_FLOOR_PC is the same 10 pc value in both
+          // modules), so the two guards agree rather than compound.
+          out[pop.key] = prugnielSimienMassDensity(r, massSol, pop.scaleRadiusPc, pop.sersicN) * upsilonFor(pop);
         } else if (pop.scaleRadiusPc !== undefined) {
           out[pop.key] = hernquistMassDensity(r, massSol, pop.scaleRadiusPc) * upsilonFor(pop);
         } else {

@@ -1,6 +1,6 @@
 import {
   createSpiralModel, createEllipticalModel, createLenticularModel,
-  R0_PC, hernquistK, ELLIPTICAL_POPULATIONS, LENTICULAR_POPULATIONS,
+  R0_PC, hernquistK, ELLIPTICAL_POPULATIONS, LENTICULAR_POPULATIONS, JURIC,
   type Population, type DensityByPopulation, type GalaxyModel,
 } from './galaxyModel';
 
@@ -131,15 +131,59 @@ check('lenticular: no population has armAmplitude > 0 (structural, S0s have no a
   LENTICULAR_POPULATIONS.every((p) => (p.armAmplitude ?? 0) === 0));
 check('lenticular: the five mass fractions sum to 1 (composite configuration)',
   Math.abs(LENTICULAR_POPULATIONS.reduce((a, p) => a + p.massFractionGalaxy, 0) - 1) < 1e-9);
-check('lenticular: bulge effective radius (143 pc) over Hernquist k lands near the ' +
-  'expected scale radius, computed not quoted',
-  Math.abs(LENTICULAR_POPULATIONS[3]!.scaleRadiusPc! - 143 / hernquistK()) < 1e-9);
+check('lenticular: composite-config classical bulge uses Erwin\'s own effective ' +
+  'radius (143 pc) DIRECTLY - Prugniel-Simien needs no Hernquist-k conversion ' +
+  '(16 Aug 2026, replacing Hernquist reuse)',
+  LENTICULAR_POPULATIONS[3]!.scaleRadiusPc === 143);
+check('lenticular: composite-config classical bulge carries Erwin\'s own Sersic ' +
+  'index (n=1.52), not Hernquist\'s implicit n~4',
+  LENTICULAR_POPULATIONS[3]!.sersicN === 1.52);
 
 const lenticularClassical = createLenticularModel(2e10, upsilonFor, 'classical');
 check('lenticular classical config: drops the pseudo-bulge population entirely',
   !lenticularClassical.populations.some((p) => p.key === 'lenticularPseudoBulge'));
 check('lenticular classical config: still returns non-zero, finite density',
   Number.isFinite(lenticularClassical.densityAt(R0_PC, 0, 0)) && lenticularClassical.densityAt(R0_PC, 0, 0) >= 0);
+check('lenticular classical config: the classical bulge carries Gao\'s own ' +
+  'different Re/n (520 pc, n=2.62) - a genuinely different configuration, ' +
+  'not just a renamed copy of the composite one',
+  (() => {
+    const bulge = lenticularClassical.populations.find((p) => p.key === 'lenticularClassicalBulge')!;
+    return bulge.scaleRadiusPc === 0.20 * JURIC.lThin && bulge.sersicN === 2.62;
+  })());
+
+// -- lenticular halo: closed-form mass normalisation (16 Aug 2026) ----------------
+check('lenticular halo: INT rho dV over the whole (truncated, floored) volume ' +
+  'reproduces massFractionGalaxy * galaxyMassSol * upsilonFor(pop) to within a ' +
+  'few percent - a genuine total-mass guarantee, not a point-anchor', (() => {
+  const galaxyMassSol = 2e10;
+  const model = createLenticularModel(galaxyMassSol, upsilonFor);
+  const haloPop = model.populations.find((p) => p.key === 'lenticularHalo')!;
+  const expectedTotal = galaxyMassSol * haloPop.massFractionGalaxy * upsilonFor(haloPop);
+
+  // Spherical-shell quadrature in log-r (the halo is oblate, not spherical,
+  // but a flattening factor is a fixed volume-element scaling this
+  // integral - done crudely via many (R, theta, z) samples per shell -
+  // adequate for a "within a few percent" check, not a replacement for the
+  // closed-form derivation itself).
+  const rMin = 10, rMax = 20000, nSteps = 4000, nAngles = 24;
+  const uMin = Math.log(rMin), uMax = Math.log(rMax), du = (uMax - uMin) / nSteps;
+  let mass = 0;
+  for (let i = 0; i < nSteps; i++) {
+    const u = uMin + (i + 0.5) * du;
+    const r = Math.exp(u);
+    let angularSum = 0;
+    for (let j = 0; j < nAngles; j++) {
+      const phi = (j + 0.5) / nAngles * Math.PI;   // polar angle from z-axis, [0, pi]
+      const R = r * Math.sin(phi), z = r * Math.cos(phi);
+      const d = model.densityByPopulation(R, 0, z).lenticularHalo ?? 0;
+      angularSum += d * Math.sin(phi);
+    }
+    const solidAngleWeight = (angularSum / nAngles) * 2 * Math.PI * Math.PI;
+    mass += solidAngleWeight * r * r * r * du;
+  }
+  return Math.abs(mass - expectedTotal) / expectedTotal < 0.1;
+})());
 
 if (failures > 0) throw new Error(`${failures} galaxyModel conformance failure(s)`);
 console.log('\nall galaxyModel conformance checks passed');

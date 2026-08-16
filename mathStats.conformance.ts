@@ -1,4 +1,4 @@
-import { erf, Phi, probit, truncGaussQuantile, poissonInvCdf, LAMBDA_MAX, besselI0e } from './mathStats';
+import { erf, Phi, probit, truncGaussQuantile, poissonInvCdf, LAMBDA_MAX, besselI0e, lnGamma, gammaincLower, gammaincUpper } from './mathStats';
 
 let failures = 0;
 function check(label: string, cond: boolean): void {
@@ -117,6 +117,37 @@ check('10f besselI0e over this project\'s own kappa range (~18.75-31.0) matches 
   'dtheta, computed here by 20000-point Simpson quadrature on the integral definition, ' +
   'not by exercising the same series/Hankel code under test',
   Math.abs(besselI0e(18.7511) - 0.0927627697) < 1e-6 && Math.abs(besselI0e(30.9951) - 0.0719522309) < 1e-6);
+
+// -- lnGamma / gammaincLower / gammaincUpper -------------------------------------
+check('9 lnGamma(1) === 0 and lnGamma(2) === 0 (Gamma(1)=Gamma(2)=1)',
+  Math.abs(lnGamma(1)) < 1e-9 && Math.abs(lnGamma(2)) < 1e-9);
+check('9b lnGamma(5) matches ln(24) (Gamma(5) = 4! = 24)', Math.abs(lnGamma(5) - Math.log(24)) < 1e-9);
+check('9c the recurrence Gamma(z+1) = z*Gamma(z) holds in log form: ' +
+  'lnGamma(z+1) === lnGamma(z) + ln(z)',
+  [1.5, 2.7, 4.2, 6.9].every((z) => Math.abs(lnGamma(z + 1) - (lnGamma(z) + Math.log(z))) < 1e-9));
+
+check('10 gammaincLower(s, 0) === 0 and gammaincUpper(s, 0) === 1',
+  [0.5, 1, 2.5, 5].every((s) => gammaincLower(s, 0) === 0 && gammaincUpper(s, 0) === 1));
+check('10b gammaincLower + gammaincUpper === 1 exactly, across a spread of (s, x)',
+  (() => {
+    const ss = [0.5, 1, 2, 4.5], xs = [0.1, 1, 5, 20];
+    return ss.every((s) => xs.every((x) => Math.abs(gammaincLower(s, x) + gammaincUpper(s, x) - 1) < 1e-9));
+  })());
+
+check('11 gammaincLower is monotonically non-decreasing in x at fixed s',
+  (() => {
+    const s = 2.5;
+    const xs = [0, 0.5, 1, 2, 5, 10, 20, 50];
+    let prev = -1;
+    for (const x of xs) {
+      const v = gammaincLower(s, x);
+      if (v < prev) return false;
+      prev = v;
+    }
+    return true;
+  })());
+check('11b gammaincLower(s, x) -> 1 as x grows large relative to s',
+  [1, 2.5, 5].every((s) => gammaincLower(s, 100) > 0.999999));
 
 if (failures > 0) throw new Error(`${failures} mathStats conformance failure(s)`);
 console.log('\nall mathStats conformance checks passed');

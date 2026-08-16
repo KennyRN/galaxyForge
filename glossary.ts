@@ -60,6 +60,7 @@ import { glossary as metallicityGlossary } from './metallicity';
 import { glossary as systemConductorGlossary } from './systemConductor';
 import { glossary as sectorSearchGlossary } from './sectorSearch';
 import { glossary as sectorFootprintGlossary } from './sectorFootprint';
+import { glossary as prugnielSimienGlossary } from './prugnielSimien';
 
 /**
  * Every module's `glossary` export, concatenated in brief stage order
@@ -95,6 +96,7 @@ export const GLOSSARY: GlossaryEntry[] = [
   ...systemConductorGlossary,
   ...sectorSearchGlossary,
   ...sectorFootprintGlossary,
+  ...prugnielSimienGlossary,
 ];
 
 /** Look up every glossary entry for a given module, in aggregate order. */

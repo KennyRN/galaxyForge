@@ -60,7 +60,8 @@ const CONCERNS = {
   starFormingComplexes: ['complexTier meso-scale density boost, patch v2.3 (15 Aug 2026)', ['complexField']],
   systemConductor:    ['generates one complete SystemCore end to end (15 Aug 2026)', []],
   sectorSearch:       ['interactive sector-centring search, S4.8 (15 Aug 2026)', []],
-  sectorFootprint:    ['sector footprint shape clipping + generateSector (15 Aug 2026)', []],
+  sectorFootprint:    ['sector footprint shape clipping + generateSector/assembleSector (15-16 Aug 2026)', []],
+  prugnielSimien:     ['free-Sersic-index spheroid profile, the lenticular classical bulge (16 Aug 2026)', []],
 };
 
 function declaredChannels() {

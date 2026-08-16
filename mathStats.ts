@@ -136,6 +136,109 @@ export function truncGaussQuantile(
 }
 
 /**
+ * log Gamma(z) by the Lanczos approximation, with the reflection formula
+ * below 0.5. `sourced (form)`, ported 16 Aug 2026 from the sibling
+ * `galaxyforge` build's own `mathStats.ts` - needed by `prugnielSimien.ts`'s
+ * mass normalisation.
+ *
+ * Returns the LOG rather than Gamma itself on purpose: Prugniel-Simien
+ * evaluates Gamma(n(3-p)) beside b^(n(3-p)), and for a Sersic index around
+ * 4 both overflow a double individually while their ratio is perfectly
+ * ordinary. Working in logs is the difference between a normalisation and
+ * an Infinity.
+ */
+const LANCZOS_G = 7;
+const LANCZOS_C: readonly number[] = [
+  0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+  771.32342877765313, -176.61502916214059, 12.507343278686905,
+  -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+];
+export function lnGamma(z: number): number {
+  if (!Number.isFinite(z)) throw new Error(`lnGamma: z must be finite, got ${z}`);
+  if (z < 0.5) {
+    // Gamma(z)Gamma(1-z) = pi / sin(pi*z)
+    return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * z))) - lnGamma(1 - z);
+  }
+  const zz = z - 1;
+  let x = LANCZOS_C[0]!;
+  for (let i = 1; i < LANCZOS_C.length; i++) x += LANCZOS_C[i]! / (zz + i);
+  const t = zz + LANCZOS_G + 0.5;
+  return 0.5 * Math.log(2 * Math.PI) + (zz + 0.5) * Math.log(t) - t + Math.log(x);
+}
+
+/** Relative convergence target and iteration ceiling for both gammainc expansions. */
+const GAMMAINC_EPS = 1e-15;
+const GAMMAINC_ITMAX = 300;
+
+/** Series expansion for the regularised LOWER incomplete gamma, x < s + 1. */
+function gammaincSeries(s: number, x: number): number {
+  let ap = s;
+  let sum = 1 / s;
+  let del = sum;
+  for (let n = 1; n <= GAMMAINC_ITMAX; n++) {
+    ap += 1;
+    del *= x / ap;
+    sum += del;
+    if (Math.abs(del) < Math.abs(sum) * GAMMAINC_EPS) break;
+  }
+  return sum * Math.exp(-x + s * Math.log(x) - lnGamma(s));
+}
+
+/**
+ * Modified Lentz continued fraction for the regularised UPPER incomplete
+ * gamma, x >= s + 1. The series above converges slowly there and the
+ * continued fraction converges slowly below, which is why the crossover
+ * exists.
+ */
+function gammaincContinuedFraction(s: number, x: number): number {
+  const tiny = Number.MIN_VALUE / GAMMAINC_EPS;
+  let b = x + 1 - s;
+  let c = 1 / tiny;
+  let d = 1 / b;
+  let h = d;
+  for (let i = 1; i <= GAMMAINC_ITMAX; i++) {
+    const an = -i * (i - s);
+    b += 2;
+    d = an * d + b;
+    if (Math.abs(d) < tiny) d = tiny;
+    c = b + an / c;
+    if (Math.abs(c) < tiny) c = tiny;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < GAMMAINC_EPS) break;
+  }
+  return Math.exp(-x + s * Math.log(x) - lnGamma(s)) * h;
+}
+
+function assertGammaArgs(s: number, x: number): void {
+  if (!(s > 0) || !Number.isFinite(s)) {
+    throw new Error(`gammainc: s must be finite and > 0, got ${s}`);
+  }
+  if (!Number.isFinite(x) || x < 0) {
+    throw new Error(`gammainc: x must be finite and >= 0, got ${x}`);
+  }
+}
+
+/**
+ * Regularised lower incomplete gamma P(s, x) = gamma(s, x) / Gamma(s), in
+ * [0, 1]. This is the enclosed-mass fraction of a Prugniel-Simien sphere,
+ * which is why it lives here rather than inlined there.
+ */
+export function gammaincLower(s: number, x: number): number {
+  assertGammaArgs(s, x);
+  if (x === 0) return 0;
+  return x < s + 1 ? gammaincSeries(s, x) : 1 - gammaincContinuedFraction(s, x);
+}
+
+/** Regularised upper incomplete gamma Q(s, x) = Gamma(s, x) / Gamma(s) = 1 - P(s, x). */
+export function gammaincUpper(s: number, x: number): number {
+  assertGammaArgs(s, x);
+  if (x === 0) return 1;
+  return x < s + 1 ? 1 - gammaincSeries(s, x) : gammaincContinuedFraction(s, x);
+}
+
+/**
  * Exponentially scaled modified Bessel function of the first kind, order 0:
  * `besselI0e(x) = exp(-|x|) I0(x)`. `sourced (form)` - the ascending series
  * below x=18 and the asymptotic Hankel expansion above it are both standard
@@ -249,5 +352,13 @@ export function poissonInvCdf(lambda: number, u: number): number {
  *     decreasing in |x|, and its two branches (ascending series / Hankel
  *     expansion) agree with each other at the x=18 split to high precision -
  *     the property `spiralArms.ts`'s mean-preservation gate depends on.
+ *  9. lnGamma matches known values (lnGamma(1)=lnGamma(2)=0, lnGamma(5)=ln(24))
+ *     and the recurrence Gamma(z+1)=z*Gamma(z) holds in log form.
+ *  10. gammaincLower(s, 0) === 0, gammaincUpper(s, 0) === 1, and the two sum
+ *      to exactly 1 for every (s, x) - a regularised split, not two
+ *      independent approximations that could drift apart.
+ *  11. gammaincLower(s, x) is monotonically non-decreasing in x at fixed s,
+ *      and approaches 1 as x grows large relative to s - the enclosed-mass
+ *      fraction `prugnielSimien.ts` depends on this for.
  */
-export const MATH_STATS_GATES = 8 as const;
+export const MATH_STATS_GATES = 11 as const;
