@@ -49,7 +49,7 @@
 import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App } from 'obsidian';
 import { createSpiralModel, createEllipticalModel, createLenticularModel, type GalaxyModel } from './galaxyModel';
 import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
-import { fieldFromModel, projectSlab, sampleVolume, normaliseForDisplay, emphasiseArmsForDisplay, type SlabRegionPc, type VolumeRegionPc } from './densityMap';
+import { fieldFromModel, projectSlab, normaliseForDisplay, emphasiseArmsForDisplay, type SlabRegionPc } from './densityMap';
 import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
 import { generateSeededArms } from './spiralArms';
 import { complexParticipation, complexCellsOverlapping, complexCentresInCell, type ComplexCentre } from './starFormingComplexes';
@@ -681,29 +681,51 @@ function renderDensityCanvas(
   paintDensityField(canvas, field, overlay ? { centrePc, radiusPc: overlay.radiusPc, shape: overlay.shape } : null);
 }
 
+/** The top-down view's own square runs `[-halfWidth, +halfWidth]` on a
+ *  side; a ray from its centre reaches a CORNER at `halfWidth * sqrt(2)`
+ *  - "as far as the far corners of the square" (16 Aug 2026, a direct user
+ *  spec for the side-on view's new radial reach) is exactly that. */
+const EDGE_ON_MAX_RADIUS_PC = GALAXY_OVERVIEW_HALF_WIDTH_PC * Math.SQRT2;
+
 /**
- * The edge-on slice - "Pin the axis names: plan view is (x,y), edge-on
- * slice is (y,z)" (S4.8). `densityMap.ts`'s own `projectSlab`/
- * `SlabRegionPc` only ever integrates through z (the plan view) - there is
- * no shipped edge-on projector, so this builds one directly from
- * `sampleVolume`'s own 3D primitive (its own header: "the v2 map... every
- * 2D render already goes through it"), summing over x here instead of
- * reimplementing the field sampling loop (Law 1 - one sampling primitive).
- */
-/**
- * `slabThicknessPc` (16 Aug 2026, a user-found gap): the actual slab this
- * sector will be cut from was invisible on the side view - only the
- * broader density field showed, with nothing marking WHERE within it the
- * chosen "sys density" (slab thickness) band actually sits. Drawn as a
- * horizontal band centred on the view's own z-centre (`centrePc.z`, which
- * this function's own coordinate convention always places at the canvas's
- * vertical midline), height floored at 3px so a genuinely thin slab
- * (5-15 pc against a hundreds-to-thousands-of-pc view) stays visible
- * rather than rounding to nothing.
+ * The side-on view - a MAJOR redesign (16 Aug 2026, three direct user
+ * follow-ups on the one complaint): the previous version sampled a tiny,
+ * near-fixed patch centred on wherever the sector currently sat (a 2pc-
+ * wide x-slice, y +/- `halfDepthPc` around the SECTOR's own y, z +/-
+ * `halfHeightPc` around the SECTOR's own z) - density barely varies across
+ * a window that size (a few hundred pc against a galaxy tens of thousands
+ * of pc across), so the view looked the same everywhere and never showed
+ * an arm or the bulge, exactly the "no idea what this is showing, there's
+ * no difference left to right" the user reported. Two structural changes
+ * fix that at the root instead of re-tuning the old view's constants:
+ *
+ *  (1) FIXED z framing - the vertical window sampled here is now always
+ *      `[-halfHeightPc, +halfHeightPc]` around the WORLD galactic plane
+ *      (z=0), independent of `distanceFromPlanePc`. The plane sits
+ *      dead-centre and never moves; the CURRENT z choice is drawn as the
+ *      amber slab band at whatever pixel row that z actually maps to
+ *      inside this fixed frame - "the bar moves, not the map".
+ *  (2) The horizontal axis is RADIAL DISTANCE from the galactic centre
+ *      (R=0 at the left edge) out to `EDGE_ON_MAX_RADIUS_PC` (right edge),
+ *      swept along the SAME angle the top-down view's own angle slider
+ *      selects - `angleRad` IS `model.densityAt`'s own `theta` parameter,
+ *      so this calls it directly, one point at a time, rather than
+ *      routing through `densityMap.ts`'s axis-aligned `sampleVolume` (that
+ *      primitive samples an (x,y,z) BOX; this slice is a rotated ray
+ *      through the disc, which a box sampler cannot express without
+ *      resampling the whole galaxy and throwing most of it away). Whatever
+ *      arm or the bulge that angle actually crosses now shows up as a
+ *      real density gradient left-to-right, which the old local-patch view
+ *      could never show regardless of how it was tuned.
+ *
+ * A magenta vertical line marks the sector's own `distanceFromCentrePc`
+ * on this new radial axis - the same colour `drawPositionGuides` uses for
+ * the top-down view's own angle/radius crosshair, so "your current
+ * position" reads as one consistent visual language across both canvases.
  */
 function renderEdgeOnCanvas(
-  canvas: HTMLCanvasElement, model: GalaxyModel, centrePc: { x: number; y: number; z: number },
-  halfDepthPc: number, halfHeightPc: number, slabThicknessPc: number | null = null,
+  canvas: HTMLCanvasElement, model: GalaxyModel, angleRad: number, distanceFromCentrePc: number, distanceFromPlanePc: number,
+  maxRadiusPc: number, halfHeightPc: number, slabThicknessPc: number | null = null,
 ): void {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -711,38 +733,26 @@ function renderEdgeOnCanvas(
   ctx.fillStyle = '#05050a';
   ctx.fillRect(0, 0, w, h);
 
-  // nx=3, not the earlier 24 (16 Aug 2026, freed up budget for the nz bump
-  // just below): the x range sampled here is `centrePc.x +/- 1` pc - a
-  // slice 2 pc wide, so 24 sub-samples across it were 24 near-identical
-  // values, pure waste. nz=110, up from 40 - see EDGE_ON_HALF_HEIGHT_PC's
-  // own header for why the vertical range this now covers is far larger
-  // than before; without a matching resolution bump the thin disc (300 pc
-  // scale height) would collapse to 1-2 blurry cells against it.
-  const res = { nx: 3, ny: 80, nz: 110 };
-  const region: VolumeRegionPc = {
-    min: { x: centrePc.x - 1, y: centrePc.y - halfDepthPc, z: centrePc.z - halfHeightPc },
-    max: { x: centrePc.x + 1, y: centrePc.y + halfDepthPc, z: centrePc.z + halfHeightPc },
-  };
-  const vol = sampleVolume(fieldFromModel(model), region, res);
-  const yz = new Float64Array(res.ny * res.nz);
+  const res = { nR: 150, nz: 110 };
+  const raw = new Float64Array(res.nR * res.nz);
   for (let iz = 0; iz < res.nz; iz++) {
-    for (let iy = 0; iy < res.ny; iy++) {
-      let acc = 0;
-      for (let ix = 0; ix < res.nx; ix++) acc += vol.values[ix + res.nx * (iy + res.ny * iz)]!;
-      yz[iy + res.ny * iz] = acc;
+    const zPc = -halfHeightPc + ((iz + 0.5) / res.nz) * 2 * halfHeightPc;
+    for (let iR = 0; iR < res.nR; iR++) {
+      const R = ((iR + 0.5) / res.nR) * maxRadiusPc;
+      raw[iR + res.nR * iz] = model.densityAt(R, angleRad, zPc);
     }
   }
-  const norm = normaliseForDisplay(yz, { log: true });
-  const pcToPxY = w / (2 * halfDepthPc), pcToPxZ = h / (2 * halfHeightPc);
+  const norm = normaliseForDisplay(raw, { log: true });
+  const pcToPxR = w / maxRadiusPc, pcToPxZ = h / (2 * halfHeightPc);
   for (let iz = 0; iz < res.nz; iz++) {
-    for (let iy = 0; iy < res.ny; iy++) {
-      const v = norm[iy + res.ny * iz]!;
-      const yPc = -halfDepthPc + ((iy + 0.5) / res.ny) * 2 * halfDepthPc;
+    for (let iR = 0; iR < res.nR; iR++) {
+      const v = norm[iR + res.nR * iz]!;
+      const R = ((iR + 0.5) / res.nR) * maxRadiusPc;
       const zPc = -halfHeightPc + ((iz + 0.5) / res.nz) * 2 * halfHeightPc;
-      const px = (yPc + halfDepthPc) * pcToPxY, py = h - (zPc + halfHeightPc) * pcToPxZ;
+      const px = R * pcToPxR, py = h - (zPc + halfHeightPc) * pcToPxZ;
       const n = stochasticRound(v * v * 10);   // stochasticRound - see that function's own header
       for (let p = 0; p < n; p++) {
-        const jx = px + (Math.random() - 0.5) * (w / res.ny);
+        const jx = px + (Math.random() - 0.5) * (w / res.nR);
         const jy = py + (Math.random() - 0.5) * (h / res.nz);
         ctx.fillStyle = `rgba(205,215,255,${(0.25 + 0.65 * Math.random()).toFixed(2)})`;
         ctx.fillRect(jx, jy, 1, 1);
@@ -750,17 +760,33 @@ function renderEdgeOnCanvas(
     }
   }
 
+  // The sys-density slab band, now positioned at wherever `distanceFrom
+  // PlanePc` actually falls inside the FIXED [-halfHeightPc,+halfHeightPc]
+  // frame - it used to always land at h/2 because the whole map recentred
+  // on the sector's own z instead; now the map never moves, so this is the
+  // one thing here that does.
   if (slabThicknessPc !== null) {
+    const bandCentrePx = h - (distanceFromPlanePc + halfHeightPc) * pcToPxZ;
     const bandPx = Math.max(3, slabThicknessPc * pcToPxZ);
     ctx.fillStyle = 'rgba(224,178,90,0.22)';
-    ctx.fillRect(0, h / 2 - bandPx / 2, w, bandPx);
+    ctx.fillRect(0, bandCentrePx - bandPx / 2, w, bandPx);
     ctx.strokeStyle = '#e0b25a';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, h / 2 - bandPx / 2); ctx.lineTo(w, h / 2 - bandPx / 2);
-    ctx.moveTo(0, h / 2 + bandPx / 2); ctx.lineTo(w, h / 2 + bandPx / 2);
+    ctx.moveTo(0, bandCentrePx - bandPx / 2); ctx.lineTo(w, bandCentrePx - bandPx / 2);
+    ctx.moveTo(0, bandCentrePx + bandPx / 2); ctx.lineTo(w, bandCentrePx + bandPx / 2);
     ctx.stroke();
   }
+
+  // Radial position marker - where the sector's own `distanceFromCentrePc`
+  // falls on this view's new R axis, same magenta as the top-down guides.
+  const rPx = Math.min(distanceFromCentrePc, maxRadiusPc) * pcToPxR;
+  ctx.strokeStyle = 'rgba(255,64,190,0.95)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(rPx, 0);
+  ctx.lineTo(rPx, h);
+  ctx.stroke();
 }
 
 function renderPositionOnlyCanvas(canvas: HTMLCanvasElement, centrePc: { x: number; y: number; z: number }, halfWidthPc: number, positions: readonly { x: number; y: number; z: number }[]): void {
@@ -1039,8 +1065,10 @@ export class GalaxyScreen2Modal extends Modal {
     this.sideOnCanvas = contentEl.createEl('canvas', { attr: { width: '400', height: '220' } });
     this.sideOnCanvas.style.display = 'block';
     this.sideOnCanvas.style.margin = '4px auto 12px';
-    const halfDepthPc = Math.max(this.draft.sizeInPc * 4, 500);
-    renderEdgeOnCanvas(this.sideOnCanvas, this.model, centre, halfDepthPc, EDGE_ON_HALF_HEIGHT_PC, thickness);
+    renderEdgeOnCanvas(
+      this.sideOnCanvas, this.model, this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc,
+      EDGE_ON_MAX_RADIUS_PC, EDGE_ON_HALF_HEIGHT_PC, thickness,
+    );
 
     renderIconSlider(contentEl, ANGLE_ICON, `Angle (θ) - ${(this.draft.angleRad * 180 / Math.PI).toFixed(0)}°`,
       0, 359, 1, Math.round(this.draft.angleRad * 180 / Math.PI), (v) => this.setDraft({ angleRad: (v * Math.PI) / 180 }));
