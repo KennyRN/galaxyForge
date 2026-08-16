@@ -612,10 +612,23 @@ export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters 
  * module never depends on `galacticDensity`, keeping the import direction
  * one-way (types.ts -> galaxyModel; galacticDensity -> galaxyModel).
  */
+/**
+ * `params` (16 Aug 2026, ported - closing a Tier G gap an audit named)
+ * defaults to `DEFAULT_GALAXY_PARAMETERS`, whose `elliptical` block matches
+ * `ELLIPTICAL_POPULATIONS`'s own hardcoded scale radii exactly - an omitted
+ * `params` therefore reproduces the prior behaviour bit-for-bit. Supplying
+ * a different `params.elliptical` genuinely changes the generated
+ * galaxy's shape now, which is the entire point of a Tier G field.
+ */
 export function createEllipticalModel(
   galaxyMassSol: number, upsilonFor: (pop: Population) => number,
+  params: GalaxyParameters = DEFAULT_GALAXY_PARAMETERS,
 ): GalaxyModel {
-  const populations = ELLIPTICAL_POPULATIONS;
+  const { aInSituPc, accretedScaleMultiplier } = params.elliptical;
+  const populations: Population[] = ELLIPTICAL_POPULATIONS.map((p) =>
+    p.key === 'ellipticalInSitu' ? { ...p, scaleRadiusPc: aInSituPc, fehGradientRefPc: aInSituPc }
+      : p.key === 'ellipticalAccreted' ? { ...p, scaleRadiusPc: aInSituPc * accretedScaleMultiplier, fehGradientRefPc: aInSituPc }
+        : p);
   return {
     morphology: 'elliptical',
     populations,
@@ -640,25 +653,32 @@ export function createEllipticalModel(
  *  only, at the Gao et al. 2018 B/T) - the classical config's B/T constant
  *  lives here rather than as a second population set, per S4.6's own
  *  "reuse the elliptical's function, not its population set" framing. */
+/**
+ * `params` (16 Aug 2026, ported - closing a Tier G gap an audit named)
+ * defaults to `DEFAULT_GALAXY_PARAMETERS`, whose `lenticular` block matches
+ * every value this function used to hardcode exactly - an omitted `params`
+ * reproduces prior behaviour bit-for-bit, in EITHER `bulgeType`.
+ */
 export function createLenticularModel(
   galaxyMassSol: number, upsilonFor: (pop: Population) => number,
   bulgeType: 'composite' | 'classical' = 'composite',
+  params: GalaxyParameters = DEFAULT_GALAXY_PARAMETERS,
 ): GalaxyModel {
-  const CLASSICAL_BT = 0.38;   // calibrated, Gao, Ho, Barth & Li 2018 (unbarred)
+  const { classicalBT, erwinClassicalRePc, erwinClassicalN, gaoClassicalRePcRatio, gaoClassicalN } = params.lenticular;
   // Gao's own classical-bulge Re/n differ from Erwin's composite-config
-  // values (16 Aug 2026, ported) - Re = bulgeReOverDiscH * thinScaleLengthPc
-  // = 0.20 * 2600 pc = 520 pc, n = 2.62 (Gao's own steeper, more classical
-  // Sersic index vs Erwin's 1.52). Both are `calibrated` scaling relations,
-  // not independently re-derived here.
-  const GAO_CLASSICAL_RE_PC = 0.20 * JURIC.lThin;
-  const GAO_CLASSICAL_N = 2.62;
+  // values - Re = gaoClassicalRePcRatio * thinScaleLengthPc (520 pc at
+  // defaults), n = gaoClassicalN (2.62, Gao's steeper index vs Erwin's
+  // 1.52). Both `calibrated` scaling relations, not independently
+  // re-derived here.
+  const gaoClassicalRePc = gaoClassicalRePcRatio * JURIC.lThin;
   const populations = bulgeType === 'composite'
-    ? LENTICULAR_POPULATIONS
+    ? LENTICULAR_POPULATIONS.map((p) =>
+      p.key === 'lenticularClassicalBulge' ? { ...p, scaleRadiusPc: erwinClassicalRePc, sersicN: erwinClassicalN } : p)
     : LENTICULAR_POPULATIONS.filter((p) => p.key !== 'lenticularPseudoBulge').map((p) =>
       p.key === 'lenticularClassicalBulge'
-        ? { ...p, massFractionGalaxy: CLASSICAL_BT * (1 - F_HALO), scaleRadiusPc: GAO_CLASSICAL_RE_PC, sersicN: GAO_CLASSICAL_N }
+        ? { ...p, massFractionGalaxy: classicalBT * (1 - F_HALO), scaleRadiusPc: gaoClassicalRePc, sersicN: gaoClassicalN }
         : p.key === 'lenticularThinDisc' || p.key === 'lenticularThickDisc'
-          ? { ...p, massFractionGalaxy: p.massFractionGalaxy * (1 - CLASSICAL_BT) / ERWIN.disc }
+          ? { ...p, massFractionGalaxy: p.massFractionGalaxy * (1 - classicalBT) / ERWIN.disc }
           : p);
 
   return {

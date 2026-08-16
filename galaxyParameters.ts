@@ -29,16 +29,23 @@
  * words: "I have not seen the disc, bar or co-natal modules... I cannot
  * hand you their key names". Those fields ARE declared below (`juric`,
  * `erwin`, `haloIndexPower`, `haloFlattening`, `haloTruncationPc`,
- * `coreFloorPc`, `placement`), with defaults exactly matching their current
- * hardcoded values - but they are **NOT YET WIRED** into
- * `createEllipticalModel`/`createLenticularModel`/`placement.ts`/
- * `remnants.ts`, which still read their own module-level `const`s
- * unchanged. Recorded here as a real, named gap rather than a silent
- * partial completion dressed up as full: per the patch's OWN S2 warning,
- * "a block that is 90% complete is worse than one that is 50% complete and
- * known to be". The schema is complete; the wiring covers the spiral's arm
- * geometry (the part that actually changes what a generated galaxy looks
- * like) and not yet the rest.
+ * `coreFloorPc`, `placement`) with defaults exactly matching their current
+ * hardcoded values, but remain **NOT YET WIRED** into `createSpiralModel`'s
+ * OWN disc/halo terms, `placement.ts` or `remnants.ts` - those three still
+ * read their own module-level `const`s unchanged, a separately-scoped
+ * remaining gap, not attempted here.
+ *
+ * `elliptical`/`lenticular` (new fields, 16 Aug 2026) ARE fully wired -
+ * `createEllipticalModel`/`createLenticularModel` now take this block and
+ * build their populations from `params.elliptical`/`params.lenticular`
+ * directly, closing the gap this file's own header used to name for those
+ * two morphologies specifically (an audit finding, 16 Aug 2026). Recorded
+ * here as a real, named partial completion rather than a silent one either
+ * way: per the patch's OWN S2 warning, "a block that is 90% complete is
+ * worse than one that is 50% complete and known to be". The schema is
+ * complete; the wiring now covers the spiral's arm geometry AND both
+ * spheroid morphologies' own shape, not yet the spiral's disc/halo terms
+ * or `placement`/`remnants`.
  *
  * genVersion: this file's DEFAULT values changing is genVersion-bumping,
  * exactly like a module-level const changing used to be - it is the same
@@ -135,6 +142,56 @@ export const DEFAULT_PLACEMENT_PARAMS: PlacementParams = {
   cellSizePc: 10, jitterSigmaPc: 1.5, jitterTruncationSigma: 3, exclusionRadiusPc: 0.1,
 };
 
+/* ------------------------- elliptical/lenticular block (16 Aug 2026) ----------- */
+//
+// Ported from a sibling build's own EllipticalParameters/LenticularParameters
+// shapes, closing a gap this file's own header named honestly: these two
+// morphologies' geometry constants existed only as module-level `const`s in
+// `galaxyModel.ts`, outside Tier G pinning entirely - `createEllipticalModel`/
+// `createLenticularModel` took a raw `galaxyMassSol` number, no parameter
+// block. Wired below AND into `createEllipticalModel`/`createLenticularModel`
+// (galaxyModel.ts), unlike the still-honestly-unwired juric/erwin/halo fields
+// above, which remain the named remaining gap for the SPIRAL/`placement`/
+// `remnants` (a separately-scoped piece of work, not attempted here).
+
+export interface EllipticalParams {
+  /** pc. Hernquist scale radius of the in-situ population - `derived`, Shen
+   *  size-mass (S4.5). */
+  readonly aInSituPc: number;
+  /** How much more extended the accreted (ex-situ) population's scale
+   *  radius is than the in-situ one - `calibrated`. A single shared scale
+   *  radius would give a radially CONSTANT ex-situ mass fraction, so this
+   *  multiplier is what makes the ex-situ fraction rise with radius at all
+   *  (2.3a's own requirement). */
+  readonly accretedScaleMultiplier: number;
+}
+export const DEFAULT_ELLIPTICAL_PARAMS: EllipticalParams = {
+  aInSituPc: 2400, accretedScaleMultiplier: 8,
+};
+
+export interface LenticularParams {
+  /** Classical-configuration bulge-to-total ratio - `calibrated`, Gao, Ho,
+   *  Barth & Li 2018 (unbarred). */
+  readonly classicalBT: number;
+  /** pc, Sersic effective radius for the COMPOSITE configuration's
+   *  classical bulge component - `sourced`, Erwin et al. 2015. */
+  readonly erwinClassicalRePc: number;
+  /** Sersic index for the COMPOSITE configuration's classical bulge -
+   *  `sourced`, Erwin et al. 2015. */
+  readonly erwinClassicalN: number;
+  /** Re / (thin-disc scale length) for the CLASSICAL configuration's single
+   *  spheroidal bulge - `calibrated`, Gao, Ho, Barth & Li 2018's own
+   *  scaling relation. */
+  readonly gaoClassicalRePcRatio: number;
+  /** Sersic index for the CLASSICAL configuration's bulge - `sourced`, Gao
+   *  et al. 2018. */
+  readonly gaoClassicalN: number;
+}
+export const DEFAULT_LENTICULAR_PARAMS: LenticularParams = {
+  classicalBT: 0.38, erwinClassicalRePc: 143, erwinClassicalN: 1.52,
+  gaoClassicalRePcRatio: 0.20, gaoClassicalN: 2.62,
+};
+
 /* ---------------------------------- the block ---------------------------------- */
 
 export interface GalaxyParameters {
@@ -185,6 +242,10 @@ export interface GalaxyParameters {
   readonly coreFloorPc: number;       // tunable, numerical guard
   readonly bar: BarParams;
   readonly placement: PlacementParams;
+
+  // -- elliptical/lenticular (16 Aug 2026 - WIRED, not merely declared) --
+  readonly elliptical: EllipticalParams;
+  readonly lenticular: LenticularParams;
 }
 
 /**
@@ -226,6 +287,8 @@ export function makeDefaultGalaxyParameters(worldSeed = ''): GalaxyParameters {
     coreFloorPc: 10,
     bar: DEFAULT_BAR,
     placement: DEFAULT_PLACEMENT_PARAMS,
+    elliptical: DEFAULT_ELLIPTICAL_PARAMS,
+    lenticular: DEFAULT_LENTICULAR_PARAMS,
   };
 }
 

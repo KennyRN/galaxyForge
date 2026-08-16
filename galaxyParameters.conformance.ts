@@ -2,19 +2,23 @@
  * galaxyParameters.conformance - patch v2.3's gates 19, 26 and 27, plus this
  * module's own load-bearing checks. See `galaxyParameters.ts`'s own header
  * for the honestly-stated scope: arm/complex fields are LIVE (wired into
- * `createSpiralModel`); disc/bar/halo/placement fields are DECLARED with
- * defaults matching their still-real module-level consts, not yet wired
- * into `createEllipticalModel`/`createLenticularModel`/`placement`/
- * `remnants`. Gate 19's perturbation check below tests exactly that
- * boundary - it is expected, and asserted, that the wired fields move
- * output and the not-yet-wired ones do not.
+ * `createSpiralModel`); `elliptical`/`lenticular` fields are ALSO LIVE
+ * (16 Aug 2026, wired into `createEllipticalModel`/`createLenticularModel`);
+ * juric/erwin/halo/placement fields are DECLARED with defaults matching
+ * their still-real module-level consts, not yet wired into
+ * `createSpiralModel`'s own disc/halo terms, `placement` or `remnants`.
+ * Gate 19's perturbation check below tests exactly that boundary - it is
+ * expected, and asserted, that the wired fields move output and the
+ * not-yet-wired ones do not.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { makeDefaultGalaxyParameters, assertGalaxyParameters, anchorArmCorrectionFor, DEFAULT_GALAXY_PARAMETERS, type GalaxyParameters } from './galaxyParameters';
-import { createSpiralModel } from './galaxyModel';
+import { createSpiralModel, createEllipticalModel, createLenticularModel } from './galaxyModel';
 import { armFactor } from './spiralArms';
+
+const noopUpsilon = () => 1;
 
 let failures = 0;
 function check(name: string, cond: boolean) {
@@ -125,6 +129,41 @@ function densityAtOrigin8200(params: GalaxyParameters, barEnabled = false): numb
   for (const [name, perturbed] of notYetWiredPerturbations) {
     const unchanged = densityAtOrigin8200(perturbed) === baseline;
     check(`GATE 19: perturbing NOT-YET-WIRED field "${name}" leaves createSpiralModel's output unchanged (honestly inert, not silently claimed complete)`, unchanged);
+  }
+
+  // elliptical/lenticular: WIRED as of 16 Aug 2026 - perturbing their own
+  // Tier G fields MUST move createEllipticalModel/createLenticularModel's
+  // output, the same load-bearing check gate 19 already runs for the
+  // spiral's arm/complex fields.
+  const ellipticalBaseline = createEllipticalModel(1e11, noopUpsilon, base).densityAt(2000, 0, 0);
+  const ellipticalPerturbed: [string, GalaxyParameters][] = [
+    ['elliptical.aInSituPc', { ...base, elliptical: { ...base.elliptical, aInSituPc: base.elliptical.aInSituPc * 1.5 } }],
+    ['elliptical.accretedScaleMultiplier', { ...base, elliptical: { ...base.elliptical, accretedScaleMultiplier: base.elliptical.accretedScaleMultiplier * 2 } }],
+  ];
+  for (const [name, perturbed] of ellipticalPerturbed) {
+    const changed = createEllipticalModel(1e11, noopUpsilon, perturbed).densityAt(2000, 0, 0) !== ellipticalBaseline;
+    check(`GATE 19: perturbing WIRED field "${name}" changes createEllipticalModel's output`, changed);
+  }
+
+  const lenticularBaseline = createLenticularModel(2e10, noopUpsilon, 'composite', base).densityAt(200, 0, 0);
+  const lenticularPerturbed: [string, GalaxyParameters][] = [
+    ['lenticular.erwinClassicalRePc', { ...base, lenticular: { ...base.lenticular, erwinClassicalRePc: base.lenticular.erwinClassicalRePc * 2 } }],
+    ['lenticular.erwinClassicalN', { ...base, lenticular: { ...base.lenticular, erwinClassicalN: base.lenticular.erwinClassicalN * 2 } }],
+  ];
+  for (const [name, perturbed] of lenticularPerturbed) {
+    const changed = createLenticularModel(2e10, noopUpsilon, 'composite', perturbed).densityAt(200, 0, 0) !== lenticularBaseline;
+    check(`GATE 19: perturbing WIRED field "${name}" changes createLenticularModel's (composite) output`, changed);
+  }
+
+  const lenticularClassicalBaseline = createLenticularModel(2e10, noopUpsilon, 'classical', base).densityAt(600, 0, 0);
+  const lenticularClassicalPerturbed: [string, GalaxyParameters][] = [
+    ['lenticular.classicalBT', { ...base, lenticular: { ...base.lenticular, classicalBT: base.lenticular.classicalBT * 1.5 } }],
+    ['lenticular.gaoClassicalRePcRatio', { ...base, lenticular: { ...base.lenticular, gaoClassicalRePcRatio: base.lenticular.gaoClassicalRePcRatio * 2 } }],
+    ['lenticular.gaoClassicalN', { ...base, lenticular: { ...base.lenticular, gaoClassicalN: base.lenticular.gaoClassicalN * 1.5 } }],
+  ];
+  for (const [name, perturbed] of lenticularClassicalPerturbed) {
+    const changed = createLenticularModel(2e10, noopUpsilon, 'classical', perturbed).densityAt(600, 0, 0) !== lenticularClassicalBaseline;
+    check(`GATE 19: perturbing WIRED field "${name}" changes createLenticularModel's (classical) output`, changed);
   }
 }
 
