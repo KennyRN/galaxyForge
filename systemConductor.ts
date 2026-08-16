@@ -136,7 +136,7 @@ import { rollMoons, type MoonHostInputs } from './moons';
 import { rollSurfaceTemperature } from './surfaceTemperature';
 import { rollAtmosphere, type AtmosphereDraw } from './atmosphere';
 import { rollBiosphere } from './biosphere';
-import { terraformabilityOf, rollTerraforming } from './terraforming';
+import { terraformabilityOf, evaluateTerraforming } from './terraforming';
 import { assessHumanHabitability } from './humanHabitability';
 import { habitableZoneAu, galacticHabitabilityScore } from './habitability';
 import { surfaceGravityG } from './units';
@@ -380,11 +380,14 @@ export function generateSystemCore(inputs: GenerateSystemInputs): SystemCore {
     const bioDraw = rollBiosphere(bioRng, starHistoryForPlanet.activityClass, stDraw.equilibriumTempK, age);
     biospheres.push(bioDraw);
 
-    // -- terraforming --
-    const terraRng = ch(worldSeed, CHANNELS.terraforming(i), sysid);
+    // -- terraforming (16 Aug 2026: deterministic, no channel - see
+    //    terraforming.ts's own header. evaluateTerraforming needs no rng and
+    //    no base composition/temp to blend from any more, since a
+    //    terraformed world is now a fixed Earth-like target rather than a
+    //    progress-blended one) --
     const hasAtmosphere = atmDraw.kind !== 'none';
     const terraformability = terraformabilityOf(stDraw.equilibriumTempK, gravityG, hasAtmosphere);
-    const terraDraw = rollTerraforming(terraRng, terraformability, terraformScale, terraformIntensity, atmosphereComposition(atmDraw), stDraw.equilibriumTempK);
+    const terraDraw = evaluateTerraforming(terraformability, terraformScale, terraformIntensity);
     terraforming.push(terraDraw);
 
     // -- human habitability (deterministic, no channel) --

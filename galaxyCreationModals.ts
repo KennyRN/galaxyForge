@@ -766,18 +766,18 @@ export class GalaxyScreen1Modal extends Modal {
           .setValue(this.draft.lenticularBulgeType)
           .onChange((v) => { this.draft = { ...this.draft, lenticularBulgeType: v as 'composite' | 'classical' }; }));
     }
-    // Two independent dials (16 Aug 2026, a user-found gap): a single
-    // "prevalence" slider conflated HOW MANY worlds get terraformed with
-    // HOW FAR each one has progressed - see `terraforming.ts`'s own header
-    // for why one number could not carry both questions honestly. Neither
-    // slider triggers a recompute (`this.render()`) any more than it used
-    // to - terraforming affects nothing about the density field, so both
-    // just update the draft's own description text via a full rebuild,
-    // which hits the CACHE (no spinner, no recompute).
-    new Setting(contentEl).setName('Terraforming coverage').setDesc(`${this.draft.terraformScale} / 6 - how many worlds get selected`)
+    // Two independent dials, redesigned 16 Aug 2026 after a direct user
+    // correction - see `terraforming.ts`'s own header for the full story.
+    // Reach sets how difficult a world can be and still be a candidate at
+    // all; coverage then fills that eligible range from the easiest world
+    // up. Neither slider triggers a recompute (`this.render()`) any more
+    // than it used to - terraforming affects nothing about the density
+    // field, so both just update the draft's own description text via a
+    // full rebuild, which hits the CACHE (no spinner, no recompute).
+    new Setting(contentEl).setName('Terraforming coverage').setDesc(`${this.draft.terraformScale} / 6 - how much of what's within reach actually gets terraformed, easiest worlds first`)
       .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.draft.terraformScale).setDynamicTooltip()
         .onChange((v) => { this.draft = { ...this.draft, terraformScale: v }; void this.render(); }));
-    new Setting(contentEl).setName('Terraforming intensity').setDesc(`${this.draft.terraformIntensity} / 6 - how far a selected world has progressed`)
+    new Setting(contentEl).setName('Terraforming reach').setDesc(`${this.draft.terraformIntensity} / 6 - how difficult a world can be and still be attempted at all`)
       .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.draft.terraformIntensity).setDynamicTooltip()
         .onChange((v) => { this.draft = { ...this.draft, terraformIntensity: v }; void this.render(); }));
 

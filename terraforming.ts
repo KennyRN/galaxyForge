@@ -1,59 +1,60 @@
 /**
  * terraforming - deliberate agency, separate from `biosphere` by ruling.
- * Channel `terraforming:{formationIndex}`.
  *
  * -- THIS MODULE AUTHORS FICTION, NOT SCIENCE. -------------------------------
  * Stated first, per the brief's explicit instruction, because it is the one
  * genuinely load-bearing fact about this module: nothing below is a
  * measurement, a rate from a paper, or an extrapolation of one. It is a
  * WORLDBUILDING MECHANISM - a deterministic-scoring gate on physical
- * plausibility (`terraformability`), combined with a procedural placement
- * roll scaled by TWO independent AUTHORED settings a user chooses at galaxy
- * creation: `terraformScale` (`SystemContext.terraformScale`, 0-6, COVERAGE
- * - how many feasible candidates actually get selected) and
- * `terraformIntensity` (`SystemContext.terraformIntensity`, 0-6, DEGREE -
- * how far a SELECTED planet's terraforming has progressed). Every constant
- * below is `tunable`. There is no ledger row graded `sourced` in this file,
- * and there should never be one - a citation here would be dishonest in the
- * specific way Law 4 exists to prevent.
+ * plausibility (`terraformability`), selected by TWO independent AUTHORED
+ * settings a user chooses at galaxy creation: `terraformScale`
+ * (`SystemContext.terraformScale`, 0-6, COVERAGE) and `terraformIntensity`
+ * (`SystemContext.terraformIntensity`, 0-6, REACH). Every constant below is
+ * `tunable`. There is no ledger row graded `sourced` in this file, and there
+ * should never be one - a citation here would be dishonest in the specific
+ * way Law 4 exists to prevent.
  *
- * TWO AXES, NOT ONE (16 Aug 2026, a user-found gap): before this date a
- * single `terraformScale` conflated "how many planets are selected" with
- * "how far along the selected ones are" - the placement roll used it, but
- * `completeness` (planned/partial/substantial/complete) was drawn UNIFORMLY
- * regardless of scale, so there was no way to author "terraforming is
- * common but always shallow" or "rare but total" - only one knob for two
- * genuinely separate authorial questions. `terraformScale` keeps its exact
- * prior name and meaning (coverage only - no rename, Law 5); the new
- * `terraformIntensity` parameter is purely additive and governs completeness.
+ * REACH AND COVERAGE, NOT PLACEMENT-ROLL-AND-PROGRESS (16 Aug 2026, a
+ * user-found gap in this SAME session's own earlier redesign): the first
+ * pass built `terraformIntensity` as "how far a SELECTED world's terraforming
+ * has progressed" - a random completeness roll (planned/partial/substantial/
+ * complete). The user rejected this directly: a world either has been
+ * terraformed or hasn't, there is no meaningful spectrum of partial
+ * completion for a binary fact. Their actual model, confirmed:
  *
- * `terraformability.score` is a deterministic function of physical state
- * (temperature proximity to human-tolerable range, gravity, whether an
- * atmosphere already exists to work from) - PURELY GEOMETRIC/PHYSICAL, no
- * draw, so two systems with identical physical states always get identical
- * scores regardless of either scale. `terraformScale` only affects WHETHER
- * a feasible candidate actually gets terraformed (the placement roll);
- * `terraformIntensity` only affects HOW FAR a selected one gets (the
- * completeness roll) - keeping "an author chose to put people here" and
- * "how much they've accomplished" structurally separate, the same way
- * feasibility and placement already were.
+ *   - INTENSITY is a civilisation's REACH - how difficult a world can be
+ *     (measured by `terraformabilityOf().score`, the existing "how easy is
+ *     this" figure) and still be attempted AT ALL. Low intensity: only
+ *     worlds needing minimal modification are even candidates. High
+ *     intensity: the reach extends to worlds needing heavy modification too.
+ *     This defines the ELIGIBLE POOL.
+ *   - COVERAGE is how much of that eligible pool actually gets used, filled
+ *     from the EASIEST world upward. Low coverage: only the handful of
+ *     easiest-in-pool worlds are terraformed. Max coverage: the entire
+ *     eligible pool is.
+ *   - Selection is FULLY DETERMINISTIC - score vs. two thresholds, no dice
+ *     roll, matching "either has or hasn't". `completeness` is REMOVED
+ *     entirely, not reshaped: a terraformed world is simply, completely
+ *     terraformed.
+ *
+ * This is a genuine simplification, not just a correction: the module is now
+ * RNG-FREE END TO END. `terraformabilityOf` already took no `Rng`; with the
+ * placement decision now a pure threshold comparison and `completeness`
+ * gone, `evaluateTerraforming` needs no `Rng` either, so this whole module
+ * consumes no randomness and owns no PRNG channel (see `CHANNELS` in
+ * `types.ts` - `terraforming` was removed from it, 16 Aug 2026, since
+ * `systemConductor.ts` was its only caller and that call site is gone too).
  *
  * `agentRef` is UNSET on every procedural placement (types.ts's own ruling)
  * - it exists only for a user's authored frontmatter to attach a
  * civilisation to later; this module never invents one.
  *
- * `realisedComposition` here starts from `biosphere`'s own output (S9: "not
- * final, because terraforming will read and further modify it") and applies
- * a further delta - never invents atmospheric chemistry from nothing.
- *
- * genVersion: any constant here changing is genVersion-bumping.
+ * genVersion: any constant/formula here changing is genVersion-bumping.
  */
 
-import type { Rng } from './rng';
 import type { SpeciesFraction, PressureClass } from './types';
 
 export type TerraformType = 'atmospheric' | 'thermal' | 'hydrological' | 'biological' | 'ecological';
-export type Completeness = 'planned' | 'partial' | 'substantial' | 'complete';
 
 export interface Terraformability {
   readonly feasible: boolean;
@@ -63,7 +64,6 @@ export interface Terraformability {
 
 export interface TerraformedRecord {
   readonly types: TerraformType[];
-  readonly completeness: Completeness;
   readonly agentRef?: string;
 }
 
@@ -93,74 +93,121 @@ export function terraformabilityOf(
   return { feasible: score >= FEASIBILITY_THRESHOLD, score, blockers };
 }
 
-const COMPLETENESS_LEVELS: readonly Completeness[] = ['planned', 'partial', 'substantial', 'complete'];
+/**
+ * `CAP` - the score a "least needed to be modified" world would have,
+ * `tunable`, not 1.0: `terraformabilityOf`'s own scoring rarely if ever
+ * reaches exactly 1 even for a genuinely ideal world (it is a mean of three
+ * sub-scores, each itself capped below 1 in practice), so pinning the cap at
+ * 1.0 would make `coverage=0` select almost nothing, ever, regardless of how
+ * ideal the easiest available world actually is. 0.95 keeps the "only the
+ * very best" end of the coverage dial reachable by a genuinely excellent
+ * candidate while still sitting comfortably above ordinary feasible worlds.
+ */
+const CAP = 0.95;
 
 /**
- * Maps `terraformIntensity` (0-6) to a power-curve exponent applied to the
- * completeness draw, `tunable`. Exponent 1 at the midpoint (3) reproduces
- * the ORIGINAL uniform draw exactly - a deliberate continuity choice so a
- * galaxy authored before this axis existed (`terraformIntensity` defaulting
- * to 3) draws completeness the same way it always did. Below the midpoint
- * the exponent rises above 1, which pushes `u^exponent` DOWN (toward index
- * 0, `'planned'`) since raising a value in [0,1] to a power > 1 shrinks it;
- * above the midpoint the exponent falls below 1, pushing `u^exponent` UP
- * (toward index 3, `'complete'`) by the same logic in reverse. `2^x` was
- * chosen over a linear map purely because it keeps the extremes (intensity
- * 0 and 6) comfortably inside a still-mixed distribution rather than a
- * near-deterministic one - intensity 0 still occasionally lands on
- * `'partial'`, intensity 6 still occasionally lands on `'substantial'`,
- * which reads as "usually shallow" / "usually thorough" rather than "always
- * exactly one level", a more honest shape for a fictional authoring dial.
+ * The REACH threshold (16 Aug 2026) - how difficult a world can be (in
+ * `terraformabilityOf().score` terms, where LOWER score means HARDER/more
+ * modification needed) and still be a candidate at all, as a function of
+ * `terraformIntensity` (0-6). Linear, `tunable` - this module's own header
+ * explains why a curve would be unearned precision for an invented dial.
+ *
+ * intensity=6 (max reach) -> FEASIBILITY_THRESHOLD (0.3): every physically
+ *   feasible world is a candidate, the widest this dial can ever go (the
+ *   physical floor `terraformabilityOf` itself sets is never exceeded no
+ *   matter how far intensity is pushed - see `requiredScoreThreshold`'s own
+ *   header for why this bound holds even after coverage is folded in).
+ * intensity=0 (min reach) -> CAP (0.95): only a near-ideal world is even a
+ *   candidate - "least needed to be modified".
  */
-function intensityExponent(terraformIntensity: number): number {
-  return Math.pow(2, (3 - terraformIntensity) / 3);
+function reachThreshold(terraformIntensity: number): number {
+  return FEASIBILITY_THRESHOLD + (1 - terraformIntensity / 6) * (CAP - FEASIBILITY_THRESHOLD);
 }
 
 /**
- * EXACTLY TWO draws when feasible (placement roll, then type/completeness
- * roll if placed), ONE draw when infeasible (the placement roll still
- * happens for a fixed budget, but is guaranteed to miss since
- * `placementProbability` is 0). `terraformIntensity` never changes this
- * draw COUNT - it reshapes the second draw's distribution, never adds one -
- * so gate 5's invariant holds unchanged for both parameters.
+ * The full selection threshold (16 Aug 2026) - folds COVERAGE in on top of
+ * `reachThreshold`'s own eligible-pool boundary. `tunable`, linear, same
+ * reasoning as `reachThreshold`.
+ *
+ * At fixed intensity, this interpolates between `CAP` (coverage=0: only the
+ * very easiest world in the whole possible range clears the bar) and
+ * `reachThreshold(intensity)` itself (coverage=6: EVERY world the reach
+ * allows is used, filling the entire eligible pool) - "starting with the
+ * fewest which are easiest to terraform, to all what could be terraformed"
+ * is exactly this interpolation, expressed as a single score cutoff rather
+ * than a literal rank-and-cut over every candidate world (this module never
+ * sees more than one world at a time - see `evaluateTerraforming`'s own
+ * header for why a cutoff, not a global ranking pass, is what "easiest
+ * first" has to mean here).
+ *
+ * BOUNDED IN `[FEASIBILITY_THRESHOLD, CAP]` FOR EVERY (coverage, intensity)
+ * PAIR - both endpoints of the interpolation (`CAP` and `reachThreshold`,
+ * which is itself always `>= FEASIBILITY_THRESHOLD`) sit inside that range,
+ * so the interpolated result never leaves it either. This is what guarantees
+ * `evaluateTerraforming`'s `feasible &&` check is never the thing doing the
+ * work - `score >= requiredScoreThreshold(...)` on its own already implies
+ * `score >= FEASIBILITY_THRESHOLD`, so the physical floor can never be
+ * bypassed by any slider combination. Verified directly, not assumed - see
+ * `terraforming.conformance.ts` gates 3/8.
  */
-export function rollTerraforming(
-  rng: Rng, terraformability: Terraformability, terraformScale: number, terraformIntensity: number,
-  baseComposition: SpeciesFraction[], baseTempK: number,
+export function requiredScoreThreshold(terraformCoverage: number, terraformIntensity: number): number {
+  const reach = reachThreshold(terraformIntensity);
+  return reach + (1 - terraformCoverage / 6) * (CAP - reach);
+}
+
+/** Every terraformed world gets the identical, full set - `completeness`'s
+ *  removal (16 Aug 2026) means there is no partial-progress state left to
+ *  vary this by; a terraformed world is engineered across the board. Kept as
+ *  a real field (not dropped entirely) because it is still informative in a
+ *  generated note - WHAT was engineered - even though it no longer varies. */
+const FULL_TERRAFORM_TYPES: readonly TerraformType[] = ['atmospheric', 'thermal', 'hydrological', 'biological', 'ecological'];
+
+/** The realised state of a terraformed world - fixed constants (16 Aug
+ *  2026), not a progress-blended value: a terraformed world simply HAS
+ *  Earth-like conditions now, matching "either has or hasn't". The prior
+ *  version blended toward this target by a random `progress` fraction;
+ *  there is no `progress` left to blend by. */
+const EARTH_LIKE_COMPOSITION: readonly SpeciesFraction[] = [
+  { species: 'N2', fraction: 0.78 }, { species: 'O2', fraction: 0.21 }, { species: 'other', fraction: 0.01 },
+];
+const EARTH_LIKE_TEMP_K = 288;
+const EARTH_LIKE_PRESSURE_CLASS: PressureClass = 'moderate';
+
+/**
+ * Deterministic - no `Rng` parameter at all (16 Aug 2026; see this module's
+ * own header for why). A world is terraformed if and only if it is
+ * physically feasible AND its ease score clears the combined reach/coverage
+ * threshold - no draw, no roll, the same fact every time for the same
+ * physical state and the same two GUI dials.
+ *
+ * NOT a global rank-and-cut over every world in a sector: this function only
+ * ever sees ONE world's own score. "Fill from easiest to hardest" is
+ * expressed as a SCORE CUTOFF (`requiredScoreThreshold`) rather than a
+ * literal ranking pass over a population this module has no visibility
+ * into - a world clears the bar or it doesn't, and because harder worlds
+ * always have a lower score than easier ones, a fixed cutoff naturally
+ * admits exactly "the easiest ones" as coverage rises, without this module
+ * needing to know what any OTHER world's score is.
+ */
+export function evaluateTerraforming(
+  terraformability: Terraformability, terraformCoverage: number, terraformIntensity: number,
 ): TerraformingDraw {
-  const placementProbability = terraformability.feasible
-    ? Math.min(1, (terraformScale / 6) * terraformability.score)
-    : 0;
-  const uPlace = rng();
-  if (uPlace >= placementProbability) {
+  const isTerraformed = terraformability.feasible
+    && terraformability.score >= requiredScoreThreshold(terraformCoverage, terraformIntensity);
+
+  if (!isTerraformed) {
     return {
       terraformability, terraformed: null,
       realisedComposition: null, realisedPressureClass: null, realisedMeanTempK: null,
     };
   }
 
-  const uCompleteness = Math.pow(rng(), intensityExponent(terraformIntensity));
-  const completeness = COMPLETENESS_LEVELS[Math.min(3, Math.floor(uCompleteness * 4))]!;
-  const progress = (COMPLETENESS_LEVELS.indexOf(completeness) + 1) / COMPLETENESS_LEVELS.length;
-
-  const types: TerraformType[] = ['atmospheric', 'thermal'];
-  if (progress > 0.5) types.push('hydrological');
-  if (progress > 0.75) types.push('biological', 'ecological');
-
-  // A simple linear blend toward an Earth-like target, scaled by progress -
-  // never invented from nothing; blends the SUPPLIED base composition.
-  const target: SpeciesFraction[] = [{ species: 'N2', fraction: 0.78 }, { species: 'O2', fraction: 0.21 }, { species: 'other', fraction: 0.01 }];
-  const realisedComposition = target.map((t) => ({
-    species: t.species,
-    fraction: t.fraction * progress + (baseComposition.find((b) => b.species === t.species)?.fraction ?? 0) * (1 - progress),
-  }));
-  const realisedMeanTempK = baseTempK * (1 - progress) + 288 * progress;
-  const realisedPressureClass: PressureClass = progress > 0.75 ? 'moderate' : 'thin';
-
   return {
     terraformability,
-    terraformed: { types, completeness, agentRef: undefined },
-    realisedComposition, realisedPressureClass, realisedMeanTempK,
+    terraformed: { types: [...FULL_TERRAFORM_TYPES], agentRef: undefined },
+    realisedComposition: EARTH_LIKE_COMPOSITION.map((s) => ({ ...s })),
+    realisedPressureClass: EARTH_LIKE_PRESSURE_CLASS,
+    realisedMeanTempK: EARTH_LIKE_TEMP_K,
   };
 }
 
@@ -170,23 +217,25 @@ export function rollTerraforming(
  * Invariants this module owes:
  *  1. `terraformabilityOf` is PURELY DETERMINISTIC - no `Rng` parameter in
  *     its signature at all.
- *  2. `agentRef` is `undefined` on EVERY procedurally-placed record, always.
- *  3. `terraformScale = 0` NEVER places terraforming, regardless of how
- *     feasible the planet is.
- *  4. Higher `terraformScale` never DECREASES the placement rate, at fixed
- *     terraformability (measured over many draws).
- *  5. `rollTerraforming` consumes exactly one draw when infeasible or
- *     unplaced, exactly two when placed.
- *  6. `completeness` is monotonically related to which `types` are present
- *     - `'complete'` never has fewer types than `'planned'`.
- *  7. Determinism.
- *  8. Higher `terraformIntensity` never DECREASES the mean completeness rank
- *     among PLACED draws, at fixed `terraformScale`/terraformability
- *     (measured over many draws) - the two-axis design's own load-bearing
- *     property (16 Aug 2026): intensity must move the DEGREE distribution
- *     without touching the placement rate gate 4 already owns.
+ *  2. `evaluateTerraforming` is PURELY DETERMINISTIC too (16 Aug 2026) - same
+ *     inputs, same output, always, no `Rng` parameter at all.
+ *  3. `requiredScoreThreshold` always lands in `[FEASIBILITY_THRESHOLD, CAP]`,
+ *     for every (coverage, intensity) pair in the GUI's own 0-6 range.
+ *  4. `requiredScoreThreshold` is monotonically NON-INCREASING in coverage at
+ *     fixed intensity - higher coverage never shrinks the terraformed set.
+ *  5. `requiredScoreThreshold` is monotonically NON-INCREASING in intensity
+ *     at fixed coverage - higher intensity (reach) never shrinks it either.
+ *  6. `coverage=6, intensity=6` gives `requiredScoreThreshold ===
+ *     FEASIBILITY_THRESHOLD` exactly - the "every feasible world" boundary.
+ *  7. `coverage=0` gives `requiredScoreThreshold === CAP` regardless of
+ *     intensity - the "only the very best, no matter the reach" boundary.
+ *  8. A world with `feasible === false` is NEVER terraformed, at ANY
+ *     coverage/intensity combination - the physical floor always wins over
+ *     both authoring dials.
+ *  9. `agentRef` is `undefined` on EVERY procedurally-placed record, always.
+ *  10. Every terraformed world gets the identical, full `types` set.
  */
-export const TERRAFORMING_GATES = 8 as const;
+export const TERRAFORMING_GATES = 10 as const;
 
 /* -------------------------------- glossary ----------------------------------- */
 
@@ -199,8 +248,8 @@ export const glossary: GlossaryEntry[] = [
     long: 'An explicitly fictional, world-building-oriented score - this module\'s own header states it authors fiction, not science. Deterministic and pure given a planet\'s physical state, but carries no literature source: there is none for a subject that does not yet exist.',
   },
   {
-    term: 'Terraforming coverage vs intensity', status: 'tunable',
-    short: 'Two separate authoring dials: how MANY worlds get terraformed, and how FAR each selected one has progressed.',
-    long: 'Coverage (`terraformScale`, unchanged since first written) scales the placement roll only. Intensity (`terraformIntensity`, added 16 Aug 2026) reshapes the completeness draw via a power-curve exponent, biasing toward "planned" at low intensity and "complete" at high intensity while leaving the placement rate untouched - closing a gap where a single dial could not express "common but shallow" or "rare but total" terraforming.',
+    term: 'Terraforming reach vs coverage', status: 'tunable',
+    short: 'Two separate authoring dials: how DIFFICULT a world can be and still be attempted, and how much of what\'s reachable actually gets used.',
+    long: 'Reach (`terraformIntensity`) sets the hardest world that is a candidate at all, from "only near-ideal worlds" to "everything physically feasible". Coverage (`terraformScale`) then fills that eligible range from the easiest world upward, from "only the handful of easiest" to "the entire eligible pool". Both fold into a single deterministic score cutoff (`requiredScoreThreshold`) - a world is terraformed if and only if its own ease score clears that cutoff, no dice roll. Redesigned 16 Aug 2026 after a user rejected this module\'s own first-pass "how far along has this world\'s terraforming progressed" framing as not matching a binary, either-has-or-hasn\'t fact.',
   },
 ];

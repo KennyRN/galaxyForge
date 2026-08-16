@@ -134,7 +134,10 @@ function renderFullSystemBody(system: RenderSystemInput, core: SystemCore): stri
     const bio = core.biospheres[i];
     if (bio) lines.push(`  - Biosphere: ${bio.level}`);
     const terra = core.terraforming[i];
-    if (terra?.terraformed) lines.push(`  - Terraforming: ${terra.terraformed.types.join(', ')} (${terra.terraformed.completeness})`);
+    // completeness dropped 16 Aug 2026 - terraforming.ts's own header: a
+    // terraformed world is simply, completely terraformed now, no partial
+    // -progress state left to print.
+    if (terra?.terraformed) lines.push(`  - Terraforming: ${terra.terraformed.types.join(', ')}`);
     if (hab) lines.push(`  - Habitability: tier ${hab.tier} (${hab.support}), gravity ${hab.gravityG.toFixed(2)}g`);
   }
   lines.push('');

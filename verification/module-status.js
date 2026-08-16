@@ -52,7 +52,7 @@ const CONCERNS = {
   atmosphere:         ['abiotic atmospheres; pressure is class-native', ['atmosphere']],
   surfaceTemperature: ['OWNS equilibrium temperature - the single source of truth', ['surfaceTemperature']],
   biosphere:          ['natural abiogenesis and biosignatures', ['biosphere']],
-  terraforming:       ['deliberate agency - separate from biosphere by ruling', ['terraforming']],
+  terraforming:       ['deliberate agency - separate from biosphere by ruling; deterministic reach/coverage threshold, no channel (16 Aug 2026)', []],
   humanHabitability:  ['HabTier and support level', []],
   metallicity:        ['[Fe/H] draw, coupled to formationRank opposite age.ts (15 Aug 2026)', ['metallicity']],
   spiralArms:         ['named-arm log-spiral density modulation, patch v2.3 (15 Aug 2026); generateSeededArms (16 Aug 2026)', ['seededArms']],

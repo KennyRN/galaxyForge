@@ -63,13 +63,16 @@ export interface StarForgeSettings {
    *  seed used yet", not a literal seed value (Screen 1's own placeholder
    *  behaviour on an empty field is unchanged: leave blank for random). */
   lastWorldSeed: string;
-  /** Pre-fills Screen 1's terraforming-coverage slider (0-6) - how many
-   *  feasible worlds get selected for terraforming at all. */
+  /** Pre-fills Screen 1's terraforming-coverage slider (0-6) - of the worlds
+   *  within reach (see `defaultTerraformIntensity`), how much of that pool
+   *  actually gets terraformed, easiest worlds first. */
   defaultTerraformScale: number;
-  /** Pre-fills Screen 1's terraforming-intensity slider (0-6, 16 Aug 2026) -
-   *  how far a SELECTED world's terraforming has progressed. Paired with
+  /** Pre-fills Screen 1's terraforming-reach slider (0-6) - how difficult a
+   *  world can be and still be a candidate at all. Paired with
    *  `defaultTerraformScale`, never a replacement for it - see
-   *  `terraforming.ts`'s own header for why one dial could not carry both. */
+   *  `terraforming.ts`'s own header for why one dial could not carry both.
+   *  Redesigned 16 Aug 2026 after a direct user correction; the field keeps
+   *  its original name (Law 5) though its meaning changed. */
   defaultTerraformIntensity: number;
 }
 
@@ -179,7 +182,7 @@ class StarForgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Default terraforming coverage')
-      .setDesc(`${this.plugin.settings.defaultTerraformScale} / 6 - how many feasible worlds get selected for terraforming in newly created galaxies, by default.`)
+      .setDesc(`${this.plugin.settings.defaultTerraformScale} / 6 - of the worlds within reach (see below), how much of that pool gets terraformed by default, easiest worlds first.`)
       .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.plugin.settings.defaultTerraformScale).setDynamicTooltip()
         .onChange((v) => {
           this.plugin.settings = { ...this.plugin.settings, defaultTerraformScale: v };
@@ -188,8 +191,8 @@ class StarForgeSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName('Default terraforming intensity')
-      .setDesc(`${this.plugin.settings.defaultTerraformIntensity} / 6 - how far a SELECTED world's terraforming has progressed, by default (separate from coverage above).`)
+      .setName('Default terraforming reach')
+      .setDesc(`${this.plugin.settings.defaultTerraformIntensity} / 6 - how difficult a world can be and still be a candidate at all, by default (separate from coverage above).`)
       .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.plugin.settings.defaultTerraformIntensity).setDynamicTooltip()
         .onChange((v) => {
           this.plugin.settings = { ...this.plugin.settings, defaultTerraformIntensity: v };

@@ -70,7 +70,7 @@ export type { BeltComposition, BeltKind } from './belts';
 export type { MoonComposition, MoonSense, MoonOrigin } from './moons';
 export type { AtmosphereKind, CloudClass, PressureClass } from './atmosphere';
 export type { BiosphereLevel, SignatureVerdict, SignatureOrigin } from './biosphere';
-export type { TerraformType, Completeness } from './terraforming';
+export type { TerraformType } from './terraforming';
 export type { HabTier, SupportLevel } from './humanHabitability';
 export type { GalaxyModelName, Population, PopulationKey } from './galaxyModel';
 export type { SectorCentreCriteria } from './galacticDensity';
@@ -85,7 +85,7 @@ import type { BeltComposition, BeltKind } from './belts';
 import type { MoonComposition, MoonSense, MoonOrigin } from './moons';
 import type { AtmosphereKind, CloudClass, PressureClass } from './atmosphere';
 import type { BiosphereLevel, SignatureVerdict, SignatureOrigin } from './biosphere';
-import type { TerraformType, Completeness } from './terraforming';
+import type { TerraformType } from './terraforming';
 import type { HabTier, SupportLevel } from './humanHabitability';
 import type { GalaxyModelName, PopulationKey } from './galaxyModel';
 import type { SectorCentreCriteria } from './galacticDensity';
@@ -281,11 +281,15 @@ export interface Terraformability {
 
 export interface Terraforming {
   terraformability: Terraformability;
-  /** null = not terraformed. Procedurally placed, gated on feasibility.
-   *  Authored placements in frontmatter override and are never regenerated. */
+  /** null = not terraformed. Procedurally placed, gated on feasibility AND
+   *  the reach/coverage threshold (`terraforming.requiredScoreThreshold`,
+   *  16 Aug 2026 - deterministic, no dice roll: a world either clears the
+   *  threshold or it doesn't). Authored placements in frontmatter override
+   *  and are never regenerated. `completeness` REMOVED (16 Aug 2026) - a
+   *  terraformed world is simply, completely terraformed; there is no
+   *  partial-progress state left to describe. */
   terraformed: {
     types: TerraformType[];
-    completeness: Completeness;
     /** Soft link to the placing civilisation. UNSET on procedural placements -
      *  render as "agency unattributed", never as a blank field.
      *  `?` not `| null`: a dangling reference may genuinely be absent. */
@@ -340,14 +344,19 @@ export interface SystemContext {
   geometry: SystemGeometry;
   history: StellarHistory[];     // index-aligned to `stars`; per-star channels
   terraformScale: number;        // 0-6. An AUTHORING parameter shown at galaxy
-                                 //   creation; it shapes procedural prevalence
-                                 //   (COVERAGE - how many feasible candidates
-                                 //   get selected at all).
-  /** 0-6. A SECOND, independent authoring parameter (16 Aug 2026) - DEGREE,
-   *  not coverage: how far a SELECTED planet's terraforming has progressed
-   *  (`terraforming.ts`'s own header explains why one dial could not carry
-   *  both questions). Additive alongside `terraformScale`, never a
-   *  replacement for it (Law 5). */
+                                 //   creation - COVERAGE: of the worlds
+                                 //   within reach (see terraformIntensity),
+                                 //   how much of that pool actually gets
+                                 //   terraformed, filled easiest-first.
+  /** 0-6. A SECOND, independent authoring parameter - REACH, not coverage:
+   *  how difficult a world can be (by `terraforming.terraformabilityOf`'s
+   *  own ease score) and still be a candidate at all (`terraforming.ts`'s
+   *  own header explains why one dial could not carry both questions).
+   *  Redesigned 16 Aug 2026 - originally built as "how far a selected
+   *  world's terraforming has progressed", rejected by the user as not
+   *  matching a binary, either-has-or-hasn't fact; both dials now fold into
+   *  one deterministic score cutoff, no dice roll involved. Additive
+   *  alongside `terraformScale`, never a replacement for it (Law 5). */
   terraformIntensity: number;
 }
 
@@ -451,10 +460,10 @@ export interface SectorRecipe {
    *  revise their search criteria later without invalidating a single note. */
   centreCriteria?: SectorCentreCriteria;
   terraformScale: number;
-  /** Paired with `terraformScale` (16 Aug 2026) - see `SystemContext
-   *  .terraformIntensity`'s own doc comment. Same "provenance, not
-   *  generation input" treatment for hashing: it changes what a system's
-   *  terraforming LOOKS like, never whether that system exists or where. */
+  /** Paired with `terraformScale` - see `SystemContext.terraformIntensity`'s
+   *  own doc comment. Same "provenance, not generation input" treatment for
+   *  hashing: it changes what a system's terraforming LOOKS like, never
+   *  whether that system exists or where. */
   terraformIntensity: number;
 
   galaxyConfigHash: string;
@@ -470,8 +479,7 @@ export interface AuthoredOverlay {
   pinnedAtGenVersion: number | null;
   terraformed?: {
     formationIndex: number;               // keys on formationIndex, NOT array position
-    types: TerraformType[];
-    completeness: Completeness;
+    types: TerraformType[];               // completeness REMOVED 16 Aug 2026 - see terraforming.ts's own header
     agentRef?: string;
   }[];
 }
@@ -533,7 +541,11 @@ export const CHANNELS = {
   atmosphere: (formationIndex: number) => `atmosphere:${formationIndex}`,
   surfaceTemperature: (formationIndex: number) => `surfaceTemperature:${formationIndex}`,
   biosphere: (formationIndex: number) => `biosphere:${formationIndex}`,
-  terraforming: (formationIndex: number) => `terraforming:${formationIndex}`,
+  // terraforming REMOVED (16 Aug 2026) - evaluateTerraforming is fully
+  // deterministic now (a threshold comparison, no dice roll), so the module
+  // consumes no randomness and owns no channel; systemConductor.ts's own
+  // call site no longer derives a stream for it. See terraforming.ts's own
+  // header.
 } as const;
 
 /** Exhaustiveness guard. Every taxonomy switch in `render` ends with this. */

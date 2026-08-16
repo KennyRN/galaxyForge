@@ -62,6 +62,26 @@
  * "coordinate, do not trickle" posture bumps 2/3 already established).
  * `verification/golden/gen4.json` is the fixture cut against THIS version.
  *
+ * BUMP 5, 16 Aug 2026 (a direct user correction, same day as bump 4):
+ * bump 4's own "completeness roll biased by intensity" mechanism was built
+ * on a wrong reading of what the user wanted - they clarified `terraform
+ * Intensity` was never meant to describe "how far along a SELECTED world's
+ * terraforming has progressed" at all (a planet is either terraformed or it
+ * isn't, no partial-completion spectrum makes sense for a binary fact).
+ * Their actual model: `terraformIntensity` is REACH - how difficult a world
+ * can be and still be a candidate at all; `terraformScale` (COVERAGE) then
+ * fills that eligible range from the easiest world upward. `terraforming.ts`
+ * is rewritten near-total: `rollTerraforming` (RNG-consuming) is replaced by
+ * `evaluateTerraforming` (fully deterministic - a score-vs-threshold
+ * comparison, no dice roll at all), `completeness` is removed entirely (a
+ * terraformed world is simply, completely terraformed), and the module
+ * consumes no randomness any more - `CHANNELS.terraforming` is retired,
+ * `systemConductor.ts`'s own per-planet terraforming channel derivation is
+ * gone. Every ALREADY-PLACED terraformed planet's existence, `types` and
+ * realised atmosphere/temperature/pressure can all change relative to a
+ * gen-4 galaxy - not a refinement of bump 4's mechanism, a replacement of it.
+ * `verification/golden/gen5.json` is the fixture cut against THIS version.
+ *
  * NOT bumped again by anything built in this same pass.
  */
-export const CURRENT_GEN_VERSION = 4;
+export const CURRENT_GEN_VERSION = 5;
