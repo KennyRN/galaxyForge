@@ -30,9 +30,19 @@
  * same fix applied to `galaxyCreationModals.ts`'s real commit path - an
  * audit found both call sites were running the full conductor and
  * discarding its result before it ever reached a note.
+ *
+ * UPDATED 16 Aug 2026 (settings): a real settings tab and `data.json`
+ * persistence, closing this file's own former "no settings tab" gap.
+ * Deliberately small - the ONLY thing worth persisting across restarts
+ * that this GUI doesn't already ask for every time is the world seed
+ * (rerolling it by hand every session is real friction; every other
+ * screen-1 choice is cheap to reset) and the default terraforming
+ * prevalence. `StarForgeSettings` is intentionally NOT the place for
+ * anything Tier-G-pinned (`GalaxyParameters` already owns that, per-galaxy,
+ * once created) - this is plugin-wide UI convenience only.
  */
 
-import { Plugin, Notice, type TFile } from 'obsidian';
+import { Plugin, PluginSettingTab, Notice, Setting, type App, type TFile } from 'obsidian';
 import { createSpiralModel } from './galaxyModel';
 import { assembleSector } from './sectorFootprint';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
@@ -46,8 +56,27 @@ const TEST_CENTRE_PC = { x: 8178, y: 0, z: 0 };   // the Sun's own canonical pla
 const TEST_RADIUS_PC = 25;
 const TEST_THICKNESS_PC = 10;
 
+export interface StarForgeSettings {
+  /** The last world seed used to open the galaxy-creation flow - pre-fills
+   *  Screen 1's own seed field so re-opening the GUI does not silently
+   *  reset to a fresh random seed every time. Empty string means "no
+   *  seed used yet", not a literal seed value (Screen 1's own placeholder
+   *  behaviour on an empty field is unchanged: leave blank for random). */
+  lastWorldSeed: string;
+  /** Pre-fills Screen 1's terraforming-prevalence slider (0-6). */
+  defaultTerraformScale: number;
+}
+
+export const DEFAULT_SETTINGS: StarForgeSettings = {
+  lastWorldSeed: '', defaultTerraformScale: 3,
+};
+
 export default class StarForgePlugin extends Plugin {
+  settings: StarForgeSettings = DEFAULT_SETTINGS;
+
   async onload(): Promise<void> {
+    await this.loadSettings();
+
     this.addCommand({
       id: 'starforge-generate-test-region',
       name: 'StarForge: generate a small test region',
@@ -56,11 +85,27 @@ export default class StarForgePlugin extends Plugin {
     this.addCommand({
       id: 'starforge-create-galaxy',
       name: 'StarForge: create a galaxy',
-      callback: () => { new GalaxyScreen1Modal(this.app).open(); },
+      callback: () => { this.openGalaxyCreation(); },
     });
     this.addRibbonIcon('sparkles', 'StarForge: create a galaxy', () => {
-      new GalaxyScreen1Modal(this.app).open();
+      this.openGalaxyCreation();
     });
+    this.addSettingTab(new StarForgeSettingTab(this.app, this));
+  }
+
+  private openGalaxyCreation(): void {
+    new GalaxyScreen1Modal(this.app, this.settings, (updated) => {
+      this.settings = updated;
+      void this.saveSettings();
+    }).open();
+  }
+
+  async loadSettings(): Promise<void> {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings(): Promise<void> {
+    await this.saveData(this.settings);
   }
 
   private async generateTestRegion(): Promise<void> {
@@ -106,6 +151,35 @@ export default class StarForgePlugin extends Plugin {
   onunload(): void {
     // Nothing to tear down - this plugin holds no external resources, no
     // timers, no network connections (Gate S1's own guarantee extends here).
+  }
+}
+
+class StarForgeSettingTab extends PluginSettingTab {
+  constructor(app: App, private readonly plugin: StarForgePlugin) { super(app, plugin); }
+
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl('h2', { text: 'StarForge' });
+
+    new Setting(containerEl)
+      .setName('Last world seed')
+      .setDesc('Pre-fills the seed field when you open "Create a galaxy". Leave blank to always start from a random seed.')
+      .addText((t) => t.setValue(this.plugin.settings.lastWorldSeed).setPlaceholder('(random)')
+        .onChange((v) => {
+          this.plugin.settings = { ...this.plugin.settings, lastWorldSeed: v };
+          void this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('Default terraforming prevalence')
+      .setDesc(`${this.plugin.settings.defaultTerraformScale} / 6 - how common deliberate terraforming is in newly created galaxies, by default.`)
+      .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.plugin.settings.defaultTerraformScale).setDynamicTooltip()
+        .onChange((v) => {
+          this.plugin.settings = { ...this.plugin.settings, defaultTerraformScale: v };
+          void this.plugin.saveSettings();
+          this.display();   // refresh the description's own "X / 6" text
+        }));
   }
 }
 

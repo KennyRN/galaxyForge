@@ -8,6 +8,7 @@ import {
   resolveModelName, resolveBarEnabled, sizeStepsFor, sizeValueFor, sizeIsMass,
   thicknessPcFor, sysTypeToSearchCriterion, centrePcFromPolar, reconcileSizeFields,
   sizeInPcForTargetCount, targetCountForSizeInPc, defaultScreen2Draft, assembleSearchCriteria,
+  defaultScreen1Draft,
   type MorphologyChoice, type Screen2Draft,
 } from './galaxyCreationState';
 import { createSpiralModel } from './galaxyModel';
@@ -16,6 +17,22 @@ let failures = 0;
 function check(name: string, cond: boolean) {
   if (!cond) { failures++; console.error(`FAIL: ${name}`); } else { console.log(`ok - ${name}`); }
 }
+
+/* -- screen 1: default draft, with settings-persistence overrides (16 Aug 2026) -- */
+
+check('defaultScreen1Draft() with no overrides matches the original hardcoded defaults',
+  (() => {
+    const d = defaultScreen1Draft();
+    return d.morphology === 'spiral' && d.sizeStepIndex === 2 && d.worldSeed === '' &&
+      d.terraformScale === 3 && d.lenticularBulgeType === 'composite';
+  })());
+check('defaultScreen1Draft(overrides) applies ONLY the given overrides, leaving ' +
+  'every other field at its normal default - main.ts\'s own persisted-settings ' +
+  'seed can supply worldSeed alone without having to know every other field',
+  (() => {
+    const d = defaultScreen1Draft({ worldSeed: 'persisted-seed-123' });
+    return d.worldSeed === 'persisted-seed-123' && d.morphology === 'spiral' && d.terraformScale === 3;
+  })());
 
 /* -- screen 1: morphology resolution -------------------------------------------- */
 

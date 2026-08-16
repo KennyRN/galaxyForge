@@ -114,8 +114,13 @@ export interface Screen1Draft {
   readonly lenticularBulgeType: LenticularBulgeType;
 }
 
-export function defaultScreen1Draft(): Screen1Draft {
-  return { morphology: 'spiral', sizeStepIndex: 2, worldSeed: '', terraformScale: 3, lenticularBulgeType: 'composite' };
+/** `overrides` (16 Aug 2026) lets a caller seed the draft from persisted
+ *  settings (`main.ts`'s own `StarForgeSettings`) without this module
+ *  knowing anything about settings/plugin persistence exists - the
+ *  dependency runs one way, caller reads this module's own shape and
+ *  supplies a partial override, never the reverse. */
+export function defaultScreen1Draft(overrides: Partial<Screen1Draft> = {}): Screen1Draft {
+  return { morphology: 'spiral', sizeStepIndex: 2, worldSeed: '', terraformScale: 3, lenticularBulgeType: 'composite', ...overrides };
 }
 
 /* --------------------------------- screen 2 ------------------------------------ */

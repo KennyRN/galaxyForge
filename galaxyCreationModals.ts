@@ -53,6 +53,7 @@ import {
   reconcileSizeFields, assembleSearchCriteria, isWithinFootprint,
 } from './galaxyCreationState';
 import type { FootprintShape } from './sectorFootprint';
+import type { StarForgeSettings } from './main';
 
 const MORPHOLOGY_LABELS: Readonly<Record<MorphologyChoice, string>> = {
   lenticular: 'Lenticular', elliptical: 'Elliptical', barredSpiral: 'Barred', spiral: 'Spiral', milkyWayAnalogue: 'Milky Way Analogue',
@@ -216,10 +217,21 @@ function renderPositionOnlyCanvas(canvas: HTMLCanvasElement, centrePc: { x: numb
 /* --------------------------------- screen 1 -------------------------------------- */
 
 export class GalaxyScreen1Modal extends Modal {
-  private draft: Screen1Draft = defaultScreen1Draft();
+  private draft: Screen1Draft;
   private canvas!: HTMLCanvasElement;
 
-  constructor(app: App) { super(app); }
+  /**
+   * `settings`/`onSettingsChange` (16 Aug 2026) are a plain data + callback
+   * pair, not the whole `StarForgePlugin` instance - this modal only ever
+   * needs to READ two persisted values and report the ones it changed,
+   * never anything else a Plugin object carries (vault access, other
+   * commands, ...). Keeps this file's own dependency on `main.ts` to a
+   * single type-only import.
+   */
+  constructor(app: App, private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void) {
+    super(app);
+    this.draft = defaultScreen1Draft({ worldSeed: settings.lastWorldSeed, terraformScale: settings.defaultTerraformScale });
+  }
 
   onOpen(): void {
     this.titleEl.setText('Create a Galaxy - Morphology, Size, Seed');
@@ -271,8 +283,14 @@ export class GalaxyScreen1Modal extends Modal {
     nav.createEl('span');
     nav.createEl('button', { text: 'Next →', cls: 'mod-cta' }).onclick = () => {
       const seed = this.draft.worldSeed.trim().length > 0 ? this.draft.worldSeed : Math.random().toString(36).slice(2);
+      // Persist the RESOLVED seed, typed or randomly generated - "continue
+      // where you left off" is the useful default (re-opening the GUI
+      // pre-fills the seed that made your last galaxy, so you can find it
+      // again after an Obsidian restart), and "Randomise" is right there
+      // if a fresh one is wanted instead.
+      this.onSettingsChange({ ...this.settings, lastWorldSeed: seed, defaultTerraformScale: this.draft.terraformScale });
       this.close();
-      new GalaxyScreen2Modal(this.app, { ...this.draft, worldSeed: seed }).open();
+      new GalaxyScreen2Modal(this.app, { ...this.draft, worldSeed: seed }, this.settings, this.onSettingsChange).open();
     };
   }
 }
@@ -285,7 +303,13 @@ export class GalaxyScreen2Modal extends Modal {
   private topDownCanvas!: HTMLCanvasElement;
   private sideOnCanvas!: HTMLCanvasElement;
 
-  constructor(app: App, private readonly screen1: Screen1Draft) {
+  /** `settings`/`onSettingsChange` carried through purely so the "← Back"
+   *  button can reconstruct `GalaxyScreen1Modal` faithfully - this screen
+   *  never reads or changes them itself. */
+  constructor(
+    app: App, private readonly screen1: Screen1Draft,
+    private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void,
+  ) {
     super(app);
     this.model = modelFromDraft(screen1);
   }
@@ -356,10 +380,13 @@ export class GalaxyScreen2Modal extends Modal {
     }
 
     const nav = contentEl.createDiv();
-    nav.createEl('button', { text: '← Back' }).onclick = () => { this.close(); new GalaxyScreen1Modal(this.app).open(); };
+    nav.createEl('button', { text: '← Back' }).onclick = () => {
+      this.close();
+      new GalaxyScreen1Modal(this.app, this.settings, this.onSettingsChange).open();
+    };
     nav.createEl('button', { text: 'Next →', cls: 'mod-cta' }).onclick = () => {
       this.close();
-      new GalaxyScreen3Modal(this.app, this.screen1, this.draft, this.model).open();
+      new GalaxyScreen3Modal(this.app, this.screen1, this.draft, this.model, this.settings, this.onSettingsChange).open();
     };
   }
 
@@ -381,7 +408,12 @@ export class GalaxyScreen2Modal extends Modal {
 /* --------------------------------- screen 3 -------------------------------------- */
 
 export class GalaxyScreen3Modal extends Modal {
-  constructor(app: App, private readonly screen1: Screen1Draft, private readonly screen2: Screen2Draft, private readonly model: GalaxyModel) { super(app); }
+  /** `settings`/`onSettingsChange` carried through purely for the "← Back"
+   *  chain back to Screen 1 - this screen never reads or changes them. */
+  constructor(
+    app: App, private readonly screen1: Screen1Draft, private readonly screen2: Screen2Draft, private readonly model: GalaxyModel,
+    private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void,
+  ) { super(app); }
 
   onOpen(): void {
     this.titleEl.setText('Create a Galaxy - Preview');
@@ -402,7 +434,10 @@ export class GalaxyScreen3Modal extends Modal {
     renderPositionOnlyCanvas(canvas, centre, this.screen2.sizeInPc * 1.15, sector.map((s) => s.positionPc));
 
     const nav = contentEl.createDiv();
-    nav.createEl('button', { text: '← Back' }).onclick = () => { this.close(); new GalaxyScreen2Modal(this.app, this.screen1).open(); };
+    nav.createEl('button', { text: '← Back' }).onclick = () => {
+      this.close();
+      new GalaxyScreen2Modal(this.app, this.screen1, this.settings, this.onSettingsChange).open();
+    };
     nav.createEl('button', { text: 'Generate Sector', cls: 'mod-cta' }).onclick = () => { void this.commit(centre); };
   }
 
