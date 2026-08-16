@@ -1,0 +1,25 @@
+/* StarForge - plugin-wide styles, auto-loaded by Obsidian from this file
+ * next to main.js/manifest.json (standard community-plugin convention, no
+ * registration code needed). Kept to the one thing inline styles genuinely
+ * cannot do from `galaxyCreationModals.ts` - :hover state - everything else
+ * that file still sets directly via `style.cssText` at the point of use.
+ *
+ * 16 Aug 2026: the icon-only shape selector (Screen 2) was first built with
+ * an inline background highlight for the selected icon, which the user
+ * pointed out still reads as "a button". This is the fix - selection and
+ * hover are colour-only, on the icon's own currentColor stroke/fill, no
+ * background/border box at all.
+ */
+.sf-shape-icon {
+  color: var(--text-muted);
+  transition: color 100ms ease-in-out;
+}
+.sf-shape-icon:hover {
+  color: var(--text-normal);
+}
+.sf-shape-icon.is-selected {
+  color: var(--interactive-accent);
+}
+.sf-shape-icon.is-selected:hover {
+  color: var(--interactive-accent-hover);
+}

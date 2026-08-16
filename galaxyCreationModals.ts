@@ -184,10 +184,17 @@ function renderShapeAndDensityRow(
   row.style.cssText = 'display:flex;align-items:center;gap:10px;margin:8px 0 12px;';
   for (const shape of ['circle', 'square', 'hexagon'] as FootprintShape[]) {
     const isSelected = shape === selectedShape;
-    const icon = row.createDiv({ attr: { title: SHAPE_LABELS[shape], 'aria-label': SHAPE_LABELS[shape], role: 'button', tabindex: '0' } });
-    icon.style.cssText = 'flex:0 0 40px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;'
-      + `border-radius:6px;cursor:pointer;color:${isSelected ? 'var(--text-on-accent)' : 'var(--text-muted)'};`
-      + `background:${isSelected ? 'var(--interactive-accent)' : 'transparent'};`;
+    // `.sf-shape-icon`/`.is-selected` (styles.css) - a direct user follow-up
+    // to the FIRST version of this row, which highlighted the selected icon
+    // with a filled background box. That still read as "a button" - the
+    // ask was for the icon's own colour to change on hover/selection, no
+    // box at all - which needs a real stylesheet (`:hover` has no inline-
+    // style equivalent), not more `cssText`.
+    const icon = row.createDiv({
+      cls: isSelected ? 'sf-shape-icon is-selected' : 'sf-shape-icon',
+      attr: { title: SHAPE_LABELS[shape], 'aria-label': SHAPE_LABELS[shape], role: 'button', tabindex: '0' },
+    });
+    icon.style.cssText = 'flex:0 0 40px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
     icon.innerHTML = SHAPE_ICONS[shape];
     icon.onclick = () => onSelectShape(shape);
     icon.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSelectShape(shape); } };
@@ -586,6 +593,59 @@ function paintDensityField(
   }
 }
 
+/**
+ * Angle/radius positioning guides (16 Aug 2026, a user follow-up): a
+ * dashed line from the GALACTIC centre out to the map edge at the
+ * selected angle, plus a dashed ring at the selected distance-from-centre
+ * - drawn against the same `field`/`pcToPx` scale `paintDensityField`'s
+ * own sector-boundary overlay uses, but anchored to `field.centrePc` (the
+ * galaxy's own origin on the whole-galaxy overview - see `GALAXY_OVERVIEW
+ * _CENTRE_PC`) rather than the sector's - these two sliders choose WHERE
+ * the sector centre sits, so the guide has to read against the galaxy,
+ * not the sector marker `paintDensityField` already draws. A distinct
+ * dashed blue rather than the sector marker's solid amber, so the two
+ * never get confused for each other on the same canvas.
+ *
+ * Kept as its own pass, called after `paintDensityField` rather than
+ * folded into it - `paintDensityField` draws WHAT the field/overlay is;
+ * this draws a cursor-like reference for a control that hasn't been
+ * committed to anything yet, a different enough concern to earn its own
+ * function per this file's own "screens read/write state, nothing more"
+ * discipline.
+ */
+function drawPositionGuides(canvas: HTMLCanvasElement, field: DensityDisplayField, angleRad: number, distanceFromCentrePc: number): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const w = canvas.width, h = canvas.height;
+  const { centrePc, halfWidthPc } = field;
+  const pcToPx = w / (2 * halfWidthPc);
+  // World origin (0,0) in this field's own pixel space - NOT (w/2,h/2)
+  // unconditionally, in case `field.centrePc` is ever not the galaxy's own
+  // origin (it always is on Screen 2 today, but the formula should still
+  // hold if that ever changes, same as the complex-clump loop above).
+  const originPx = w / 2 - centrePc.x * pcToPx, originPy = h / 2 + centrePc.y * pcToPx;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(120,170,255,0.65)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+
+  ctx.beginPath();
+  ctx.arc(originPx, originPy, distanceFromCentrePc * pcToPx, 0, 2 * Math.PI);
+  ctx.stroke();
+
+  // Length just needs to reach past the canvas edge in every direction -
+  // the canvas itself clips anything drawn beyond its own bounds, so the
+  // exact intersection with the edge is not worth computing.
+  const beyondEdge = Math.hypot(w, h);
+  ctx.beginPath();
+  ctx.moveTo(originPx, originPy);
+  ctx.lineTo(originPx + Math.cos(angleRad) * beyondEdge, originPy - Math.sin(angleRad) * beyondEdge);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 /** Convenience wrapper for a one-shot render (no caching) - anywhere that
  *  computes and paints in one step. */
 function renderDensityCanvas(
@@ -948,6 +1008,7 @@ export class GalaxyScreen2Modal extends Modal {
     // the sector overlay at its ACTUAL world position every time the draft
     // changes - see `galaxyOverview`'s own doc comment.
     paintDensityField(this.topDownCanvas, this.galaxyOverview, { centrePc: centre, radiusPc: this.draft.sizeInPc, shape: this.draft.footprintShape });
+    drawPositionGuides(this.topDownCanvas, this.galaxyOverview, this.draft.angleRad, this.draft.distanceFromCentrePc);
 
     // height 80 -> 220 (16 Aug 2026, alongside EDGE_ON_HALF_HEIGHT_PC's own
     // widening) - a 12 000 pc total vertical range read at 80px was ~150 pc
@@ -983,22 +1044,31 @@ export class GalaxyScreen2Modal extends Modal {
     // touching the draft at all, so the browser's own native text-input
     // behaviour (which needs no help from us) carries every keystroke
     // while the user is still typing.
-    new Setting(contentEl).setName('Total systems')
-      .addText((t) => t.setValue(String(this.draft.totalSystems))
-        .onChange((v) => {
-          const n = Number(v);
-          if (!Number.isFinite(n) || n < 0) return;
-          if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
-          this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'totalSystems', totalSystems: Math.round(n) }), 400);
-        }));
-    new Setting(contentEl).setName('Size (pc)')
-      .addText((t) => t.setValue(this.draft.sizeInPc.toFixed(1))
-        .onChange((v) => {
-          const n = Number(v);
-          if (!Number.isFinite(n) || n <= 0) return;
-          if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
-          this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'sizeInPc', sizeInPc: n }), 400);
-        }));
+    // Same row (16 Aug 2026, a user follow-up) - two `Setting`s side by side
+    // rather than stacked, each stretched to half the row via its own
+    // `settingEl` (still real Obsidian `Setting`/`TextComponent` instances,
+    // so the input keeps the app's own text-field styling; only the outer
+    // layout is overridden).
+    const sizeRow = contentEl.createDiv();
+    sizeRow.style.cssText = 'display:flex;gap:16px;';
+    const totalSystemsSetting = new Setting(sizeRow).setName('Total systems');
+    totalSystemsSetting.settingEl.style.cssText = 'flex:1 1 0;border:none;padding-left:0;padding-right:0;';
+    totalSystemsSetting.addText((t) => t.setValue(String(this.draft.totalSystems))
+      .onChange((v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) return;
+        if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
+        this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'totalSystems', totalSystems: Math.round(n) }), 400);
+      }));
+    const sizeInPcSetting = new Setting(sizeRow).setName('Size (pc)');
+    sizeInPcSetting.settingEl.style.cssText = 'flex:1 1 0;border:none;padding-left:0;padding-right:0;';
+    sizeInPcSetting.addText((t) => t.setValue(this.draft.sizeInPc.toFixed(1))
+      .onChange((v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) return;
+        if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
+        this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'sizeInPc', sizeInPc: n }), 400);
+      }));
 
     new Setting(contentEl).setName('System at centre').setDesc('Search for a specific system to centre the sector on, instead of the point above')
       .addToggle((t) => t.setValue(this.draft.systemAtCentre).onChange((v) => this.setDraft({ systemAtCentre: v })));
