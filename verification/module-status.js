@@ -62,6 +62,7 @@ const CONCERNS = {
   sectorSearch:       ['interactive sector-centring search, S4.8 (15 Aug 2026)', []],
   sectorFootprint:    ['sector footprint shape clipping + generateSector/assembleSector (15-16 Aug 2026)', []],
   prugnielSimien:     ['free-Sersic-index spheroid profile, the lenticular classical bulge (16 Aug 2026)', []],
+  moduleTiers:        ['Tier G/S/D module classification registry, gate R7 (16 Aug 2026)', []],
 };
 
 function declaredChannels() {
