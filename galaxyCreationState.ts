@@ -169,12 +169,21 @@ export interface Screen2Draft {
   readonly sysType: SysTypeChoice;
 }
 
-export function defaultScreen2Draft(): Screen2Draft {
+/** `overrides` (16 Aug 2026, mirroring `defaultScreen1Draft`'s own pattern
+ *  exactly) lets a caller seed the draft from a persisted settings value
+ *  (`main.ts`'s own `StarForgeSettings.lastScreen2Draft`) without this
+ *  module knowing anything about settings/plugin persistence exists - the
+ *  dependency runs one way, caller reads this module's own shape and
+ *  supplies a partial override, never the reverse. Closes a direct user
+ *  report: "when leave and come back to the 2nd page... everything is
+ *  reset" - previously this function took no parameter at all. */
+export function defaultScreen2Draft(overrides: Partial<Screen2Draft> = {}): Screen2Draft {
   return {
     sysDensity: 'standard', footprintShape: 'circle',
     angleRad: 0, distanceFromCentrePc: 8178, distanceFromPlanePc: 0,
     sizeEditMode: 'sizeInPc', totalSystems: 0, sizeInPc: 25,
     systemAtCentre: false, multiplicity: 'any', sysType: 'nearest',
+    ...overrides,
   };
 }
 

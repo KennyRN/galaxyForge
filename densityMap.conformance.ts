@@ -1,9 +1,10 @@
 import {
-  sampleVolume, projectSlab, expectedSystemCount, normaliseForDisplay, emphasiseArmsForDisplay,
+  sampleVolume, projectSlab, expectedSystemCount, normaliseForDisplay, emphasiseArmsForDisplay, edgeOnDisplayField,
   SLAB_THICKNESSES_PC, isSlabThickness, Z_SAMPLES,
   type DensityField, type PointPc, type SlabRegionPc,
 } from './densityMap';
 import { CHANNELS } from './types';
+import type { GalaxyModel } from './galaxyModel';
 
 let failures = 0;
 function check(label: string, cond: boolean): void {
@@ -229,6 +230,64 @@ check('13 the interarm floor does NOT erase the arm-vs-interarm contrast gate 8 
   const onArmIdx = (NX / 2 + 20) + NX * (NY / 2);
   const offArmIdx = (NX / 2 - 20) + NX * (NY / 2);
   return out[onArmIdx]! > out[offArmIdx]! + 0.1;
+})());
+
+/* -- edgeOnDisplayField (16 Aug 2026) ---------------------------------------------- */
+
+// Two synthetic GalaxyModel fixtures - NOT the real spiral model (keeps this
+// file's own dependency footprint unchanged, same "build a minimal fixture
+// that isolates the property under test" style the rest of this file
+// already uses): one with NO theta-dependence at all (gate 16), one with a
+// deliberate, strong azimuthal modulation standing in for a real arm (gate
+// 17) - `1 + 0.4*cos(2*theta)` peaks at theta=0 and troughs at theta=pi/2,
+// the same "on-arm vs off-arm" shape a real spiral's arm factor produces.
+const axisymmetricModel: GalaxyModel = {
+  morphology: 'elliptical', populations: [],
+  densityAt: (R, _theta, z) => N0 * Math.exp(-R / 2500) * Math.exp(-Math.abs(z) / H),
+  densityByPopulation: () => ({}),
+};
+// The arm amplitude itself TAPERS with R (peaking near R=8000, matching how
+// a real arm's contrast varies with radius via `armInnerTaper`/the log
+// -spiral's own R-dependence) rather than a flat `cos(2*theta)` at every R -
+// a flat modulation is CONSTANT across the whole (R,z) grid at any one
+// fixed angle, which degenerately triggers `hasStructure === false` (zero
+// percentile spread, correctly - there is nothing to stretch) and would
+// make this fixture unable to exercise the real contrast-boost path at all.
+const spiralLikeModel: GalaxyModel = {
+  morphology: 'spiral', populations: [],
+  densityAt: (R, theta, z) => {
+    const base = N0 * Math.exp(-R / 2500) * Math.exp(-Math.abs(z) / H);
+    const armAmp = 0.4 * Math.max(0, 1 - Math.abs(R - 8000) / 6000);
+    return base * (1 + armAmp * Math.cos(2 * theta));
+  },
+  densityByPopulation: () => ({}),
+};
+const EDGE_ON_RES = { nR: 40, nz: 30 };
+
+check('14 edgeOnDisplayField always returns values in [0, 1]', (() => {
+  const out = edgeOnDisplayField(spiralLikeModel, 0, 20000, 6000, EDGE_ON_RES);
+  return out.every((v) => v >= 0 && v <= 1);
+})());
+
+check('15 edgeOnDisplayField is deterministic - bit-identical grid, no tolerance', (() => {
+  const a = edgeOnDisplayField(spiralLikeModel, 0.7, 20000, 6000, EDGE_ON_RES);
+  const b = edgeOnDisplayField(spiralLikeModel, 0.7, 20000, 6000, EDGE_ON_RES);
+  return a.every((v, i) => v === b[i]);
+})());
+
+check('16 on a model with NO theta-dependence at all, edgeOnDisplayField does not ' +
+  'manufacture azimuthal structure - identical output regardless of the selected angle', (() => {
+  const a = edgeOnDisplayField(axisymmetricModel, 0, 20000, 6000, EDGE_ON_RES);
+  const b = edgeOnDisplayField(axisymmetricModel, 2.3, 20000, 6000, EDGE_ON_RES);
+  return a.every((v, i) => Math.abs(v - b[i]!) < 1e-9);
+})());
+
+check('17 on a model WITH real theta-dependence, edgeOnDisplayField DOES vary with the ' +
+  'selected angle - the fix for "no idea what this side-on view is showing, no difference ' +
+  'left to right"', (() => {
+  const onArm = edgeOnDisplayField(spiralLikeModel, 0, 20000, 6000, EDGE_ON_RES);          // cos(0) peak
+  const offArm = edgeOnDisplayField(spiralLikeModel, Math.PI / 2, 20000, 6000, EDGE_ON_RES); // cos(pi) trough
+  return onArm.some((v, i) => Math.abs(v - offArm[i]!) > 0.05);
 })());
 
 if (failures > 0) throw new Error(`${failures} densityMap conformance failure(s)`);

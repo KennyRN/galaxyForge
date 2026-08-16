@@ -34,6 +34,22 @@ check('defaultScreen1Draft(overrides) applies ONLY the given overrides, leaving 
     return d.worldSeed === 'persisted-seed-123' && d.morphology === 'spiral' && d.terraformScale === 3 && d.terraformIntensity === 3;
   })());
 
+/* -- screen 2: default draft, with settings-persistence overrides (16 Aug 2026) -- */
+
+check('defaultScreen2Draft() with no overrides matches the original hardcoded defaults',
+  (() => {
+    const d = defaultScreen2Draft();
+    return d.sysDensity === 'standard' && d.footprintShape === 'circle' && d.angleRad === 0 &&
+      d.distanceFromCentrePc === 8178 && d.distanceFromPlanePc === 0 && d.sizeEditMode === 'sizeInPc' && d.sizeInPc === 25;
+  })());
+check('defaultScreen2Draft(overrides) applies ONLY the given overrides, leaving every ' +
+  'other field at its normal default - a direct user report ("everything is reset" ' +
+  'on leaving and returning to Screen 2) that this parameter (previously absent) fixes',
+  (() => {
+    const d = defaultScreen2Draft({ angleRad: 1.2, distanceFromCentrePc: 5000 });
+    return d.angleRad === 1.2 && d.distanceFromCentrePc === 5000 && d.sysDensity === 'standard' && d.footprintShape === 'circle';
+  })());
+
 /* -- screen 1: morphology resolution -------------------------------------------- */
 
 check('milkyWayAnalogue resolves to barredSpiral, never a fifth GalaxyModelName', resolveModelName('milkyWayAnalogue') === 'barredSpiral');

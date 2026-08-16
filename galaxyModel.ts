@@ -616,6 +616,66 @@ export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters 
 }
 
 /**
+ * Wires up `GalaxyParameters.scale` (16 Aug 2026, a bug this session's own
+ * investigation of the sol-neighbourhood marker found: the field existed,
+ * was always set to `1.0`, and was never read anywhere - "Galaxy size" had
+ * NO EFFECT on a spiral/barredSpiral/Milky-Way-Analogue galaxy at all,
+ * confirmed by a full-codebase search for `.scale` before writing this).
+ *
+ * WHY A COORDINATE WRAPPER, not touching `galaxyParameters.ts`'s stored
+ * constants or `discTerm`/`haloTerm`/`barFactor`'s own internals: every
+ * length-typed quantity those three functions read (`params.R0Pc` and the
+ * disc scale-length/height in `discTerm`; the halo's own R0-anchor,
+ * flattening-weighted radius and truncation in `haloTerm`; the bar's own
+ * `scalePc`/taper window in `barFactor`; `armInnerTaper`'s start radii; the
+ * arm log-spiral geometry itself) is used ONLY as a ratio against the query
+ * `R`/`z` - never mixed with an independently-scaled quantity. That makes
+ * the WHOLE model homogeneous of degree -1 under a uniform length rescale:
+ * building a second model with every one of those constants multiplied by
+ * `scale` and querying it at the real `(R, theta, z)` gives EXACTLY the
+ * same answer as querying THIS (unscaled) model at `(R/scale, theta,
+ * z/scale)` - verified by hand for the disc exponential (`exp(-(R-R0)/L)`
+ * is invariant under `R->R/s, R0->R0*s, L->L*s`, and dividing every one of
+ * R0/L/R by `s` uniformly reduces to exactly this), the halo's oblate
+ * power law INCLUDING its truncation and core-floor clamp (the truncation/
+ * floor thresholds become effectively `s` times larger in the query's own
+ * frame, which is the correct "the whole galaxy got bigger" behaviour), the
+ * bar's taper/strength envelope (`smootherstep` of a ratio, same argument),
+ * and the arm log-spiral (log-spirals are scale-invariant under a uniform
+ * radius rescale BY CONSTRUCTION - `spiralArms.ts` needs no changes at all).
+ *
+ * `scale === 1` is an EXACT fast path returning the identical model
+ * reference - every existing default-scale caller (every conformance gate,
+ * the golden master, `main.ts`'s own test command) is completely untouched.
+ *
+ * VALID ONLY FOR LOCALLY-ANCHORED MODELS (spiral/barredSpiral, anchored at
+ * `nLocal` near R0) - NOT for the elliptical/lenticular factories below,
+ * whose density is MASS-NORMALISED (integrates to a fixed total, not
+ * pinned to a local value). A mass-normalised profile rescaled this same
+ * way would need an extra `1/scale^3` volume correction to keep its total
+ * mass fixed, which this wrapper does not supply - calling it on anything
+ * but a spiral/barredSpiral model would silently misstate that model's own
+ * total mass. Elliptical/lenticular already have working size scaling via
+ * `galaxyMassSol` (`createEllipticalModel`/`createLenticularModel`'s own
+ * first parameter) and are untouched by this function's existence.
+ *
+ * `starFormingComplexes.ts`'s own absolute-pc constants (a star-forming
+ * complex is genuinely ~600 pc, Efremov 1978, regardless of how big the
+ * HOST galaxy is) are deliberately NOT reachable through this wrapper -
+ * only the density field complexes sample FROM goes through it, at
+ * whatever real sector position the caller already works in.
+ */
+export function scaleSpiralModel(model: GalaxyModel, scale: number): GalaxyModel {
+  if (scale === 1) return model;
+  return {
+    morphology: model.morphology,
+    populations: model.populations,
+    densityAt: (R, theta, z) => model.densityAt(R / scale, theta, z / scale),
+    densityByPopulation: (R, theta, z) => model.densityByPopulation(R / scale, theta, z / scale),
+  };
+}
+
+/**
  * S4.5. `upsilonFor` is INJECTED (Kroupa + msLifetimeGyr + meanStarsPerSystem
  * composed elsewhere, owned by `galacticDensity` - S4.3's own ruling) so this
  * module never depends on `galacticDensity`, keeping the import direction

@@ -82,6 +82,29 @@
  * gen-4 galaxy - not a refinement of bump 4's mechanism, a replacement of it.
  * `verification/golden/gen5.json` is the fixture cut against THIS version.
  *
+ * BUMP 6, 16 Aug 2026 (a found bug, fixed at the user's own request while
+ * investigating an unrelated GUI ask): `GalaxyParameters.scale` - what the
+ * GUI's "Galaxy size" slider is supposed to drive for Spiral/Barred/Milky
+ * Way Analogue - was set but NEVER READ anywhere in the density model,
+ * confirmed by a full-codebase search. Every one of those three morphology
+ * choices generated an IDENTICAL galaxy regardless of the chosen size step;
+ * only "Standard" (`scale === 1.0`) ever behaved as intended, by
+ * coincidence rather than by the size choice being honoured. Fixed by
+ * `galaxyModel.scaleSpiralModel` - a coordinate-transform wrapper, not a
+ * change to any stored constant (see that function's own header for the
+ * self-similarity proof) - now actually wired in from
+ * `galaxyCreationModals.modelFromDraft`, the GUI's own one real-generation
+ * entry point. `scale === 1.0` ("Standard") is an EXACT fast path
+ * (`scaleSpiralModel` returns the identical model reference), so every
+ * galaxy generated at the default size step - which is what every
+ * conformance gate, the golden master, and `main.ts`'s own test command
+ * all use - is untouched bit-for-bit; this bump matters ONLY for a
+ * previously-generated Spiral/Barred/Milky-Way-Analogue galaxy built at a
+ * non-"Standard" size step, which will now genuinely be bigger or smaller
+ * (different R0-anchored disc/halo/bar/arm geometry, hence a different
+ * placed system set) for the same worldSeed than it was before this fix.
+ * `verification/golden/gen6.json` is the fixture cut against THIS version.
+ *
  * NOT bumped again by anything built in this same pass.
  */
-export const CURRENT_GEN_VERSION = 5;
+export const CURRENT_GEN_VERSION = 6;

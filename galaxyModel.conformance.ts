@@ -1,5 +1,5 @@
 import {
-  createSpiralModel, createEllipticalModel, createLenticularModel,
+  createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel,
   R0_PC, hernquistK, ELLIPTICAL_POPULATIONS, LENTICULAR_POPULATIONS, JURIC,
   type Population, type DensityByPopulation, type GalaxyModel,
 } from './galaxyModel';
@@ -184,6 +184,65 @@ check('lenticular halo: INT rho dV over the whole (truncated, floored) volume ' 
   }
   return Math.abs(mass - expectedTotal) / expectedTotal < 0.1;
 })());
+
+// -- scaleSpiralModel (16 Aug 2026) -----------------------------------------------
+check('scaleSpiralModel: scale===1 is an EXACT fast path - returns the identical ' +
+  'model reference, not merely an equivalent one',
+  scaleSpiralModel(spiral, 1) === spiral && scaleSpiralModel(barred, 1) === barred);
+
+check('scaleSpiralModel: self-similarity identity - scaleSpiralModel(m,k).densityAt' +
+  '(k*R,theta,k*z) equals m.densityAt(R,theta,z) exactly, for the plain spiral ' +
+  '(disc+halo) across a spread of k/R/theta/z', (() => {
+  const ks = [0.5, 0.8, 1.5, 2.0];
+  return ks.every((k) => {
+    const scaled = scaleSpiralModel(spiral, k);
+    return PROBES.every(([R, t, z]) => scaled.densityAt(k * R, t, k * z) === spiral.densityAt(R, t, z));
+  });
+})());
+
+check('scaleSpiralModel: the SAME self-similarity identity holds with the bar ' +
+  'enabled too - bar geometry/taper is equally scale-invariant under the transform',
+  (() => {
+    const ks = [0.5, 0.8, 1.5, 2.0];
+    return ks.every((k) => {
+      const scaled = scaleSpiralModel(barred, k);
+      return PROBES.every(([R, t, z]) => scaled.densityAt(k * R, t, k * z) === barred.densityAt(R, t, z));
+    });
+  })());
+
+check('scaleSpiralModel: densityByPopulation obeys the identical self-similarity ' +
+  'identity, per population, not just the summed total',
+  (() => {
+    const k = 1.5;
+    const scaled = scaleSpiralModel(spiral, k);
+    return PROBES.every(([R, t, z]) => {
+      const a = scaled.densityByPopulation(k * R, t, k * z);
+      const b = spiral.densityByPopulation(R, t, z);
+      return spiral.populations.every((p) => a[p.key] === b[p.key]);
+    });
+  })());
+
+check('scaleSpiralModel: density stays finite and non-negative at edge cases - ' +
+  'R=0, a very small scale, and a very large scale',
+  (() => {
+    const cases: [GalaxyModel, number, number, number][] = [
+      [scaleSpiralModel(spiral, 0.1), 0, 0, 0],
+      [scaleSpiralModel(spiral, 0.1), 1e-9, 0, 0],
+      [scaleSpiralModel(spiral, 10), 8178, 1.2, 100],
+      [scaleSpiralModel(barred, 0.1), 0, 0, 0],
+    ];
+    return cases.every(([m, R, t, z]) => {
+      const d = m.densityAt(R, t, z);
+      return Number.isFinite(d) && d >= 0;
+    });
+  })());
+
+check('scaleSpiralModel: morphology/populations pass through unchanged (only the ' +
+  'coordinate transform on densityAt/densityByPopulation is new)',
+  (() => {
+    const scaled = scaleSpiralModel(spiral, 1.5);
+    return scaled.morphology === spiral.morphology && scaled.populations === spiral.populations;
+  })());
 
 if (failures > 0) throw new Error(`${failures} galaxyModel conformance failure(s)`);
 console.log('\nall galaxyModel conformance checks passed');

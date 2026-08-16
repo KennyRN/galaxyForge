@@ -605,6 +605,159 @@ export function emphasiseArmsForDisplay(
   return out;
 }
 
+/**
+ * Contrast-boost exponent for `edgeOnDisplayField`'s own deviation from its
+ * azimuthal baseline - same role as `ARM_DISPLAY_CONTRAST_GAMMA`, kept as a
+ * separate constant since the two views' own amplitude statistics differ
+ * (this one is a genuine per-cell azimuthal ratio computed from live
+ * `densityAt` samples, not a ring-binned deviation over a pre-sampled
+ * Cartesian grid) - tuned independently rather than assumed identical.
+ */
+const EDGE_ON_CONTRAST_GAMMA = 0.6;
+
+/**
+ * Minimum retained MODULATION for `edgeOnDisplayField` - same "never fully
+ * flatten a real contrast to nothing" spirit as `INTERARM_FLOOR`, but
+ * applied multiplicatively to the real (R,z) SHAPE brightness rather than
+ * as a floor on an already-detrended field (see that function's own header
+ * for why the two views combine their contrast signal differently).
+ */
+const EDGE_ON_MODULATION_FLOOR = 0.35;
+
+/**
+ * The side-on (R,z) field, radially swept along ONE fixed angle - the same
+ * "detrend the smooth falloff, gamma-boost the deviation, percentile
+ * -stretch" treatment `emphasiseArmsForDisplay` already gives the top-down
+ * view, adapted to a genuinely different sampling geometry (16 Aug 2026, a
+ * direct user follow-up: "I can't see where the extra density of stars
+ * where the arms are... side-on").
+ *
+ * ROOT CAUSE this closes: a fixed-angle radial slice's own density range
+ * from bulge-centre to outer edge spans roughly NINE ORDERS OF MAGNITUDE
+ * (measured directly off `model.densityAt` while diagnosing this report);
+ * an arm's local contrast is a few-tens-of-percent ripple riding on top of
+ * that. A single global `normaliseForDisplay(raw, {log:true})` compresses
+ * both into the same [0,1] range and the radial/vertical falloff wins
+ * completely - the same failure mode `emphasiseArmsForDisplay`'s own
+ * header already names for the top-down case, just with no equivalent fix
+ * applied here yet before now.
+ *
+ * UNLIKE `emphasiseArmsForDisplay`, this does NOT throw the R/z shape away
+ * - the previous turn's redesign made the side-on view finally show a real
+ * bulge/disc/halo silhouette (bright centre, thin-disc band, fading halo),
+ * and detrending that away entirely would trade "no arm contrast" for "no
+ * shape at all", re-breaking what was just fixed. Instead the real (log
+ * -normalised) baseline shape is the PRIMARY brightness, and the boosted,
+ * percentile-stretched azimuthal deviation is a MULTIPLICATIVE modulation
+ * on top of it (floored at `EDGE_ON_MODULATION_FLOOR`, not down to zero) -
+ * an arm crossing reads as brighter-than-baseline-shape, an interarm gap as
+ * dimmer, without erasing the overall falloff shape underneath.
+ *
+ * BASELINE, and why it needs its own sampling (Law 1 still honoured): there
+ * is no pre-existing multi-angle sample to bin into rings here - a
+ * fixed-angle slice only ever visits ONE theta - so the azimuthally
+ * -averaged "expected" density at each (R,z) is computed by calling
+ * `model.densityAt` at several OTHER theta values directly, the same
+ * public seam onto the model this whole file already treats as the only
+ * one it is allowed to touch (never reaching into `discTerm`/`armFactor`).
+ * Computed on a COARSER (R,z) sub-grid than the display grid and bilinear
+ * -interpolated up - `PREVIEW_COMPLEX_SUBGRID_N`'s own "coarsen the smooth
+ * part, keep the local part sharp" precedent (`galaxyCreationModals.ts`),
+ * justified here because the baseline is a deliberately smoothed quantity
+ * by construction, not something that needs display-resolution accuracy.
+ *
+ * On a model with NO theta-dependence at all (elliptical/lenticular, or any
+ * angle where every populated term ignores theta), `actual === baseline`
+ * identically at every cell, so the deviation span collapses to ~0 - rather
+ * than let that divide-by-near-zero stretch manufacture fake contrast, this
+ * is detected (`hasStructure`) and the modulation is left at exactly 1
+ * (full shape brightness, undimmed) everywhere, the same "does not invent
+ * structure that is not there" invariant `emphasiseArmsForDisplay`'s own
+ * gate 11 already pins for the top-down case.
+ *
+ * RESOLUTION, timed directly (this session's own diagnostic script,
+ * bundled, deleted after use): the real `model.densityAt` this calls is
+ * markedly more expensive than a plain exponential (arm/bar factors, not
+ * just disc/halo terms), and the baseline needs SEVERAL such calls per
+ * cell on top of the display grid's own. An initial 50x36x10-angle
+ * baseline cost ~50-90ms on its own, dominating the whole redraw; 24x16x6
+ * cuts that to ~13ms while remaining a smooth-enough proxy for a
+ * deliberately-smoothed quantity - `galaxyCreationModals.ts`'s own display
+ * grid (`renderEdgeOnCanvas`'s `res`) was trimmed alongside this for the
+ * same reason, both landing on a live-slider-drag-comfortable total.
+ */
+const EDGE_ON_BASELINE_RES = { nR: 24, nz: 16 } as const;
+const EDGE_ON_BASELINE_ANGLES = 6;
+
+export function edgeOnDisplayField(
+  model: GalaxyModel, angleRad: number, maxRadiusPc: number, halfHeightPc: number,
+  res: { readonly nR: number; readonly nz: number },
+): Float64Array {
+  const { nR, nz } = res;
+  const Rat = (iR: number, n: number): number => ((iR + 0.5) / n) * maxRadiusPc;
+  const Zat = (iz: number, n: number): number => -halfHeightPc + ((iz + 0.5) / n) * 2 * halfHeightPc;
+
+  // -- baseline: azimuthal mean, on a coarse (R,z) sub-grid --
+  const { nR: bnR, nz: bnz } = EDGE_ON_BASELINE_RES;
+  const baseCoarse = new Float64Array(bnR * bnz);
+  for (let biz = 0; biz < bnz; biz++) {
+    const z = Zat(biz, bnz);
+    for (let biR = 0; biR < bnR; biR++) {
+      const R = Rat(biR, bnR);
+      let sum = 0;
+      for (let k = 0; k < EDGE_ON_BASELINE_ANGLES; k++) sum += model.densityAt(R, (k / EDGE_ON_BASELINE_ANGLES) * 2 * Math.PI, z);
+      baseCoarse[biR + bnR * biz] = sum / EDGE_ON_BASELINE_ANGLES;
+    }
+  }
+  // Bilinear-interpolate the coarse baseline up to the display grid.
+  const baseline = new Float64Array(nR * nz);
+  for (let iz = 0; iz < nz; iz++) {
+    const bz = Math.min(bnz - 1, Math.max(0, ((iz + 0.5) / nz) * bnz - 0.5));
+    const bz0 = Math.floor(bz), bz1 = Math.min(bnz - 1, bz0 + 1), fz = bz - bz0;
+    for (let iR = 0; iR < nR; iR++) {
+      const bR = Math.min(bnR - 1, Math.max(0, ((iR + 0.5) / nR) * bnR - 0.5));
+      const bR0 = Math.floor(bR), bR1 = Math.min(bnR - 1, bR0 + 1), fR = bR - bR0;
+      const v00 = baseCoarse[bR0 + bnR * bz0]!, v10 = baseCoarse[bR1 + bnR * bz0]!;
+      const v01 = baseCoarse[bR0 + bnR * bz1]!, v11 = baseCoarse[bR1 + bnR * bz1]!;
+      const v0 = v00 * (1 - fR) + v10 * fR, v1 = v01 * (1 - fR) + v11 * fR;
+      baseline[iR + nR * iz] = v0 * (1 - fz) + v1 * fz;
+    }
+  }
+
+  // -- actual: the real field at the selected angle --
+  const actual = new Float64Array(nR * nz);
+  for (let iz = 0; iz < nz; iz++) {
+    const z = Zat(iz, nz);
+    for (let iR = 0; iR < nR; iR++) actual[iR + nR * iz] = model.densityAt(Rat(iR, nR), angleRad, z);
+  }
+
+  // -- shape: the real (log-normalised) R/z silhouette, from baseline --
+  const shape = normaliseForDisplay(baseline, { log: true });
+
+  // -- deviation from baseline, gamma-boosted --
+  const boosted = new Float64Array(nR * nz);
+  const lit: number[] = [];
+  for (let i = 0; i < boosted.length; i++) {
+    const ratio = baseline[i]! > 0 ? actual[i]! / baseline[i]! : 1;
+    const dev = ratio - 1;
+    boosted[i] = dev === 0 ? 0 : Math.sign(dev) * Math.pow(Math.abs(dev), EDGE_ON_CONTRAST_GAMMA);
+    if (shape[i]! > 0.05) lit.push(boosted[i]!);
+  }
+  lit.sort((a, b) => a - b);
+  const q = (p: number): number => (lit.length ? lit[Math.min(lit.length - 1, Math.floor(p * lit.length))]! : 0);
+  const LO = lit.length ? q(0.02) : 0;
+  const HI = lit.length ? q(0.98) : 0;
+  const span = HI - LO;
+  const hasStructure = span > 1e-9;
+
+  const out = new Float64Array(nR * nz);
+  for (let i = 0; i < out.length; i++) {
+    const modulation = hasStructure ? Math.min(1, Math.max(0, (boosted[i]! - LO) / span)) : 1;
+    out[i] = shape[i]! * (EDGE_ON_MODULATION_FLOOR + (1 - EDGE_ON_MODULATION_FLOOR) * modulation);
+  }
+  return out;
+}
+
 /* --------------------------------- gates ---------------------------------- */
 
 /**
@@ -652,5 +805,16 @@ export function emphasiseArmsForDisplay(
  *      for any cell the fade multiplier has not itself zeroed.
  *  13. The floor does not erase the on-arm/off-arm contrast gate 8 proved -
  *      an arm still reads meaningfully brighter than its own interarm gap.
+ *  14. edgeOnDisplayField (16 Aug 2026) always returns values in [0, 1].
+ *  15. edgeOnDisplayField is deterministic - same model/angle/extent/
+ *      resolution gives a BIT-identical grid, `===` on every element.
+ *  16. On a model with NO theta-dependence at all (every `densityAt(R,t,z)`
+ *      identical across `t`), edgeOnDisplayField's output is IDENTICAL to
+ *      calling it at a different `angleRad` - it does not manufacture
+ *      azimuthal structure that is not there.
+ *  17. On a model WITH real theta-dependence (a spiral with live arm
+ *      contrast), edgeOnDisplayField's output DOES vary with `angleRad` -
+ *      the property that fixes "no idea what this side-on view is
+ *      showing, no difference left to right" this function exists to close.
  */
-export const DENSITY_MAP_GATES = 13 as const;
+export const DENSITY_MAP_GATES = 17 as const;

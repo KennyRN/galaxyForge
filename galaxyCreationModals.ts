@@ -47,9 +47,9 @@
  */
 
 import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App } from 'obsidian';
-import { createSpiralModel, createEllipticalModel, createLenticularModel, type GalaxyModel } from './galaxyModel';
+import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, type GalaxyModel } from './galaxyModel';
 import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
-import { fieldFromModel, projectSlab, normaliseForDisplay, emphasiseArmsForDisplay, type SlabRegionPc } from './densityMap';
+import { fieldFromModel, projectSlab, normaliseForDisplay, emphasiseArmsForDisplay, edgeOnDisplayField, type SlabRegionPc } from './densityMap';
 import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
 import { generateSeededArms } from './spiralArms';
 import { complexParticipation, complexCellsOverlapping, complexCentresInCell, type ComplexCentre } from './starFormingComplexes';
@@ -217,27 +217,107 @@ const ANGLE_ICON = '<svg width="22" height="22" viewBox="0 0 16 16"><path fill="
 const DISTANCE_FROM_CENTRE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m16 13l3 3m0 0l-3 3m3-3H5m3-5L5 8m0 0l3-3M5 8h14"/></svg>';
 const DISTANCE_FROM_PLANE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m11 16l-3 3m0 0l-3-3m3 3V5m5 3l3-3m0 0l3 3m-3-3v14"/></svg>';
 
+const MINUS_ICON = '<svg width="12" height="12" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="3" d="M5 12h14"/></svg>';
+const PLUS_ICON = '<svg width="12" height="12" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="3" d="M12 5v14M5 12h14"/></svg>';
+
+/** Fixed width for every slider row's number box (16 Aug 2026, a direct
+ *  user ask: "all the text boxes the same size") - sized to comfortably
+ *  fit the widest value any slider in the app can show, R's `20000.00`. */
+const SLIDER_NUMBER_BOX_WIDTH_PX = 72;
+
+/** The left slot of a slider row - EITHER a 30px icon (Screen 2's angle/R/z,
+ *  "use the icon to replace ALL the text") OR a short text label (Screen
+ *  1's own three sliders, which never got the icon treatment and are not
+ *  gaining it now - only their control row is being unified). `title` is
+ *  the full accessible name/tooltip in both cases - the fuller "what does
+ *  this number mean" text (e.g. terraforming's own coverage/reach
+ *  explanation) that used to live in a permanent `Setting.setDesc()` now
+ *  lives here instead, on hover, not permanently on screen. */
+interface SliderRowLeft { readonly icon?: string; readonly label?: string; readonly title: string; }
+
 /**
- * Icon + slider, ONE row, no name/description text at all (16 Aug 2026, a
- * user follow-up: "use the icon to replace ALL the text"). Deliberately
- * NOT built on `Setting`'s own `.addSlider` - Obsidian's `.setting-item
- * -control` reserves a fixed max-width for a slider control that would
- * leave dead space on the right; rule 4 asks the slider to fill every
- * pixel between the 30px icon and the far edge, so this is a bare flex row
- * plus a raw `SliderComponent` (still real Obsidian slider behaviour -
- * dynamic tooltip, native drag - just laid out by hand) instead.
+ * ONE shared slider row, used by all six sliders app-wide (16 Aug 2026, a
+ * direct user follow-up on the icon-only Screen 2 sliders from two turns
+ * ago: "extra precision that is currently lacking"). Replaces both
+ * `renderIconSlider` (Screen 2's three) and the raw `Setting(...)
+ * .addSlider(...)` calls (Screen 1's three) - the ONLY way "all the text
+ * boxes the same size" is a meaningful statement is if more than one
+ * screen's sliders share this exact control.
+ *
+ * Layout: `[icon OR label] [native <input type=range>, flex:1] [number
+ * box, fixed width] [- pill] [+ pill]`. Three independent ways to reach
+ * the SAME underlying value:
+ *  - Dragging the slider moves in its own `step` - the existing coarse,
+ *    comfortable drag granularity, unchanged.
+ *  - The number box accepts free text to `decimals` places, committed on
+ *    blur/Enter (NOT on every keystroke - typing then triggering a full
+ *    draft update per character is exactly the bug just fixed for the
+ *    Total systems/Size (pc) fields two turns ago; committing only once
+ *    typing is done avoids reintroducing it).
+ *  - The pills nudge by exactly HALF of `step` (R's own step is 50pc, so
+ *    the pills move it +/-25pc; z's is 10 -> +/-5; angle/size/terraform's
+ *    is 1 -> +/-0.5) - a deliberately FINER adjustment than dragging.
+ *
+ * `markValue` (optional) draws a thin reference tick at that value's own
+ * position along the track, DOM-ordered before the native slider so it
+ * paints behind it - the sol-like-neighbourhood marker (`GalaxyScreen2Modal`
+ * 's own `solRadiusPc`) is the one caller that supplies it.
  */
-function renderIconSlider(
-  container: HTMLElement, icon: string, label: string,
-  min: number, max: number, step: number, value: number, onChange: (v: number) => void,
+function renderSliderRow(
+  container: HTMLElement, left: SliderRowLeft,
+  min: number, max: number, step: number, decimals: number, value: number, onChange: (v: number) => void,
+  markValue?: number,
 ): void {
   const row = container.createDiv();
   row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:8px 0;';
-  const iconEl = row.createDiv({ attr: { title: label, 'aria-label': label } });
-  iconEl.style.cssText = 'flex:0 0 30px;width:30px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);';
-  iconEl.innerHTML = icon;
-  const slider = new SliderComponent(row).setLimits(min, max, step).setValue(value).setDynamicTooltip().onChange(onChange);
-  slider.sliderEl.style.cssText = 'flex:1 1 auto;width:100%;';
+
+  if (left.icon !== undefined) {
+    const iconEl = row.createDiv({ attr: { title: left.title, 'aria-label': left.title } });
+    iconEl.style.cssText = 'flex:0 0 30px;width:30px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);';
+    iconEl.innerHTML = left.icon;
+  } else {
+    const labelEl = row.createDiv({ text: left.label ?? left.title, attr: { title: left.title } });
+    labelEl.style.cssText = 'flex:0 0 auto;min-width:150px;color:var(--text-normal);font-size:var(--font-ui-small);';
+  }
+
+  const sliderWrap = row.createDiv();
+  sliderWrap.style.cssText = 'position:relative;flex:1 1 auto;display:flex;align-items:center;';
+  if (markValue !== undefined && max > min) {
+    const pct = Math.min(1, Math.max(0, (markValue - min) / (max - min))) * 100;
+    const mark = sliderWrap.createDiv({ attr: { title: 'Roughly where a sol-like neighbourhood would sit' } });
+    mark.style.cssText = `position:absolute;left:${pct}%;top:1px;bottom:1px;width:2px;` +
+      'background:var(--text-faint);pointer-events:none;transform:translateX(-1px);z-index:0;';
+  }
+  const slider = new SliderComponent(sliderWrap).setLimits(min, max, step).setValue(value).setDynamicTooltip()
+    .onChange((v) => { numberInput.value = v.toFixed(decimals); onChange(v); });
+  slider.sliderEl.style.cssText = 'flex:1 1 auto;width:100%;position:relative;z-index:1;';
+
+  const numberInput = row.createEl('input', { attr: { type: 'text', inputmode: 'decimal' } });
+  numberInput.value = value.toFixed(decimals);
+  numberInput.style.cssText = `flex:0 0 ${SLIDER_NUMBER_BOX_WIDTH_PX}px;width:${SLIDER_NUMBER_BOX_WIDTH_PX}px;text-align:center;` +
+    'background:var(--background-modifier-form-field);border:1px solid var(--background-modifier-border);' +
+    'border-radius:4px;color:var(--text-normal);padding:2px 4px;font-variant-numeric:tabular-nums;';
+  const commit = (raw: string): void => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) { numberInput.value = slider.getValue().toFixed(decimals); return; }
+    const rounded = Number(Math.min(max, Math.max(min, n)).toFixed(decimals));
+    numberInput.value = rounded.toFixed(decimals);
+    slider.setValue(rounded);
+    onChange(rounded);
+  };
+  numberInput.addEventListener('blur', () => commit(numberInput.value));
+  numberInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); numberInput.blur(); } });
+
+  const nudge = step / 2;
+  const makePill = (glyph: string, title: string, delta: number): void => {
+    const btn = row.createEl('button', { attr: { title, 'aria-label': title } });
+    btn.style.cssText = 'flex:0 0 auto;width:22px;height:22px;border-radius:999px;padding:0;' +
+      'display:flex;align-items:center;justify-content:center;background:var(--interactive-normal);color:var(--text-normal);';
+    btn.innerHTML = glyph;
+    btn.onclick = () => commit(String(Math.min(max, Math.max(min, slider.getValue() + delta))));
+  };
+  makePill(MINUS_ICON, 'Decrease', -nudge);
+  makePill(PLUS_ICON, 'Increase', nudge);
 }
 
 const MORPHOLOGY_LABELS: Readonly<Record<MorphologyChoice, string>> = {
@@ -273,10 +353,20 @@ function modelFromDraft(d: Screen1Draft): DraftModel {
   const sizeValue = sizeValueFor(d.morphology, d.sizeStepIndex);
   if (name === 'spiral' || name === 'barredSpiral') {
     const isRealMilkyWay = d.morphology === 'milkyWayAnalogue';
-    const params = isRealMilkyWay
+    const baseParams = isRealMilkyWay
       ? makeDefaultGalaxyParameters(d.worldSeed)
       : makeDefaultGalaxyParameters(d.worldSeed, generateSeededArms(d.worldSeed), 'seeded');
-    return { model: createSpiralModel(resolveBarEnabled(d.morphology), params), params };
+    // scaleSpiralModel (16 Aug 2026, a found bug this session's own
+    // investigation surfaced: "Galaxy size" had NO EFFECT on this whole
+    // morphology family - `params.scale` was always 1.0 and never read
+    // anywhere) - see that function's own header for why a coordinate
+    // -transform wrapper is mathematically exact here, not an
+    // approximation. `params.scale` is stamped to the REAL chosen value
+    // for honest provenance, even though the wrapper - not `params.scale`
+    // being read internally - is what actually produces the effect.
+    const params: GalaxyParameters = { ...baseParams, scale: sizeValue };
+    const model = scaleSpiralModel(createSpiralModel(resolveBarEnabled(d.morphology), params), sizeValue);
+    return { model, params };
   }
   const params = makeDefaultGalaxyParameters(d.worldSeed);
   if (name === 'elliptical') return { model: createEllipticalModel(sizeValue, upsilonFor, params), params };
@@ -430,9 +520,26 @@ function boundaryPointsPc(radiusPc: number, shape: FootprintShape): { x: number;
  * never recomputed on a slider tick that does not change the model itself.
  */
 const GALAXY_OVERVIEW_CENTRE_PC = { x: 0, y: 0, z: 0 } as const;
-const GALAXY_OVERVIEW_HALF_WIDTH_PC = 20000;
-const GALAXY_OVERVIEW_THICKNESS_PC = 4000;
+/** BASE values, at `scale === 1` ("Standard") - see `previewScaleFor` below.
+ *  Renamed from the plain (un-suffixed) constants this session's own
+ *  `scaleSpiralModel` work introduced (16 Aug 2026): a "Grand" (scale=2.0)
+ *  galaxy's real structure now genuinely extends past a window sized only
+ *  for "Standard", and a "Small" one would look lost/zoomed-out inside it -
+ *  every preview window scales with the actual galaxy alongside the model
+ *  itself, or wiring `scale` would only be true of the DATA, not of what
+ *  the user can actually see. */
+const GALAXY_OVERVIEW_HALF_WIDTH_BASE_PC = 20000;
+const GALAXY_OVERVIEW_THICKNESS_BASE_PC = 4000;
 const GALAXY_OVERVIEW_RES = { nx: 200, ny: 200 };
+
+/** `params.scale` only means anything for the locally-anchored spiral
+ *  family (`scaleSpiralModel`'s own header explains why) - elliptical/
+ *  lenticular already scale via `galaxyMassSol` and keep the BASE preview
+ *  window unconditionally (`1`), same as every existing generated galaxy
+ *  at those two morphologies today. */
+function previewScaleFor(model: GalaxyModel, params: GalaxyParameters): number {
+  return model.morphology === 'spiral' || model.morphology === 'barredSpiral' ? params.scale : 1;
+}
 
 /**
  * The edge-on view's own vertical half-extent (16 Aug 2026, a direct user
@@ -451,8 +558,10 @@ const GALAXY_OVERVIEW_RES = { nx: 200, ny: 200 };
  * leaving the thin/thick disc resolvable as a distinct central band -
  * `renderEdgeOnCanvas`'s own `nz` resolution was raised alongside this so
  * that band does not collapse to 1-2 blurry cells at the new scale.
+ *
+ * BASE value at `scale === 1` - see `previewScaleFor`.
  */
-const EDGE_ON_HALF_HEIGHT_PC = 6000;
+const EDGE_ON_HALF_HEIGHT_BASE_PC = 6000;
 
 /** The reduced-and-display-scaled field a canvas is painted from, computed
  *  once and reusable across repaints (the overlay alone changes far more
@@ -684,8 +793,9 @@ function renderDensityCanvas(
 /** The top-down view's own square runs `[-halfWidth, +halfWidth]` on a
  *  side; a ray from its centre reaches a CORNER at `halfWidth * sqrt(2)`
  *  - "as far as the far corners of the square" (16 Aug 2026, a direct user
- *  spec for the side-on view's new radial reach) is exactly that. */
-const EDGE_ON_MAX_RADIUS_PC = GALAXY_OVERVIEW_HALF_WIDTH_PC * Math.SQRT2;
+ *  spec for the side-on view's new radial reach) is exactly that. BASE
+ *  value at `scale === 1` - see `previewScaleFor`. */
+const EDGE_ON_MAX_RADIUS_BASE_PC = GALAXY_OVERVIEW_HALF_WIDTH_BASE_PC * Math.SQRT2;
 
 /**
  * The side-on view - a MAJOR redesign (16 Aug 2026, three direct user
@@ -706,7 +816,8 @@ const EDGE_ON_MAX_RADIUS_PC = GALAXY_OVERVIEW_HALF_WIDTH_PC * Math.SQRT2;
  *      amber slab band at whatever pixel row that z actually maps to
  *      inside this fixed frame - "the bar moves, not the map".
  *  (2) The horizontal axis is RADIAL DISTANCE from the galactic centre
- *      (R=0 at the left edge) out to `EDGE_ON_MAX_RADIUS_PC` (right edge),
+ *      (R=0 at the left edge) out to `EDGE_ON_MAX_RADIUS_BASE_PC` (right
+ *      edge, scaled by the galaxy's own size - see `previewScaleFor`),
  *      swept along the SAME angle the top-down view's own angle slider
  *      selects - `angleRad` IS `model.densityAt`'s own `theta` parameter,
  *      so this calls it directly, one point at a time, rather than
@@ -733,16 +844,27 @@ function renderEdgeOnCanvas(
   ctx.fillStyle = '#05050a';
   ctx.fillRect(0, 0, w, h);
 
-  const res = { nR: 150, nz: 110 };
-  const raw = new Float64Array(res.nR * res.nz);
-  for (let iz = 0; iz < res.nz; iz++) {
-    const zPc = -halfHeightPc + ((iz + 0.5) / res.nz) * 2 * halfHeightPc;
-    for (let iR = 0; iR < res.nR; iR++) {
-      const R = ((iR + 0.5) / res.nR) * maxRadiusPc;
-      raw[iR + res.nR * iz] = model.densityAt(R, angleRad, zPc);
-    }
-  }
-  const norm = normaliseForDisplay(raw, { log: true });
+  // edgeOnDisplayField (16 Aug 2026, a direct user follow-up: "I can't see
+  // where the extra density of stars where the arms are... side-on") -
+  // NOT a bare normaliseForDisplay(raw, {log:true}) any more: that global
+  // log-normalise was completely dominated by the ~9-orders-of-magnitude
+  // bulge-to-outskirts range, which crushed an arm's own local contrast to
+  // invisible - see that function's own header for the full fix.
+  //
+  // nR/nz DOWN from 150/110 (16 Aug 2026, alongside that fix) - the real
+  // `model.densityAt` call this now makes per cell is markedly more
+  // expensive than the plain exponential the old `sampleVolume`-routed
+  // version evaluated (arm/bar factors, not just disc/halo terms), and
+  // `edgeOnDisplayField`'s own baseline needs SEVERAL such calls per cell
+  // on top of that. Timed directly (this session's own diagnostic script,
+  // bundled, deleted after use): 150x110 cost ~54ms/redraw even after
+  // trimming the baseline sub-grid itself down to a cheap 24x16x6-angle
+  // average; 100x80 lands at ~29ms, comfortable for a live slider-drag
+  // redraw (this fires on every `input` tick, not once per model change)
+  // while still resolving the thin disc (300pc scale height) across
+  // several cells against the 12 000pc total vertical range shown.
+  const res = { nR: 100, nz: 80 };
+  const norm = edgeOnDisplayField(model, angleRad, maxRadiusPc, halfHeightPc, res);
   const pcToPxR = w / maxRadiusPc, pcToPxZ = h / (2 * halfHeightPc);
   for (let iz = 0; iz < res.nz; iz++) {
     for (let iR = 0; iR < res.nR; iR++) {
@@ -840,7 +962,32 @@ export class GalaxyScreen1Modal extends Modal {
       worldSeed: settings.lastWorldSeed,
       terraformScale: settings.defaultTerraformScale,
       terraformIntensity: settings.defaultTerraformIntensity,
+      ...settings.lastScreen1Extras,
     });
+  }
+
+  /**
+   * Persistence checkpoint (16 Aug 2026, a direct user report: Screen 2's
+   * own draft resetting on every close, below, applies identically to the
+   * rest of THIS screen's draft - only `lastWorldSeed` and the two
+   * terraforming dials survived a re-open before this). `onClose` is a
+   * real `Modal` lifecycle hook fired on every dismissal path (Back - N/A
+   * here, Next, Escape, click-outside), not just forward progress, so this
+   * is the ONE place persistence needs to happen, replacing the old
+   * write-only-on-"Next →" below. Also clears a pending seed-preview
+   * timer, closing a latent "the timer fires after contentEl is gone" edge
+   * case while already touching this code.
+   */
+  onClose(): void {
+    if (this.seedRefreshTimer !== null) { window.clearTimeout(this.seedRefreshTimer); this.seedRefreshTimer = null; }
+    this.onSettingsChange({
+      ...this.settings, lastWorldSeed: this.draft.worldSeed,
+      defaultTerraformScale: this.draft.terraformScale, defaultTerraformIntensity: this.draft.terraformIntensity,
+      lastScreen1Extras: {
+        morphology: this.draft.morphology, sizeStepIndex: this.draft.sizeStepIndex, lenticularBulgeType: this.draft.lenticularBulgeType,
+      },
+    });
+    super.onClose();
   }
 
   /**
@@ -855,8 +1002,10 @@ export class GalaxyScreen1Modal extends Modal {
   private async computeAndCacheField(model: GalaxyModel, params: GalaxyParameters, key: string): Promise<DensityDisplayField> {
     this.busyOverlay = showBusyOverlay(this.contentEl, 'Rendering preview…');
     await nextPaint();
+    const previewScale = previewScaleFor(model, params);
     const field = computeDensityDisplayField(
-      model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_PC, GALAXY_OVERVIEW_THICKNESS_PC, GALAXY_OVERVIEW_RES,
+      model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_BASE_PC * previewScale,
+      GALAXY_OVERVIEW_THICKNESS_BASE_PC * previewScale, GALAXY_OVERVIEW_RES,
       { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
     );
     this.cachedField = field;
@@ -901,9 +1050,11 @@ export class GalaxyScreen1Modal extends Modal {
       btn.onclick = () => { this.draft = { ...this.draft, morphology: choice }; void this.render(); };
     }
 
-    new Setting(contentEl).setName('Galaxy size').setDesc(sizeStepsFor(this.draft.morphology)[this.draft.sizeStepIndex]!.label)
-      .addSlider((s) => s.setLimits(0, 4, 1).setValue(this.draft.sizeStepIndex).setDynamicTooltip()
-        .onChange((v) => { this.draft = { ...this.draft, sizeStepIndex: v }; void this.render(); }));
+    renderSliderRow(
+      contentEl, { label: 'Galaxy size', title: `Galaxy size - ${sizeStepsFor(this.draft.morphology)[this.draft.sizeStepIndex]!.label}` },
+      0, 4, 1, 0, this.draft.sizeStepIndex,
+      (v) => { this.draft = { ...this.draft, sizeStepIndex: Math.round(v) }; void this.render(); },
+    );
 
     new Setting(contentEl).setName('Seed')
       .addText((t) => t.setValue(this.draft.worldSeed).setPlaceholder('(random)')
@@ -945,12 +1096,16 @@ export class GalaxyScreen1Modal extends Modal {
     // than it used to - terraforming affects nothing about the density
     // field, so both just update the draft's own description text via a
     // full rebuild, which hits the CACHE (no spinner, no recompute).
-    new Setting(contentEl).setName('Terraforming coverage').setDesc(`${this.draft.terraformScale} / 6 - how much of what's within reach actually gets terraformed, easiest worlds first`)
-      .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.draft.terraformScale).setDynamicTooltip()
-        .onChange((v) => { this.draft = { ...this.draft, terraformScale: v }; void this.render(); }));
-    new Setting(contentEl).setName('Terraforming reach').setDesc(`${this.draft.terraformIntensity} / 6 - how difficult a world can be and still be attempted at all`)
-      .addSlider((s) => s.setLimits(0, 6, 1).setValue(this.draft.terraformIntensity).setDynamicTooltip()
-        .onChange((v) => { this.draft = { ...this.draft, terraformIntensity: v }; void this.render(); }));
+    renderSliderRow(
+      contentEl, { label: 'Terraforming coverage', title: 'Terraforming coverage - how much of what\'s within reach actually gets terraformed, easiest worlds first' },
+      0, 6, 1, 0, this.draft.terraformScale,
+      (v) => { this.draft = { ...this.draft, terraformScale: Math.round(v) }; void this.render(); },
+    );
+    renderSliderRow(
+      contentEl, { label: 'Terraforming reach', title: 'Terraforming reach - how difficult a world can be and still be attempted at all' },
+      0, 6, 1, 0, this.draft.terraformIntensity,
+      (v) => { this.draft = { ...this.draft, terraformIntensity: Math.round(v) }; void this.render(); },
+    );
 
     this.canvas = contentEl.createEl('canvas', { attr: { width: '360', height: '360' } });
     this.canvas.style.display = 'block';
@@ -961,15 +1116,14 @@ export class GalaxyScreen1Modal extends Modal {
     nav.createEl('span');
     nav.createEl('button', { text: 'Next →', cls: 'mod-cta' }).onclick = () => {
       const seed = this.draft.worldSeed.trim().length > 0 ? this.draft.worldSeed : Math.random().toString(36).slice(2);
-      // Persist the RESOLVED seed, typed or randomly generated - "continue
-      // where you left off" is the useful default (re-opening the GUI
-      // pre-fills the seed that made your last galaxy, so you can find it
-      // again after an Obsidian restart), and "Randomise" is right there
-      // if a fresh one is wanted instead.
-      this.onSettingsChange({
-        ...this.settings, lastWorldSeed: seed,
-        defaultTerraformScale: this.draft.terraformScale, defaultTerraformIntensity: this.draft.terraformIntensity,
-      });
+      // Resolve the RESOLVED seed, typed or randomly generated, onto the
+      // draft itself BEFORE closing - "continue where you left off" is the
+      // useful default (re-opening the GUI pre-fills the seed that made
+      // your last galaxy), and "Randomise" is right there if a fresh one
+      // is wanted instead. `onClose` (above) is what actually persists it
+      // now, reading `this.draft` at that point, so the draft needs to
+      // already carry the resolved value by the time `close()` triggers it.
+      this.draft = { ...this.draft, worldSeed: seed };
       this.close();
       new GalaxyScreen2Modal(this.app, { ...this.draft, worldSeed: seed }, this.settings, this.onSettingsChange).open();
     };
@@ -979,7 +1133,7 @@ export class GalaxyScreen1Modal extends Modal {
 /* --------------------------------- screen 2 -------------------------------------- */
 
 export class GalaxyScreen2Modal extends Modal {
-  private draft: Screen2Draft = defaultScreen2Draft();
+  private draft: Screen2Draft;
   private model: GalaxyModel;
   private topDownCanvas!: HTMLCanvasElement;
   private sideOnCanvas!: HTMLCanvasElement;
@@ -1003,19 +1157,51 @@ export class GalaxyScreen2Modal extends Modal {
    *  never reads or changes them itself. */
   private params: GalaxyParameters;
 
+  /** `previewScaleFor(this.model, this.params)`, computed once - `this.model`
+   *  never changes for this modal's whole lifetime, so neither does this. */
+  private previewScale!: number;
+
+  /** The sol-like neighbourhood's own R (16 Aug 2026, a direct user ask,
+   *  "adjusted per galaxy size as needed") - `params.R0Pc * previewScale`,
+   *  the model's own solar-neighbourhood anchor radius scaled the SAME way
+   *  `scaleSpiralModel` scales everything else, so this stays correct
+   *  automatically at every galaxy size. `null` for elliptical/lenticular -
+   *  a pressure-supported spheroid has no disc/plane, so no sol-like
+   *  neighbourhood concept applies there at all. */
+  private solRadiusPc: number | null = null;
+
   constructor(
     app: App, private readonly screen1: Screen1Draft,
     private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void,
   ) {
     super(app);
+    // Seeded from the persisted draft (16 Aug 2026, a direct user report:
+    // "when leave and come back to the 2nd page... everything is reset") -
+    // `defaultScreen2Draft`'s own `overrides` parameter, mirroring how
+    // `defaultScreen1Draft` already seeds Screen 1 from settings.
+    this.draft = defaultScreen2Draft(settings.lastScreen2Draft ?? {});
     const built = modelFromDraft(screen1);
     this.model = built.model;
     this.params = built.params;
+    this.previewScale = previewScaleFor(this.model, this.params);
+    if (this.model.morphology === 'spiral' || this.model.morphology === 'barredSpiral') {
+      this.solRadiusPc = this.params.R0Pc * this.previewScale;
+    }
   }
 
   onOpen(): void {
     this.titleEl.setText('Create a Galaxy - Sector Centre');
     void this.initAndRender();
+  }
+
+  /** Persistence checkpoint - see `GalaxyScreen1Modal.onClose`'s own doc
+   *  comment for why `onClose` (fires on every dismissal path) rather than
+   *  a specific button's own click handler. Screen 2 previously persisted
+   *  nothing at all. */
+  onClose(): void {
+    if (this.sizeFieldRefreshTimer !== null) { window.clearTimeout(this.sizeFieldRefreshTimer); this.sizeFieldRefreshTimer = null; }
+    this.onSettingsChange({ ...this.settings, lastScreen2Draft: this.draft });
+    super.onClose();
   }
 
   /**
@@ -1030,7 +1216,8 @@ export class GalaxyScreen2Modal extends Modal {
     const overlay = showBusyOverlay(this.contentEl, 'Rendering preview…');
     await nextPaint();
     this.galaxyOverview = computeDensityDisplayField(
-      this.model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_PC, GALAXY_OVERVIEW_THICKNESS_PC, GALAXY_OVERVIEW_RES,
+      this.model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_BASE_PC * this.previewScale,
+      GALAXY_OVERVIEW_THICKNESS_BASE_PC * this.previewScale, GALAXY_OVERVIEW_RES,
       { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },
     );
     hideBusyOverlay(overlay);
@@ -1058,8 +1245,8 @@ export class GalaxyScreen2Modal extends Modal {
     paintDensityField(this.topDownCanvas, this.galaxyOverview, { centrePc: centre, radiusPc: this.draft.sizeInPc, shape: this.draft.footprintShape });
     drawPositionGuides(this.topDownCanvas, this.galaxyOverview, this.draft.angleRad, this.draft.distanceFromCentrePc);
 
-    // height 80 -> 220 (16 Aug 2026, alongside EDGE_ON_HALF_HEIGHT_PC's own
-    // widening) - a 12 000 pc total vertical range read at 80px was ~150 pc
+    // height 80 -> 220 (16 Aug 2026, alongside EDGE_ON_HALF_HEIGHT_BASE_PC's
+    // own widening) - a 12 000 pc total vertical range read at 80px was ~150 pc
     // per pixel, too coarse to show the thin disc as anything but a hairline
     // even before the halo fix; 220px brings that down to a legible ~55 pc/px.
     this.sideOnCanvas = contentEl.createEl('canvas', { attr: { width: '400', height: '220' } });
@@ -1067,15 +1254,23 @@ export class GalaxyScreen2Modal extends Modal {
     this.sideOnCanvas.style.margin = '4px auto 12px';
     renderEdgeOnCanvas(
       this.sideOnCanvas, this.model, this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc,
-      EDGE_ON_MAX_RADIUS_PC, EDGE_ON_HALF_HEIGHT_PC, thickness,
+      EDGE_ON_MAX_RADIUS_BASE_PC * this.previewScale, EDGE_ON_HALF_HEIGHT_BASE_PC * this.previewScale, thickness,
     );
 
-    renderIconSlider(contentEl, ANGLE_ICON, `Angle (θ) - ${(this.draft.angleRad * 180 / Math.PI).toFixed(0)}°`,
-      0, 359, 1, Math.round(this.draft.angleRad * 180 / Math.PI), (v) => this.setDraft({ angleRad: (v * Math.PI) / 180 }));
-    renderIconSlider(contentEl, DISTANCE_FROM_CENTRE_ICON, `Distance from centre (R) - ${this.draft.distanceFromCentrePc.toFixed(0)} pc`,
-      0, 20000, 50, this.draft.distanceFromCentrePc, (v) => this.setDraft({ distanceFromCentrePc: v }));
-    renderIconSlider(contentEl, DISTANCE_FROM_PLANE_ICON, `Distance from galactic plane (z) - ${this.draft.distanceFromPlanePc.toFixed(0)} pc`,
-      -2000, 2000, 10, this.draft.distanceFromPlanePc, (v) => this.setDraft({ distanceFromPlanePc: v }));
+    renderSliderRow(
+      contentEl, { icon: ANGLE_ICON, title: `Angle (θ) - ${this.draft.angleRad * 180 / Math.PI}°` },
+      0, 359, 1, 2, this.draft.angleRad * 180 / Math.PI, (v) => this.setDraft({ angleRad: (v * Math.PI) / 180 }),
+    );
+    renderSliderRow(
+      contentEl, { icon: DISTANCE_FROM_CENTRE_ICON, title: `Distance from centre (R) - ${this.draft.distanceFromCentrePc} pc` },
+      0, 20000, 50, 2, this.draft.distanceFromCentrePc, (v) => this.setDraft({ distanceFromCentrePc: v }),
+      this.solRadiusPc ?? undefined,
+    );
+    renderSliderRow(
+      contentEl, { icon: DISTANCE_FROM_PLANE_ICON, title: `Distance from galactic plane (z) - ${this.draft.distanceFromPlanePc} pc` },
+      -2000, 2000, 10, 2, this.draft.distanceFromPlanePc, (v) => this.setDraft({ distanceFromPlanePc: v }),
+      this.solRadiusPc !== null ? 0 : undefined,
+    );
 
     renderShapeAndDensityRow(
       contentEl, this.draft.footprintShape, (shape) => this.setDraft({ footprintShape: shape }),

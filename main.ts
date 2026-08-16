@@ -50,6 +50,7 @@ import { CURRENT_GEN_VERSION } from './genVersion';
 import { writeSystemNote } from './vault';
 import type { RenderSystemInput } from './render';
 import { GalaxyScreen1Modal } from './galaxyCreationModals';
+import type { MorphologyChoice, LenticularBulgeType, Screen2Draft } from './galaxyCreationState';
 
 const TEST_WORLD_SEED = 'starforge-default-seed';
 const TEST_CENTRE_PC = { x: 8178, y: 0, z: 0 };   // the Sun's own canonical placement default
@@ -74,6 +75,16 @@ export interface StarForgeSettings {
    *  Redesigned 16 Aug 2026 after a direct user correction; the field keeps
    *  its original name (Law 5) though its meaning changed. */
   defaultTerraformIntensity: number;
+  /** Screen 1's own last-used morphology/size/bulge choice (16 Aug 2026,
+   *  a direct user report: Screen 2's own reset problem, below, applies
+   *  identically to the rest of Screen 1's draft - only `lastWorldSeed`
+   *  and the two terraforming dials survived a re-open before this).
+   *  Optional: absent until Screen 1 has actually been visited once. */
+  lastScreen1Extras?: { morphology: MorphologyChoice; sizeStepIndex: number; lenticularBulgeType: LenticularBulgeType };
+  /** Screen 2's own last-used draft, in full (16 Aug 2026, a direct user
+   *  report: "when leave and come back to the 2nd page... everything is
+   *  reset"). Optional: absent until Screen 2 has been visited once. */
+  lastScreen2Draft?: Screen2Draft;
 }
 
 export const DEFAULT_SETTINGS: StarForgeSettings = {
