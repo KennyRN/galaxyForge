@@ -43,6 +43,7 @@ import { fieldFromModel, projectSlab, sampleVolume, normaliseForDisplay, type Sl
 import { generateSector, assembleSector } from './sectorFootprint';
 import { searchNearestSystem } from './sectorSearch';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
+import { CURRENT_GEN_VERSION } from './genVersion';
 import { writeSystemNote } from './vault';
 import type { RenderSystemInput } from './render';
 import {
@@ -427,27 +428,20 @@ export class GalaxyScreen3Modal extends Modal {
       const populationMeta = this.model.populations.find((p) => p.key === s.population);
       if (!populationMeta) continue;
       const inputs: GenerateSystemInputs = {
-        sysid: s.sysid, genVersion: 2, worldSeed: this.screen1.worldSeed, positionPc: s.positionPc,
+        sysid: s.sysid, genVersion: CURRENT_GEN_VERSION, worldSeed: this.screen1.worldSeed, positionPc: s.positionPc,
         population: s.population, populationMeta, formationRank: s.formationRank, terraformScale: this.screen1.terraformScale,
         conatal: m.conatal,
       };
       // Full conductor runs here (screen 3's own preview deliberately never
-      // calls it) so every system is REALLY generated, not merely placed -
-      // but its result is not yet rendered into the note body. render.ts's
-      // own RenderSystemInput still only carries sysid/population/position
-      // (Stage 11's own honest scoping - see its header) - extending it to
-      // show the full SystemCore (stars, planets, habitability...) is real,
-      // separate follow-up work, not done here. The conductor call is NOT a
-      // no-op though: it is what makes "Generate Sector" a genuine
-      // full-pipeline commit rather than a placement-only one, exercising
-      // every science module for real, even though the note body doesn't
-      // display the result yet.
+      // calls it) so every system is REALLY generated, not merely placed.
+      // The result now REACHES the note (16 Aug 2026 - previously computed
+      // and thrown away, `void core;` - an audit found the science ran for
+      // real on every commit but the note body stayed thin regardless).
       const core = generateSystemCore(inputs);
-      void core;
       const d = { x: s.positionPc.x - centrePc.x, y: s.positionPc.y - centrePc.y, z: s.positionPc.z - centrePc.z };
       const input: RenderSystemInput = {
         sysid: s.sysid, name: null, population: s.population, positionPc: s.positionPc,
-        distanceFromSectorOriginPc: Math.hypot(d.x, d.y, d.z),
+        distanceFromSectorOriginPc: Math.hypot(d.x, d.y, d.z), core,
       };
       await writeSystemNote(this.app.vault, input, null);
       written++;

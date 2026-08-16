@@ -23,11 +23,20 @@
  * UPDATED 16 Aug 2026: added the ribbon icon (`sparkles`) alongside the
  * command palette entry - both open the same modal, so neither is more
  * "canonical" than the other.
+ *
+ * UPDATED 16 Aug 2026 (later the same day): this test command's own
+ * generated notes now carry full `SystemCore` detail too (stars, planets,
+ * habitability - `render.ts`'s new `RenderSystemInput.core` field), the
+ * same fix applied to `galaxyCreationModals.ts`'s real commit path - an
+ * audit found both call sites were running the full conductor and
+ * discarding its result before it ever reached a note.
  */
 
 import { Plugin, Notice, type TFile } from 'obsidian';
 import { createSpiralModel } from './galaxyModel';
 import { assembleSector } from './sectorFootprint';
+import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
+import { CURRENT_GEN_VERSION } from './genVersion';
 import { writeSystemNote } from './vault';
 import type { RenderSystemInput } from './render';
 import { GalaxyScreen1Modal } from './galaxyCreationModals';
@@ -65,10 +74,19 @@ export default class StarForgePlugin extends Plugin {
     let written = 0;
     for (const m of assembled.stellar) {
       const s = m.placed;
+      const populationMeta = model.populations.find((p) => p.key === s.population);
       const dx = s.positionPc.x - TEST_CENTRE_PC.x, dy = s.positionPc.y - TEST_CENTRE_PC.y, dz = s.positionPc.z - TEST_CENTRE_PC.z;
+      // Full conductor, same as the GUI's own commit path (16 Aug 2026) -
+      // this test command exercises the identical pipeline a real "Generate
+      // Sector" commit does, not a thinner stand-in.
+      const core = populationMeta ? generateSystemCore({
+        sysid: s.sysid, genVersion: CURRENT_GEN_VERSION, worldSeed: TEST_WORLD_SEED, positionPc: s.positionPc,
+        population: s.population, populationMeta, formationRank: s.formationRank, terraformScale: 3,
+        conatal: m.conatal,
+      } satisfies GenerateSystemInputs) : undefined;
       const input: RenderSystemInput = {
         sysid: s.sysid, name: null, population: s.population,
-        positionPc: s.positionPc, distanceFromSectorOriginPc: Math.hypot(dx, dy, dz),
+        positionPc: s.positionPc, distanceFromSectorOriginPc: Math.hypot(dx, dy, dz), core,
       };
       await writeSystemNote(this.app.vault, input, null);
       written++;

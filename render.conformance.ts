@@ -2,6 +2,8 @@ import {
   buildNoteContent, mergeWithExisting, trueDistance3dPc, GENERATED_START, GENERATED_END,
   type RenderSystemInput,
 } from './render';
+import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
+import { SPIRAL_POPULATIONS } from './galaxyModel';
 
 let failures = 0;
 function check(label: string, cond: boolean): void {
@@ -81,6 +83,39 @@ check('6 buildNoteContent and mergeWithExisting are deterministic for the same i
     const b = buildNoteContent(SYSTEM);
     return a === b;
   })());
+
+// 7. FULL SYSTEMCORE DETAIL (16 Aug 2026) - a real generated system, not a
+// hand-built fixture, so this exercises the actual field names/shapes
+// generateSystemCore produces, not a stale mock of them.
+const oldThinPop = SPIRAL_POPULATIONS.find((p) => p.key === 'oldThin')!;
+const coreInputs: GenerateSystemInputs = {
+  sysid: '817.0.0.3', genVersion: 3, worldSeed: 'render-gate-seed',
+  positionPc: { x: 8180, y: 5, z: -2 }, population: 'oldThin', populationMeta: oldThinPop,
+  formationRank: 0.42, terraformScale: 3,
+};
+const CORE = generateSystemCore(coreInputs);
+const SYSTEM_WITH_CORE: RenderSystemInput = { ...SYSTEM, core: CORE };
+
+check('7 a system WITH a core renders real detail - the primary star\'s own class ' +
+  'appears in the body, not just position/population',
+  buildNoteContent(SYSTEM_WITH_CORE).includes(CORE.stars[0]!.class));
+check('7b the full-detail body includes a "Planets" section',
+  buildNoteContent(SYSTEM_WITH_CORE).includes('## Planets'));
+check('7c a system WITHOUT a core still renders the thin, position-only summary ' +
+  '(no "## Stars"/"## Planets" heading) - backward compatible, e.g. remnants',
+  !buildNoteContent(SYSTEM).includes('## Stars') && !buildNoteContent(SYSTEM).includes('## Planets'));
+check('7d the fence mechanism (hand-edit survives regeneration) works IDENTICALLY ' +
+  'on the full-detail body, not just the thin one', (() => {
+  const first = buildNoteContent(SYSTEM_WITH_CORE);
+  const firstMerge = mergeWithExisting(SYSTEM_WITH_CORE, first, null);
+  const startIdx = firstMerge.content.indexOf(GENERATED_START);
+  const endIdx = firstMerge.content.indexOf(GENERATED_END);
+  const handEdited = firstMerge.content.slice(0, endIdx) + '\nHAND-EDITED LINE\n' + firstMerge.content.slice(endIdx);
+  const secondMerge = mergeWithExisting(SYSTEM_WITH_CORE, handEdited, firstMerge.sha);
+  return secondMerge.content === handEdited && secondMerge.edited === true;
+})());
+check('7e buildNoteContent(coreSystem) is deterministic, same as the thin path',
+  buildNoteContent(SYSTEM_WITH_CORE) === buildNoteContent(SYSTEM_WITH_CORE));
 
 // extra: a note with no fence at all is never touched
 check('+ a note with no recognisable fence is left completely unchanged, marked edited',

@@ -36,6 +36,7 @@
 
 import { xmur3 } from './rng';
 import { pcToLy } from './units';
+import type { SystemCore } from './types';
 
 export const GENERATED_START = '%% STARFORGE:GENERATED:START - do not edit below this line, your changes will be overwritten %%';
 export const GENERATED_END = '%% STARFORGE:GENERATED:END - your own notes go BELOW this line and are never touched %%';
@@ -55,11 +56,23 @@ export interface RenderSystemInput {
   readonly population: string;
   readonly positionPc: { readonly x: number; readonly y: number; readonly z: number };
   readonly distanceFromSectorOriginPc: number;
+  /**
+   * The FULL generated system (16 Aug 2026) - optional so every existing
+   * caller (remnants, which have no SystemCore yet - a separately-scoped
+   * remaining gap, see galaxyCreationModals.ts's own comment) keeps
+   * compiling unchanged. When present, `renderSystemBody` renders the
+   * real detail (stars, planets, moons, atmospheres, habitability) instead
+   * of the position-only summary. Closes a real gap an audit found:
+   * `generateSystemCore` was being called on every commit and its result
+   * thrown away (`void core;`) before this module ever saw it - the
+   * science ran for real, only the note stayed thin.
+   */
+  readonly core?: SystemCore;
 }
 
-/** The CANONICAL generated block's own content (no frontmatter, no fence
- *  markers - `buildNoteContent` wraps this). */
-export function renderSystemBody(system: RenderSystemInput): string {
+/** The thin, position-only summary - used when no `SystemCore` is
+ *  available (currently: every remnant note; previously: every note). */
+function renderThinSystemBody(system: RenderSystemInput): string {
   const lines: string[] = [];
   lines.push(`# ${system.name ?? system.sysid}`);
   lines.push('');
@@ -69,6 +82,84 @@ export function renderSystemBody(system: RenderSystemInput): string {
   lines.push(`- **Distance from sector origin**: ${system.distanceFromSectorOriginPc.toFixed(3)} pc ` +
     `(${pcToLy(system.distanceFromSectorOriginPc).toFixed(3)} ly)`);
   return lines.join('\n');
+}
+
+/**
+ * The FULL detail body - every star, every planet (with its moon count,
+ * atmosphere/surface/biosphere/terraforming/human-habitability verdict
+ * when present, `null` when the planet is a giant with no solid surface -
+ * `SystemCore`'s own "does not apply" convention, not an omission), the
+ * system's geometric habitable zone and galactic habitability score. Pure
+ * facts, no authored fiction - the canonical layer's own job (this
+ * module's header, "a canonical block this module owns and regenerates
+ * wholesale"). Ported 16 Aug 2026 from a sibling build's own
+ * `renderCanonicalDetail`, adapted to this project's own field names.
+ */
+function renderFullSystemBody(system: RenderSystemInput, core: SystemCore): string {
+  const lines: string[] = [];
+  lines.push(`# ${system.name ?? core.sysid}`);
+  lines.push('');
+  lines.push(`- **System ID**: \`${core.sysid}\``);
+  lines.push(`- **Population**: ${core.ctx.population}`);
+  lines.push(`- **Age**: ${core.ctx.age.toFixed(3)} Gyr`);
+  lines.push(`- **[Fe/H]**: ${core.ctx.feh.toFixed(3)} dex`);
+  if (core.ctx.conatalGroupId) lines.push(`- **Co-natal group**: \`${core.ctx.conatalGroupId}\``);
+  lines.push(`- **Position**: ${core.ctx.positionPc.x.toFixed(3)}, ${core.ctx.positionPc.y.toFixed(3)}, ${core.ctx.positionPc.z.toFixed(3)} pc`);
+  lines.push(`- **Distance from sector origin**: ${system.distanceFromSectorOriginPc.toFixed(3)} pc ` +
+    `(${pcToLy(system.distanceFromSectorOriginPc).toFixed(3)} ly)`);
+  lines.push('');
+
+  lines.push('## Stars');
+  for (const s of core.stars) {
+    lines.push(`- **${s.class}** - T=${s.tempK.toFixed(0)} K, L=${s.luminositySol.toFixed(4)} L☉, ` +
+      `M=${s.massSol.toFixed(3)} M☉, R=${s.radiusSol.toFixed(3)} R☉`);
+  }
+  const primaryActivity = core.ctx.history[0]?.activityClass;
+  if (primaryActivity === 'flare-active') {
+    lines.push('');
+    lines.push('_Primary activity: flare-active - frequent flares scour the inner system._');
+  }
+  lines.push('');
+
+  lines.push('## Planets');
+  if (core.planets.length === 0) lines.push('_None._');
+  for (const p of core.planets) {
+    const i = p.formationIndex;
+    const moonCount = core.moons[i]?.length ?? 0;
+    const hab = core.humanHabitability[i];
+    lines.push(`- **#${i} ${p.class}** (${p.kind}/${p.subclass}, zone ${p.zone}) - ` +
+      `${p.au.toFixed(3)} AU, ${p.massEarth.toFixed(3)} M⊕, ${p.radiusEarth.toFixed(3)} R⊕, moons=${moonCount}`);
+    const atm = core.atmospheres[i];
+    if (atm) lines.push(`  - Atmosphere: ${atm.kind}, ${atm.pressureClass}, ${atm.equilibriumTempK.toFixed(0)} K`);
+    const bio = core.biospheres[i];
+    if (bio) lines.push(`  - Biosphere: ${bio.level}`);
+    const terra = core.terraforming[i];
+    if (terra?.terraformed) lines.push(`  - Terraforming: ${terra.terraformed.types.join(', ')} (${terra.terraformed.completeness})`);
+    if (hab) lines.push(`  - Habitability: tier ${hab.tier} (${hab.support}), gravity ${hab.gravityG.toFixed(2)}g`);
+  }
+  lines.push('');
+
+  lines.push('## Habitable zone (geometric)');
+  lines.push(`inner ${core.habitableZoneAu.inner.toFixed(3)} AU, outer ${core.habitableZoneAu.outer.toFixed(3)} AU`);
+  lines.push(`galacticHabitabilityScore: ${core.galacticHabitabilityScore.toFixed(3)}`);
+
+  if (core.belts.length > 0) {
+    lines.push('');
+    lines.push('## Belts');
+    for (const b of core.belts) {
+      lines.push(`- ${b.kind} (${b.composition}), ${b.innerAu.toFixed(3)}-${b.outerAu.toFixed(3)} AU, ` +
+        `~${b.countAbove1km.toLocaleString()} bodies >1km`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/** The CANONICAL generated block's own content (no frontmatter, no fence
+ *  markers - `buildNoteContent` wraps this). Dispatches to the full detail
+ *  renderer when `system.core` is present, the thin summary otherwise. */
+export function renderSystemBody(system: RenderSystemInput): string {
+  return system.core ? renderFullSystemBody(system, system.core) : renderThinSystemBody(system);
 }
 
 /** A full new note, with the canonical block fenced. Used only for a note
@@ -148,5 +239,11 @@ export function mergeWithExisting(
  *  5. A brand-new note (no existing content) always produces a syntactically
  *     well-formed fence (exactly one START, one END, START before END).
  *  6. Determinism - `shaOf` is a pure function of its content.
+ *  7. FULL SYSTEMCORE DETAIL (16 Aug 2026) - when `RenderSystemInput.core`
+ *     is present, the rendered body contains real per-star/per-planet
+ *     detail (not just position/population), and the SAME fence mechanism
+ *     (gates 1-3) works identically on it. When `core` is absent, the
+ *     thin summary renders exactly as before - this is additive, not a
+ *     replacement.
  */
-export const RENDER_GATES = 6 as const;
+export const RENDER_GATES = 7 as const;
