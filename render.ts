@@ -162,6 +162,29 @@ export function renderSystemBody(system: RenderSystemInput): string {
   return system.core ? renderFullSystemBody(system, system.core) : renderThinSystemBody(system);
 }
 
+/**
+ * The AUTHORED note's own starting content (16 Aug 2026, the two-layer
+ * vault split - see `vault.ts`'s own header) - a linking stub, not a copy
+ * of the canonical detail (that would just be a second thing to keep in
+ * sync). `[[sysid]]` is a real Obsidian wikilink back to the canonical
+ * note, so the two are one click apart either direction. `vault.ts` calls
+ * this ONCE, the first time a system is generated, and never again -
+ * everything after that first write is the user's own words.
+ */
+export function buildAuthoredStub(sysid: string, name: string | null): string {
+  const title = name ?? sysid;
+  return [
+    `# ${title}`,
+    '',
+    `Canonical data: [[${sysid}]]`,
+    '',
+    '_Your own notes about this system go here. This file is created once and',
+    'never touched again by StarForge - regenerating the sector will never',
+    'overwrite anything you write below this line._',
+    '',
+  ].join('\n');
+}
+
 /** A full new note, with the canonical block fenced. Used only for a note
  *  that does not exist yet - an EXISTING note goes through
  *  `mergeWithExisting` instead, which preserves everything outside the
@@ -245,5 +268,10 @@ export function mergeWithExisting(
  *     (gates 1-3) works identically on it. When `core` is absent, the
  *     thin summary renders exactly as before - this is additive, not a
  *     replacement.
+ *  8. buildAuthoredStub (16 Aug 2026) always contains a wikilink back to
+ *     its own sysid, and its content is a pure function of (sysid, name) -
+ *     the same input always produces the same stub, so `vault.ts`'s own
+ *     "create once, never touch again" promise is checking a stable
+ *     target, not a moving one.
  */
-export const RENDER_GATES = 7 as const;
+export const RENDER_GATES = 8 as const;

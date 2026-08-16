@@ -1,5 +1,5 @@
 import {
-  buildNoteContent, mergeWithExisting, trueDistance3dPc, GENERATED_START, GENERATED_END,
+  buildNoteContent, mergeWithExisting, trueDistance3dPc, buildAuthoredStub, GENERATED_START, GENERATED_END,
   type RenderSystemInput,
 } from './render';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
@@ -116,6 +116,16 @@ check('7d the fence mechanism (hand-edit survives regeneration) works IDENTICALL
 })());
 check('7e buildNoteContent(coreSystem) is deterministic, same as the thin path',
   buildNoteContent(SYSTEM_WITH_CORE) === buildNoteContent(SYSTEM_WITH_CORE));
+
+// 8. buildAuthoredStub (16 Aug 2026, the two-layer vault split)
+check('8 buildAuthoredStub always contains a wikilink back to its own sysid',
+  buildAuthoredStub('817.0.0.3', null).includes('[[817.0.0.3]]'));
+check('8b buildAuthoredStub uses the display name as its heading when given one',
+  buildAuthoredStub('817.0.0.3', 'Kepler\'s Landing').startsWith('# Kepler\'s Landing'));
+check('8c buildAuthoredStub falls back to the sysid as its heading when name is null',
+  buildAuthoredStub('817.0.0.3', null).startsWith('# 817.0.0.3'));
+check('8d buildAuthoredStub is a pure function of its inputs - deterministic',
+  buildAuthoredStub('817.0.0.3', null) === buildAuthoredStub('817.0.0.3', null));
 
 // extra: a note with no fence at all is never touched
 check('+ a note with no recognisable fence is left completely unchanged, marked edited',
