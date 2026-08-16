@@ -271,6 +271,28 @@ export function msLifetimeGyr(massSol: number, feh: number): number {
   return (TAU_SUN_GYR * massSol) / l;
 }
 
+/**
+ * Inverse of `msLifetimeGyr` in mass: the mass whose main-sequence lifetime
+ * exactly equals `ageGyr` - i.e. the mass just now leaving the main
+ * sequence for a population of this age. `derived` - bisection against
+ * `msLifetimeGyr` itself rather than a separately-fitted formula, so this
+ * can never numerically disagree with the lifetime relation it inverts
+ * (gate 1's own monotonicity guarantee is exactly what makes the bisection
+ * safe). Added 16 Aug 2026 to thread a physically real progenitor lower
+ * bound into `remnants.ts`'s white-dwarf chain.
+ */
+export function turnoffMassSol(ageGyr: number, feh: number): number {
+  if (!(ageGyr > 0)) throw new Error(`turnoffMassSol: ageGyr must be > 0, got ${ageGyr}`);
+  let lo = 0.08, hi = 100;
+  // msLifetimeGyr is monotonically DECREASING in mass, so a shorter target
+  // age moves the root toward hi.
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (msLifetimeGyr(mid, feh) > ageGyr) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 /* --------------------------------- gates ------------------------------------ */
 
 /**

@@ -228,7 +228,7 @@ export function kindOfClass(c: PlanetClass): 'rocky' | 'giant' {
   return ROCKY_CLASSES.has(c) ? 'rocky' : 'giant';
 }
 
-function subclassOf(c: PlanetClass, au: number, snowline: number, migrated: boolean): PlanetSubclass {
+export function subclassOf(c: PlanetClass, au: number, snowline: number, migrated: boolean): PlanetSubclass {
   const icy = au > snowline;
   switch (c) {
     case 'rocky-small': return 'iron';

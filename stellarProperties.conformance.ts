@@ -1,6 +1,6 @@
 import {
   STELLAR_CLASSES, teffK, colourBV, radiusSol, representativeMass,
-  luminositySol, absMagV, SUN_ABS_MAG_V, msLifetimeGyr,
+  luminositySol, absMagV, SUN_ABS_MAG_V, msLifetimeGyr, turnoffMassSol,
   type StellarClass,
 } from './stellarProperties';
 
@@ -71,6 +71,23 @@ check('6b extrapolated low-mass lifetime still exceeds the in-table minimum ' +
 check('7 representativeMass spot check against the retrieved table',
   representativeMass('G2V') === 1.00 && representativeMass('M0V') === 0.57 &&
   representativeMass('O5V') === 43);
+
+// -- turnoffMassSol is msLifetimeGyr's own genuine inverse in mass -----------
+check('8 turnoffMassSol(msLifetimeGyr(m, feh), feh) round-trips m to 1e-3 relative, ' +
+  'across a spread of masses and metallicities',
+  (() => {
+    const cases: [number, number][] = [[0.3, 0.0], [0.8, -0.5], [1.0, 0.0], [2.0, 0.15], [5.0, -1.0]];
+    return cases.every(([m, feh]) => {
+      const age = msLifetimeGyr(m, feh);
+      const back = turnoffMassSol(age, feh);
+      return Math.abs(back - m) / m < 1e-3;
+    });
+  })());
+check('8b turnoffMassSol is monotonically DECREASING in age - an older ' +
+  'population\'s turnoff mass is always lower',
+  turnoffMassSol(1, 0) > turnoffMassSol(5, 0) && turnoffMassSol(5, 0) > turnoffMassSol(10, 0));
+check('8c rejects a non-positive age rather than returning a bogus mass',
+  (() => { try { turnoffMassSol(0, 0); return false; } catch { return true; } })());
 
 if (failures > 0) throw new Error(`${failures} stellarProperties conformance failure(s)`);
 console.log('\nall stellarProperties conformance checks passed');

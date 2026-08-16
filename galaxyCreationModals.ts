@@ -40,7 +40,7 @@ import { Modal, Setting, Notice, type App } from 'obsidian';
 import { createSpiralModel, createEllipticalModel, createLenticularModel, type GalaxyModel } from './galaxyModel';
 import { upsilonFor } from './galacticDensity';
 import { fieldFromModel, projectSlab, sampleVolume, normaliseForDisplay, type SlabRegionPc, type VolumeRegionPc } from './densityMap';
-import { generateSector } from './sectorFootprint';
+import { generateSector, assembleSector } from './sectorFootprint';
 import { searchNearestSystem } from './sectorSearch';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
 import { writeSystemNote } from './vault';
@@ -402,30 +402,46 @@ export class GalaxyScreen3Modal extends Modal {
 
     const nav = contentEl.createDiv();
     nav.createEl('button', { text: '← Back' }).onclick = () => { this.close(); new GalaxyScreen2Modal(this.app, this.screen1).open(); };
-    nav.createEl('button', { text: 'Generate Sector', cls: 'mod-cta' }).onclick = () => { void this.commit(sector, centre); };
+    nav.createEl('button', { text: 'Generate Sector', cls: 'mod-cta' }).onclick = () => { void this.commit(centre); };
   }
 
-  private async commit(sector: ReturnType<typeof generateSector>, centrePc: { x: number; y: number; z: number }): Promise<void> {
-    new Notice(`Generating ${sector.length} systems - this may take a moment...`);
+  /**
+   * `sectorFootprint.assembleSector` (16 Aug 2026) is called ONLY here, not
+   * from the cheap position-only preview above - it composes the stellar,
+   * remnant AND co-natal-chemistry layers together, which costs real
+   * computation the preview does not need to pay. This is the fix for a
+   * real gap an audit found: `remnants.ts`/`conatal.ts` were both fully
+   * built and gated but never called from anything that produced an actual
+   * sector, so every sector this GUI generated had zero remnants and no
+   * shared birth chemistry despite both being finished science.
+   */
+  private async commit(centrePc: { x: number; y: number; z: number }): Promise<void> {
+    const thickness = thicknessPcFor(this.screen2.sysDensity);
+    const assembled = assembleSector(this.screen1.worldSeed, this.model, centrePc, this.screen2.sizeInPc, thickness, this.screen2.footprintShape);
+    const total = assembled.stellar.length + assembled.remnants.length;
+    new Notice(`Generating ${total} systems (${assembled.remnants.length} remnants) - this may take a moment...`);
     let written = 0;
-    for (const s of sector) {
+
+    for (const m of assembled.stellar) {
+      const s = m.placed;
       const populationMeta = this.model.populations.find((p) => p.key === s.population);
       if (!populationMeta) continue;
       const inputs: GenerateSystemInputs = {
         sysid: s.sysid, genVersion: 2, worldSeed: this.screen1.worldSeed, positionPc: s.positionPc,
         population: s.population, populationMeta, formationRank: s.formationRank, terraformScale: this.screen1.terraformScale,
+        conatal: m.conatal,
       };
-      // Full conductor runs here (screen 3 deliberately never calls it -
-      // position-only preview) so every system is REALLY generated, not
-      // merely placed - but its result is not yet rendered into the note.
-      // render.ts's own RenderSystemInput still only carries
-      // sysid/population/position (Stage 11's own honest scoping - see
-      // its header) - extending it to show the full SystemCore (stars,
-      // planets, habitability...) is real, separate follow-up work, not
-      // done here. The conductor call is NOT a no-op though: it is what
-      // makes "Generate Sector" a genuine full-pipeline commit rather than
-      // a placement-only one, exercising every science module for real,
-      // even though the note body doesn't display the result yet.
+      // Full conductor runs here (screen 3's own preview deliberately never
+      // calls it) so every system is REALLY generated, not merely placed -
+      // but its result is not yet rendered into the note body. render.ts's
+      // own RenderSystemInput still only carries sysid/population/position
+      // (Stage 11's own honest scoping - see its header) - extending it to
+      // show the full SystemCore (stars, planets, habitability...) is real,
+      // separate follow-up work, not done here. The conductor call is NOT a
+      // no-op though: it is what makes "Generate Sector" a genuine
+      // full-pipeline commit rather than a placement-only one, exercising
+      // every science module for real, even though the note body doesn't
+      // display the result yet.
       const core = generateSystemCore(inputs);
       void core;
       const d = { x: s.positionPc.x - centrePc.x, y: s.positionPc.y - centrePc.y, z: s.positionPc.z - centrePc.z };
@@ -436,6 +452,21 @@ export class GalaxyScreen3Modal extends Modal {
       await writeSystemNote(this.app.vault, input, null);
       written++;
     }
+
+    // Remnants get a note too - position/kind only for now, same honest
+    // scoping as the stellar layer above (full remnant detail - mass,
+    // radius, temperature, a surviving planet - is the same follow-up work
+    // as full stellar SystemCore rendering, not done here).
+    for (const r of assembled.remnants) {
+      const d = { x: r.positionPc.x - centrePc.x, y: r.positionPc.y - centrePc.y, z: r.positionPc.z - centrePc.z };
+      const input: RenderSystemInput = {
+        sysid: r.sysid, name: null, population: r.kind, positionPc: r.positionPc,
+        distanceFromSectorOriginPc: Math.hypot(d.x, d.y, d.z),
+      };
+      await writeSystemNote(this.app.vault, input, null);
+      written++;
+    }
+
     new Notice(`StarForge: wrote ${written} system note(s) to StarForge/Systems/`);
     this.close();
   }

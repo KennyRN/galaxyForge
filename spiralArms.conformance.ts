@@ -1,8 +1,9 @@
 /**
  * spiralArms.conformance - verifies the arm geometry against the patch's own
  * reference table (patches/galaxyForge-SPIRAL-PATCH-v2.3-parameter-schema.md
- * S8/S9), and the honestly-scoped limits of what this module can reproduce
- * (see spiralArms.ts's own header on `armContrast`).
+ * S8/S9), and - since the besselI0e mean-subtraction fix, 16 Aug 2026 - that
+ * the derived contrast constants now reproduce the patch's own stated
+ * figures exactly (see spiralArms.ts's own header on `armContrast`).
  */
 
 import { ARMS, DEFAULT_ARM_WIDTH, armWidthPc, thetaArmRad, kappaOf, armFactor, armContrastRatio, deriveArmContrasts, anchorArmCorrection, DRIMMEL_SPERGEL_K } from './spiralArms';
@@ -54,12 +55,29 @@ for (const a of ARMS) {
 
 check('armFactor("none", c, R, theta) === 1 always (no arms in the set)', armFactor('none', 0.5, 8200, 1.23) === 1);
 check('armFactor === 1 + contrast * (sum of positive terms), so contrast=0 gives exactly 1', armFactor('all', 0, 8200, 0) === 1);
-check('armFactor is always >= 1 (arms only ADD density, never remove it)', (() => {
-  for (let i = 0; i < 200; i++) {
-    const theta = (2 * Math.PI * i) / 200;
-    if (armFactor('all', 0.6, 8200, theta) < 1 - 1e-9) return false;
+check('armFactor is mean-preserving - its azimuthal average is 1 at every radius, ' +
+  'to 1e-12 (a spiral density wave redistributes systems around an annulus, it ' +
+  'does not manufacture them)', (() => {
+  let worst = 0;
+  for (let R = 3500; R <= 16000; R += 500) {
+    for (const set of ['all', 'majorMinor', 'major'] as const) {
+      const n = 4096;
+      let sum = 0;
+      for (let i = 0; i < n; i++) sum += armFactor(set, 0.6193, R, (2 * Math.PI * i) / n);
+      worst = Math.max(worst, Math.abs(sum / n - 1));
+    }
   }
-  return true;
+  return worst < 1e-12;
+})());
+check('armFactor stays strictly positive across this project\'s own parameter range - ' +
+  'no clamp is needed or wanted, matching the sibling build\'s own gate', (() => {
+  let min = Infinity;
+  for (let R = 3500; R <= 16000; R += 100) {
+    for (let i = 0; i < 720; i++) {
+      min = Math.min(min, armFactor('all', deriveArmContrasts(8200).youngThin, R, (2 * Math.PI * i) / 720));
+    }
+  }
+  return min > 0;
 })());
 check('armContrastRatio is monotonically increasing in contrast, at fixed R', (() => {
   const r1 = armContrastRatio('major', 0.1, 8200);
@@ -68,35 +86,39 @@ check('armContrastRatio is monotonically increasing in contrast, at fixed R', ((
   return r1 < r2 && r2 < r3;
 })());
 
-/* 5. deriveArmContrasts - reproduces the TARGET exactly (this module's own
- *    solve, not the patch's unreproducible figures - see spiralArms.ts
- *    header), and honours the patch's own stated 1.4x/2.0x multipliers ----- */
+/* 5. deriveArmContrasts - reproduces the TARGET exactly, and honours the
+ *    patch's own stated 1.4x/2.0x multipliers applied to the FULL-PRECISION
+ *    solve (not to the already-rounded oldThin - rounding-order bug fixed
+ *    16 Aug 2026, see spiralArms.ts header) ---------------------------------- */
 
 {
   const c = deriveArmContrasts(8200);
   check('the "major" set at oldThin\'s own derived contrast hits the Drimmel & Spergel K target to 1e-3',
     close(armContrastRatio('major', c.oldThin, 8200), DRIMMEL_SPERGEL_K, 1e-3));
-  check('midThin === 1.4 * oldThin exactly, per the patch\'s own stated multiplier', close(c.midThin, Math.round(c.oldThin * 1.4 * 1e4) / 1e4, 1e-12));
-  check('youngThin === 2.0 * oldThin exactly, per the patch\'s own stated multiplier', close(c.youngThin, Math.round(c.oldThin * 2.0 * 1e4) / 1e4, 1e-12));
+  // Loose sanity checks only - midThin/youngThin are each independently rounded
+  // from the full-precision solve times their own multiplier, NOT from the
+  // already-rounded oldThin (see spiralArms.ts header on the rounding-order
+  // bug), so they land within a rounding-quantum of oldThin*1.4/oldThin*2.0,
+  // not exactly on it. Gate 6 below is the precise regression check.
+  check('midThin is roughly 1.4 * oldThin (loose sanity check, not exact - see gate 6)', close(c.midThin, c.oldThin * 1.4, 2e-4));
+  check('youngThin is roughly 2.0 * oldThin (loose sanity check, not exact - see gate 6)', close(c.youngThin, c.oldThin * 2.0, 2e-4));
   check('deriveArmContrasts is memoised - repeat calls return the identical object', deriveArmContrasts(8200) === c);
 }
 
-/* 6. HONESTY GATE - this module's own derived contrast values do NOT match
- *    the patch's stated reference figures exactly, and this test asserts
- *    that mismatch explicitly, so a future "fix" that silently overwrites
- *    deriveArmContrasts with the patch's hardcoded numbers (without ever
- *    having recovered derive_arm_constants_v3.py) gets caught here, not
- *    presented as if verified. Delete this check ONLY alongside dropping
- *    the "cannot reproduce bit-identically" claim from the header - i.e.
- *    only if the original script is actually recovered and reproduced. --- */
+/* 6. GAP-CLOSED GATE - this module's own derived contrast values now DO match
+ *    the patch's stated reference figures exactly, because armRidge's
+ *    besselI0e mean-subtraction (ported 16 Aug 2026 from a sibling build
+ *    that still has the original derivation script) makes the solve
+ *    reproduce them. This gate is the mirror image of the one it replaces:
+ *    if a future edit to armRidge/armFactor silently drops the subtraction
+ *    again, THIS fails loudly instead of the mismatch being rediscovered
+ *    the hard way. */
 
 {
   const c = deriveArmContrasts(8200);
   const patchStated = { oldThin: 0.3096, midThin: 0.4335, youngThin: 0.6193 };
-  const matchesPatchExactly = close(c.oldThin, patchStated.oldThin, 1e-4)
-    && close(c.midThin, patchStated.midThin, 1e-4)
-    && close(c.youngThin, patchStated.youngThin, 1e-4);
-  check('this module\'s derived contrasts are honestly DIFFERENT from the patch\'s unreproducible stated figures (see header)', !matchesPatchExactly);
+  check('deriveArmContrasts reproduces the patch\'s stated oldThin/midThin/youngThin exactly',
+    c.oldThin === patchStated.oldThin && c.midThin === patchStated.midThin && c.youngThin === patchStated.youngThin);
 }
 
 /* 7. anchorArmCorrection - self-consistency: recomputes from STORED (4dp)

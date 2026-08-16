@@ -53,18 +53,38 @@
  * pinned down, the same "flag, don't fake" pattern this file already
  * applies to its placeholder white-dwarf chain.
  *
- * WHITE-DWARF CHAIN. Progenitor mass drawn from the Kroupa IMF between the
- * population's own turnoff and 8 Msun (the IFMR's usual upper validity
- * bound); a two-segment linear IFMR PLACEHOLDER (`calibrated`, Cummings et
- * al. 2018 named as the upgrade path, per S5.2); cooling age = ctx.age;
- * Mestel-form cooling and a degenerate mass-radius relation - THE SAME
- * placeholder chain `multiplicity.ts`'s promotion mechanism already uses
- * (reused directly here, not a second copy - Law 1; `multiplicity`'s own
- * header already flags this whole chain as provisional until it can call
- * into this module properly once both exist, which is now).
+ * WHITE-DWARF CHAIN, UPGRADED 16 AUG 2026 (ported from a sibling build,
+ * `galaxyforge`, that has already adopted this). Progenitor mass now drawn
+ * log-uniformly between a REAL turnoff mass (`turnoffMassSol(age, feh)`,
+ * `stellarProperties.ts`) and the IFMR's own validity ceiling - previously a
+ * flat 1.5-8 Msun range untethered to any age. Final mass now the Cummings
+ * et al. 2018 three-piece linear IFMR (`sourced`, adopted verbatim, replacing
+ * the two-segment PLACEHOLDER this module used to share with
+ * `multiplicity.ts`'s promotion chain - that module still uses ITS OWN
+ * placeholder for now, a separate, smaller gap). Cooling age is now a REAL
+ * consequence of a REAL rolled system age (`rollAge`/`rollMetallicity`, the
+ * SAME mechanism and the SAME `age`/`metallicity`/`formationRank` channels
+ * the stellar layer uses, keyed by this remnant's own sysid - not a second
+ * copy of the concern, Law 1) minus the progenitor's own main-sequence
+ * lifetime - previously a uniform 0-10 Gyr draw uncoupled from any system.
+ * Mestel-form cooling and the degenerate mass-radius relation are unchanged.
  *
- * NO PLANETS, NO CLUSTERING - both S5.2's own explicit scoping (engulfment;
- * dynamically mixed old population).
+ * SURVIVING WHITE-DWARF PLANETS, ADDED 16 AUG 2026. Vanderburg et al. 2020,
+ * Nature 585, 363: WD 1856+534 b, a transiting giant-planet candidate,
+ * proves planets SURVIVE around white dwarfs - existence only, `sourced`.
+ * There is no white-dwarf planet census, so the 1% occurrence rate this
+ * module draws on is `calibrated`, not sourced - deliberately the module's
+ * only dial. Placed log-uniformly at 1-5 AU (`calibrated`: the AGB envelope
+ * clears anything closer, so a surviving planet was always wide or was
+ * scattered outward), a fixed Earth-mass rocky body (there is no
+ * white-dwarf-planet mass distribution to draw from), carrying no
+ * atmosphere/surface/biosphere layer - this layer owns the planet's
+ * existence, nothing about its air. NS/BH carry no planets: pulsar planets
+ * exist (PSR B1257+12) but form via a different, post-supernova-disc
+ * mechanism this layer has no model for, so the honest count is zero.
+ *
+ * NO CLUSTERING - S5.2's own explicit scoping (dynamically mixed old
+ * population).
  *
  * genVersion: any constant here changing is genVersion-bumping.
  */
@@ -76,6 +96,11 @@ import type { GalaxyModel, Population, PopulationKey } from './galaxyModel';
 import type { CellKey } from './placement';
 import { CELL_SIZE_PC } from './placement';
 import { RSUN_KM } from './units';
+import { rollAge } from './age';
+import { rollMetallicity } from './metallicity';
+import { msLifetimeGyr, turnoffMassSol } from './stellarProperties';
+import { zoneOf, snowLineAu, subclassOf, kindOfClass } from './planets';
+import type { Planet } from './types';
 
 export type RemnantKind = 'white-dwarf' | 'neutron-star' | 'black-hole';
 
@@ -90,6 +115,15 @@ export interface RemnantSystem {
   readonly radiusSol: number;
   readonly tempK: number;
   readonly luminositySol: number;
+  /** The real rolled age/metallicity behind this remnant's cooling chain -
+   *  carried on the object so a caller composing a full SectorGeneration
+   *  result never needs to re-derive them (Law 1). Present for every kind,
+   *  not only white dwarfs - a neutron star or black hole still has a real
+   *  birth population age even though nothing here uses it for cooling. */
+  readonly ageGyr: number;
+  readonly feh: number;
+  /** At most one surviving planet - white dwarfs only (see header). */
+  readonly planet: Planet | null;
 }
 
 /* --------------------------------- shape and rate ------------------------------ */
@@ -126,9 +160,15 @@ function cellCentrePc(k: CellKey): { x: number; y: number; z: number } {
 }
 
 /**
- * Draws every remnant in one cell - no clustering, own channels. Draw
- * budget: ONE for the Poisson count, THREE per remnant (kind, progenitor
- * mass, position within cell).
+ * Draws every remnant in one cell - no clustering. Placement rides its own
+ * cell-scoped channel as before; age/[Fe/H] now ride the SAME channels and
+ * mechanism the stellar layer uses (`rollAge`/`rollMetallicity`), keyed by
+ * each remnant's own sysid, so a remnant's cooling age is a real consequence
+ * of its population's age (16 Aug 2026) rather than a decoration. Draw
+ * budget per remnant is no longer fixed at exactly three - a real
+ * `rollAge`/`rollMetallicity` call costs what those functions cost, same as
+ * any stellar system - but it IS still fully deterministic and independent
+ * of every other remnant's outcome, which is what actually matters here.
  */
 export function rollRemnantCell(worldSeed: string, model: GalaxyModel, k: CellKey): RemnantSystem[] {
   const centre = cellCentrePc(k);
@@ -163,6 +203,13 @@ export function rollRemnantCell(worldSeed: string, model: GalaxyModel, k: CellKe
       y: k.iy * CELL_SIZE_PC + uy * CELL_SIZE_PC,
       z: k.iz * CELL_SIZE_PC + uz * CELL_SIZE_PC,
     };
+    const sysid = `remnant.${k.ix}.${k.iy}.${k.iz}.${ordinal}`;
+
+    const popMeta = model.populations.find((p) => p.key === sourcePopulation)!;
+    const galactocentricRadiusPc = Math.hypot(positionPc.x, positionPc.y, positionPc.z);
+    const formationRankValue = channelRng(worldSeed, 'formationRank', sysid)();
+    const ageGyr = rollAge(channelRng(worldSeed, 'age', sysid), popMeta, formationRankValue);
+    const feh = rollMetallicity(channelRng(worldSeed, 'metallicity', sysid), popMeta, galactocentricRadiusPc, formationRankValue);
 
     const uKind = starRng();
     const wdShare = 1 / (1 + NS_TO_WD_RATIO_AT_REF * (1 + BH_TO_NS_RATIO));
@@ -171,7 +218,7 @@ export function rollRemnantCell(worldSeed: string, model: GalaxyModel, k: CellKe
     else if (uKind < wdShare + (1 - wdShare) / (1 + BH_TO_NS_RATIO)) kind = 'neutron-star';
     else kind = 'black-hole';
 
-    out.push(buildRemnantStar(starRng, k, ordinal, sourcePopulation, kind, positionPc));
+    out.push(buildRemnantStar(starRng, k, ordinal, sysid, sourcePopulation, kind, positionPc, ageGyr, feh));
   }
   return out;
 }
@@ -184,46 +231,140 @@ function drawWeighted(rng: Rng, keys: readonly PopulationKey[], weights: readonl
   return keys[keys.length - 1]!;
 }
 
-/* ----------------------------- the drawn object --------------------------------- */
+/* ----------------------------- the white-dwarf chain ----------------------------- */
 
-// Placeholder physics reused directly from multiplicity.ts's own promotion
-// chain (Law 1) - see that module's header for the same caveat: `remnants`
-// IS the eventual single source of truth this was always meant to become.
-function placeholderWdMassSol(progenitorMassSol: number): number {
-  return Math.min(0.5 + 0.11 * Math.max(0, progenitorMassSol - 1), 1.35);
+/**
+ * Cummings 2018 MIST IFMR domain (M-sun). Below the floor the star has not
+ * left the main sequence within a Hubble time; above the ceiling the
+ * relation stops and core-collapse territory begins, which this module
+ * models as NS/BH instead. `sourced`.
+ */
+export const IFMR_MI_MIN = 0.83;
+export const IFMR_MI_MAX = 7.20;
+/** The two knot masses of the piecewise relation (M-sun). */
+export const IFMR_KNOTS = [2.85, 3.60] as const;
+
+/**
+ * Initial-to-final mass relation - Cummings et al. 2018, ApJ 866, 21, the
+ * MIST-based three-piece linear fit, adopted VERBATIM (16 Aug 2026, ported
+ * from a sibling build that already adopted it - previously a two-segment
+ * placeholder here, `calibrated` not `sourced`):
+ *
+ *   0.83 <= Mi < 2.85   Mf = 0.080*Mi + 0.489
+ *   2.85 <= Mi < 3.60   Mf = 0.187*Mi + 0.184
+ *   3.60 <= Mi <= 7.20  Mf = 0.107*Mi + 0.471
+ *
+ * The published intercepts are kept EXACTLY - they are not forced to close
+ * at the knots (the segments disagree by ~5e-5 Msun at 2.85 and ~1e-3 Msun
+ * at 3.60, both far inside the paper's own 1-sigma), because closing the
+ * gap by hand would trade a sourced number for a tidier calibrated one.
+ * `mInit` is clamped to the fitted domain - an extrapolated IFMR is a
+ * different claim from a fitted one, and this function never makes it.
+ */
+export function wdMassFromProgenitor(mInit: number): number {
+  const mi = Math.min(Math.max(mInit, IFMR_MI_MIN), IFMR_MI_MAX);
+  if (mi < IFMR_KNOTS[0]) return 0.080 * mi + 0.489;
+  if (mi < IFMR_KNOTS[1]) return 0.187 * mi + 0.184;
+  return 0.107 * mi + 0.471;
 }
-function placeholderWdLuminositySol(coolingAgeGyr: number): number {
-  return 0.02 * Math.pow(Math.max(coolingAgeGyr, 0.01), -7 / 5);
-}
-function placeholderWdRadiusSol(massSol: number): number {
+
+/** WD radius from degenerate M^(-1/3) scaling - 0.0126 Rsun at 0.6 Msun,
+ *  S5.2's own figure. Unchanged by the 16 Aug 2026 upgrade. */
+function wdRadiusSol(massSol: number): number {
   return 0.0126 * Math.pow(massSol / 0.6, -1 / 3);
 }
-function placeholderWdTempK(luminositySolValue: number, radiusSolValue: number): number {
+
+/** Mestel cooling L/Lsun ~ t_cool^(-7/5); constant calibrated to the
+ *  Holberg T_eff band. Unchanged by the 16 Aug 2026 upgrade - only its
+ *  INPUT (a real cooling age, not a uniform 0-10 Gyr draw) changed. */
+function wdLuminositySol(coolingAgeGyr: number): number {
+  return 0.02 * Math.pow(Math.max(coolingAgeGyr, 0.01), -7 / 5);
+}
+function wdTempK(luminositySolValue: number, radiusSolValue: number): number {
   return 5772 * Math.pow(luminositySolValue / (radiusSolValue * radiusSolValue), 0.25);
 }
 
+/* ------------------------------ surviving planets --------------------------------- */
+
+/** At most one surviving planet is placed on a white dwarf. */
+export const WD_MAX_PLANET_COUNT = 1;
+
+/**
+ * Probability a placed white dwarf keeps one surviving planet. `calibrated`,
+ * and the module's only dial - see header. Added 16 Aug 2026.
+ */
+export const WD_PLANET_OCCURRENCE = 0.01;
+
+/** Orbit range for a survivor (AU), log-uniform. `calibrated` - see header. */
+export const WD_PLANET_AU_MIN = 1.0;
+export const WD_PLANET_AU_MAX = 5.0;
+
+/**
+ * The rare surviving white-dwarf planet. FIXED DRAW COUNT: exactly two
+ * uniforms, called for EVERY remnant regardless of kind, so the planet
+ * question can never shift the draw stream of a neutron star or black hole
+ * depending on whether this function was even invoked for them - it always
+ * is, and returns null immediately for anything but a white dwarf.
+ */
+function rollRemnantPlanet(rng: Rng, kind: RemnantKind, hostLuminositySol: number): Planet | null {
+  const uOccurrence = rng();
+  const uOrbit = rng();
+  if (kind !== 'white-dwarf') return null;
+  if (uOccurrence >= WD_PLANET_OCCURRENCE) return null;
+
+  const logLo = Math.log10(WD_PLANET_AU_MIN);
+  const logHi = Math.log10(WD_PLANET_AU_MAX);
+  const au = 10 ** (logLo + uOrbit * (logHi - logLo));
+  const snowline = snowLineAu(hostLuminositySol);
+  const cls = 'earth-like' as const;
+
+  return {
+    formationIndex: 0,
+    kind: kindOfClass(cls),
+    class: cls,
+    subclass: subclassOf(cls, au, snowline, false),
+    zone: zoneOf(au, hostLuminositySol),
+    au, formationAu: au, eccentricity: 0,
+    radiusEarth: 1, massEarth: 1, coreMassEarth: 1, envelopeFraction: 0, envelope: 'stripped',
+    hostLuminositySol, orbitType: 's-type',
+    channel: 'core-accretion', migrated: false,
+  };
+}
+
+/* ----------------------------- the drawn object --------------------------------- */
+
 function buildRemnantStar(
-  rng: Rng, k: CellKey, ordinal: number, sourcePopulation: PopulationKey, kind: RemnantKind,
-  positionPc: { x: number; y: number; z: number },
+  rng: Rng, k: CellKey, ordinal: number, sysid: string, sourcePopulation: PopulationKey, kind: RemnantKind,
+  positionPc: { x: number; y: number; z: number }, ageGyr: number, feh: number,
 ): RemnantSystem {
-  const sysid = `remnant.${k.ix}.${k.iy}.${k.iz}.${ordinal}`;
   if (kind === 'neutron-star') {
-    return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol: 1.4, radiusSol: 12 / RSUN_KM, tempK: 1e6, luminositySol: 0 };
+    const planet = rollRemnantPlanet(rng, kind, 0);
+    return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol: 1.4, radiusSol: 12 / RSUN_KM, tempK: 1e6, luminositySol: 0, ageGyr, feh, planet };
   }
   if (kind === 'black-hole') {
     const uMass = rng();
     const massSol = 5 + uMass * 25;   // calibrated, stellar-BH range
     const schwarzschildRadiusKm = 2.95 * massSol;   // sourced (form), R_s = 2GM/c^2
-    return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol, radiusSol: schwarzschildRadiusKm / RSUN_KM, tempK: 0, luminositySol: 0 };
+    const planet = rollRemnantPlanet(rng, kind, 0);
+    return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol, radiusSol: schwarzschildRadiusKm / RSUN_KM, tempK: 0, luminositySol: 0, ageGyr, feh, planet };
   }
-  // white-dwarf
-  const uProgenitor = rng(), uAge = rng();
-  const progenitorMassSol = 1.5 + uProgenitor * 6.5;   // turnoff..8 Msun, calibrated range
-  const coolingAgeGyr = uAge * 10;   // calibrated stand-in for ctx.age (no system context threaded to this cell-level draw)
-  const massSol = placeholderWdMassSol(progenitorMassSol);
-  const luminositySol = placeholderWdLuminositySol(coolingAgeGyr);
-  const radiusSol = placeholderWdRadiusSol(massSol);
-  return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol, radiusSol, tempK: placeholderWdTempK(luminositySol, radiusSol), luminositySol };
+  // white-dwarf - progenitor between a REAL turnoff mass and the IFMR
+  // ceiling. The ceiling is the relation's, not a round number: drawing to
+  // 8 Msun and clamping would pile every 7.2-8 Msun progenitor onto one
+  // final mass.
+  const mLo = Math.min(Math.max(turnoffMassSol(ageGyr, feh), IFMR_MI_MIN), IFMR_MI_MAX);
+  const mHi = IFMR_MI_MAX;
+  const uProgenitor = rng();
+  const logLo = Math.log10(mLo), logHi = Math.log10(mHi);
+  const mInit = 10 ** (logLo + uProgenitor * (logHi - logLo));
+  const massSol = wdMassFromProgenitor(mInit);
+  const radiusSol = wdRadiusSol(massSol);
+  const msAgeGyr = msLifetimeGyr(mInit, feh);
+  const coolingAgeGyr = Math.max(ageGyr - msAgeGyr, 0.01);
+  const luminositySol = wdLuminositySol(coolingAgeGyr);
+  const tempK = wdTempK(luminositySol, radiusSol);
+  const planet = rollRemnantPlanet(rng, kind, luminositySol);
+  return { cellKey: k, ordinal, sysid, positionPc, sourcePopulation, kind, massSol, radiusSol, tempK, luminositySol, ageGyr, feh, planet };
 }
 
 /* --------------------------------- gates ------------------------------------ */
@@ -236,14 +377,28 @@ function buildRemnantStar(
  *  2. Determinism.
  *  3. NS and BH occur at TRACE rates relative to WD, never exceeding them,
  *     across many cells.
- *  4. rollRemnantCell consumes a fixed draw budget regardless of outcome.
+ *  4. Every remnant's kind draw and its `rollRemnantPlanet` call consume a
+ *     FIXED draw count for that kind (age/[Fe/H] cost what `rollAge`/
+ *     `rollMetallicity` cost, same as any stellar system - not literally
+ *     uniform across kinds since 16 Aug 2026's real-age threading, but each
+ *     kind's own cost is fixed and outcome-independent within itself).
  *  5. Every remnant's `sysid` carries a `remnant.` prefix, structurally
  *     distinct from a stellar `sysid` - collision is impossible by
  *     construction, not by chance.
  *  6. No clustering: remnant nearest-neighbour statistics are NOT
  *     measurably tighter than uniform, unlike Stage 4.8's youngThin result.
+ *  7. wdMassFromProgenitor is continuous to within 1e-2 Msun at both IFMR
+ *     knots (the published segments do not close exactly - see the IFMR's
+ *     own docstring for why that is correct, not a bug).
+ *  8. A white dwarf's cooling age is REAL: older-population white dwarfs
+ *     are systematically cooler (lower luminosity) than younger ones, at
+ *     fixed progenitor mass - the property the 16 Aug 2026 upgrade exists
+ *     to deliver.
+ *  9. rollRemnantPlanet returns null for every neutron star and black hole,
+ *     always - never a planet on a kind this layer has no formation model
+ *     for.
  */
-export const REMNANTS_GATES = 6 as const;
+export const REMNANTS_GATES = 9 as const;
 
 /* -------------------------------- glossary ----------------------------------- */
 
@@ -255,5 +410,23 @@ export const glossary: GlossaryEntry[] = [
     short: 'How many white dwarfs occupy a given volume of the solar neighbourhood.',
     long: 'spiralCalibrationConstant calibrates rhoRemFor\'s output to match the observed local white dwarf space density.',
     source: 'Holberg, Oswalt, Sion & McCook 2016, MNRAS 462, 2295 (3.6e-3 pc^-3)',
+  },
+  {
+    term: 'Cummings initial-final mass relation', status: 'sourced',
+    short: 'How heavy a white dwarf ends up, given how heavy the star that made it was.',
+    long: 'The MIST-based three-piece linear fit adopted verbatim (16 Aug 2026, replacing a two-segment placeholder): 0.080*Mi+0.489, then 0.187*Mi+0.184 above 2.85 Msun, then 0.107*Mi+0.471 above 3.60 Msun. Published intercepts kept exactly - the segments disagree by 5e-5 and 1e-3 Msun at the two knots, inside the paper\'s own 1-sigma, and closing the gap by hand would trade a sourced number for a tidier calibrated one. Progenitors are clamped to the fitted 0.83-7.20 Msun domain.',
+    source: 'Cummings, Kalirai, Tremblay, Ramirez-Ruiz & Choi 2018, ApJ 866, 21, doi:10.3847/1538-4357/aadfd6',
+  },
+  {
+    term: 'White dwarf cooling age', status: 'derived',
+    short: 'How long a white dwarf has been cooling - now a real consequence of a real system age, not a random guess.',
+    long: 'coolingAgeGyr = ageGyr - msLifetimeGyr(progenitorMass, feh), where ageGyr is rolled the same way a stellar system\'s age is (rollAge, on the population\'s own age distribution). Older populations produce systematically cooler, fainter white dwarfs without any morphology-aware special-casing. Replaces a uniform 0-10 Gyr draw uncoupled from any system (16 Aug 2026).',
+    source: 'Mestel 1952 (cooling form); this project\'s own age.ts (real age input)',
+  },
+  {
+    term: 'Surviving white-dwarf planets', status: 'calibrated',
+    short: 'A rare planet that outlived its star\'s red-giant phase, still orbiting the white dwarf remnant.',
+    long: 'Vanderburg et al. 2020 detected WD 1856+534 b transiting a white dwarf, so survival is an observed outcome - sourced. The 1% occurrence rate is NOT: one detection with no published survey completeness is not a rate, so WD_PLANET_OCCURRENCE is this module\'s single dial. Placed log-uniformly at 1-5 AU (the AGB envelope clears anything closer), a fixed Earth-mass rocky body rather than a drawn one, with no atmosphere/surface/biosphere layer. Added 16 Aug 2026.',
+    source: 'Vanderburg et al. 2020, Nature 585, 363 (existence only, not the rate)',
   },
 ];

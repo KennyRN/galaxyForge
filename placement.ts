@@ -24,18 +24,26 @@
  * Cells are indexed in all three axes (`cellIz` too, S4.8's own ruling -
  * `centrePc.z` selects WHICH z-layer, never what is in it).
  *
- * -- CLUSTERING -------------------------------------------------------------------
- * A per-cell simplification of the Thomas process, not the literal
- * two-level parent-Poisson-then-children construction: within one cell,
- * systems belonging to a population with `clusteredFraction` set are
- * processed in draw order and grouped into clusters of `meanGroupSize`,
- * each cluster sharing one parent position (uniform within the cell) with
- * members jittered around it via `truncGaussQuantile` (sigma = 1.5 pc,
- * truncated at 3 sigma - S4.8's own values, `tunable`/`derived`
- * respectively). At the scale of ONE cell's own system count this is a
- * faithful-enough reduction of the full process; the literal parent-Poisson
- * construction is the named upgrade path if per-cell counts ever grow large
- * enough for the difference to matter.
+ * -- CLUSTERING, THE GENUINE TWO-LEVEL THOMAS PROCESS (16 Aug 2026) ---------------
+ * `lambda = density * cellVolume` draws the PARENT count, one uniform
+ * position per parent (population-weighted). If a parent's own population
+ * has `clusteredFraction` set and a bernoulli roll (its own draw) succeeds,
+ * that parent ALSO spawns offspring: `nOffspring ~ Poisson(max(0,
+ * meanGroupSize - 1))` - a genuinely stochastic count, not
+ * `Math.round(meanGroupSize)` forced members - each independently jittered
+ * around the parent via `truncGaussQuantile` (sigma = 1.5 pc, truncated at 3
+ * sigma - S4.8's own values, `tunable`/`derived` respectively). This is the
+ * literal two-level construction (previously a per-cell approximation that
+ * grouped consecutive draws into fixed-size clusters instead of drawing an
+ * offspring count) - ported from a sibling build of this project
+ * (`galaxyforge`) that already implements it this way. Consequence, stated
+ * plainly: offspring are ADDITIONAL to the parent count, so a cell's total
+ * system count is no longer bounded by `poissonInvCdf(lambda, ...)` alone
+ * for populations with `clusteredFraction > 0` - `lambda` prices the
+ * PARENTS, not the final census, which is the correct reading of "clustered
+ * survivors" (S4.8's own framing: the field density already represents
+ * where cluster CORES form; offspring are the excess population those cores
+ * produce, not a redistribution of an already-fixed total).
  *
  * -- MINIMUM SEPARATION ------------------------------------------------------------
  * S7's OWNER RULING (adopted before Stage 10, not the interim greedy pass)
@@ -80,6 +88,14 @@ export interface PlacedSystem {
   readonly positionPc: { readonly x: number; readonly y: number; readonly z: number };
   readonly population: PopulationKey;
   readonly formationRank: number;
+  /** True for a Thomas-process offspring (jittered around `parentOrdinal`'s
+   *  own position); omitted (not merely false) for a parent, so a JSON
+   *  comparison between two parents doesn't need to agree on a value nobody
+   *  cares about. */
+  readonly isOffspring?: boolean;
+  /** Set only when `isOffspring` is true - the ordinal of the parent this
+   *  system was jittered around, within the SAME cell. */
+  readonly parentOrdinal?: number;
 }
 
 function cellIndexOf(coordPc: number): number { return Math.floor(coordPc / CELL_SIZE_PC); }
@@ -98,11 +114,17 @@ function sysidOf(k: CellKey, ordinal: number): string {
 
 /**
  * Every system generated within ONE cell, deterministically, from the
- * model's density evaluated at the cell's own midpoint. Draw budget: ONE
- * for the Poisson count, THREE per system thereafter (population, jitter
- * axis pair via one 2D draw pair, cluster-membership) - fixed regardless of
- * outcome, on the `placement` channel; PLUS one more per system on the
- * SEPARATE `formationRank` channel.
+ * model's density evaluated at the cell's own midpoint. The genuine
+ * two-level Thomas process (see header, 16 Aug 2026): `lambda` draws the
+ * PARENT count; each parent may additionally spawn a Poisson-distributed
+ * offspring count if its population is clustered. Draw budget is therefore
+ * variable per parent (a real property of a stochastic offspring count, not
+ * a bug) - the only FIXED budget left is one Poisson draw for the parent
+ * count, and per parent: population + 3 position draws, plus (for a
+ * clustered population) one bernoulli + one offspring-count draw, plus 3
+ * jitter draws per actual offspring. All on the `placement` channel; every
+ * placed system (parent or offspring) additionally draws one
+ * `formationRank` value on its OWN channel.
  */
 export function rollCell(worldSeed: string, model: GalaxyModel, k: CellKey): PlacedSystem[] {
   const centre = cellCentrePc(k);
@@ -114,53 +136,52 @@ export function rollCell(worldSeed: string, model: GalaxyModel, k: CellKey): Pla
   const placementRng = channelRng(worldSeed, 'placement', k.ix, k.iy, k.iz);
   const formationRankRng = channelRng(worldSeed, 'formationRank', k.ix, k.iy, k.iz);
 
-  const count = poissonInvCdf(lambda, placementRng());
+  const nParents = poissonInvCdf(lambda, placementRng());
   const popKeys = Object.keys(densityByPop) as PopulationKey[];
   const weights = popKeys.map((pk) => densityByPop[pk] ?? 0);
   const weightSum = weights.reduce((a, b) => a + b, 0);
 
+  const uniformInCell = (): { x: number; y: number; z: number } => {
+    const ux = placementRng(), uy = placementRng(), uz = placementRng();
+    return {
+      x: k.ix * CELL_SIZE_PC + ux * CELL_SIZE_PC,
+      y: k.iy * CELL_SIZE_PC + uy * CELL_SIZE_PC,
+      z: k.iz * CELL_SIZE_PC + uz * CELL_SIZE_PC,
+    };
+  };
+
   const out: PlacedSystem[] = [];
-  let currentParent: { x: number; y: number; z: number } | null = null;
-  let currentParentRemaining = 0;
-  let currentParentPop: PopulationKey | null = null;
+  let ordinal = 0;
 
-  for (let ordinal = 0; ordinal < count; ordinal++) {
+  for (let parentIdx = 0; parentIdx < nParents; parentIdx++) {
     const population = drawPopulation(placementRng, popKeys, weights, weightSum);
-    const meanGroupSize = findPopulationMeta(model, population)?.meanGroupSize;
-    const clusteredFraction = findPopulationMeta(model, population)?.clusteredFraction ?? 0;
+    const parentPos = uniformInCell();
+    const parentOrdinal = ordinal++;
+    out.push({
+      cellKey: k, ordinal: parentOrdinal, sysid: sysidOf(k, parentOrdinal),
+      positionPc: parentPos, population, formationRank: formationRankRng(),
+    });
 
-    const uCluster = placementRng();
-    const isClustered = clusteredFraction > 0 && uCluster < clusteredFraction;
+    const meta = findPopulationMeta(model, population);
+    const clusteredFraction = meta?.clusteredFraction ?? 0;
+    if (clusteredFraction <= 0 || placementRng() >= clusteredFraction) continue;
 
-    let positionPc: { x: number; y: number; z: number };
-    if (isClustered) {
-      if (!currentParent || currentParentRemaining <= 0 || currentParentPop !== population) {
-        const uPx = placementRng(), uPy = placementRng(), uPz = placementRng();
-        currentParent = {
-          x: k.ix * CELL_SIZE_PC + uPx * CELL_SIZE_PC,
-          y: k.iy * CELL_SIZE_PC + uPy * CELL_SIZE_PC,
-          z: k.iz * CELL_SIZE_PC + uPz * CELL_SIZE_PC,
-        };
-        currentParentRemaining = Math.max(1, Math.round(meanGroupSize ?? 1));
-        currentParentPop = population;
-      }
-      const jitterLo = -JITTER_TRUNCATION_SIGMA * JITTER_SIGMA_PC, jitterHi = -jitterLo;
+    const offspringLambda = Math.max(0, (meta?.meanGroupSize ?? 1) - 1);
+    const nOffspring = offspringLambda > 0 ? poissonInvCdf(offspringLambda, placementRng()) : 0;
+    const jitterLo = -JITTER_TRUNCATION_SIGMA * JITTER_SIGMA_PC, jitterHi = -jitterLo;
+
+    for (let o = 0; o < nOffspring; o++) {
       const dx = truncGaussQuantile(placementRng(), 0, JITTER_SIGMA_PC, jitterLo, jitterHi);
       const dy = truncGaussQuantile(placementRng(), 0, JITTER_SIGMA_PC, jitterLo, jitterHi);
       const dz = truncGaussQuantile(placementRng(), 0, JITTER_SIGMA_PC, jitterLo, jitterHi);
-      positionPc = { x: currentParent.x + dx, y: currentParent.y + dy, z: currentParent.z + dz };
-      currentParentRemaining--;
-    } else {
-      const ux = placementRng(), uy = placementRng(), uz = placementRng();
-      positionPc = {
-        x: k.ix * CELL_SIZE_PC + ux * CELL_SIZE_PC,
-        y: k.iy * CELL_SIZE_PC + uy * CELL_SIZE_PC,
-        z: k.iz * CELL_SIZE_PC + uz * CELL_SIZE_PC,
-      };
+      const childOrdinal = ordinal++;
+      out.push({
+        cellKey: k, ordinal: childOrdinal, sysid: sysidOf(k, childOrdinal),
+        positionPc: { x: parentPos.x + dx, y: parentPos.y + dy, z: parentPos.z + dz },
+        population, formationRank: formationRankRng(),
+        isOffspring: true, parentOrdinal,
+      });
     }
-
-    const formationRank = formationRankRng();
-    out.push({ cellKey: k, ordinal, sysid: sysidOf(k, ordinal), positionPc, population, formationRank });
   }
   return out;
 }
@@ -190,26 +211,51 @@ function keyOrder(a: PlacedSystem, b: PlacedSystem): number {
 }
 
 /**
- * S7's OWNER RULING: local-and-symmetric exclusion. A candidate is dropped
- * iff some OTHER candidate with an earlier key lies within
- * `EXCLUSION_RADIUS_PC` - tested against the FULL candidate set, not a
- * running "kept" set, so the verdict for any one point depends only on its
- * own neighbourhood. O(n^2) here (a spatial hash is the named optimisation
- * for large candidate sets; correctness, not performance, is this pass's
- * concern).
+ * The generic "merge pass" this module owns - S7's OWNER RULING:
+ * local-and-symmetric exclusion. A candidate is dropped iff some OTHER
+ * candidate that sorts EARLIER by `key` lies within `exclusionRadiusPc` -
+ * tested against the FULL candidate set, not a running "kept" set, so the
+ * verdict for any one point depends only on its own neighbourhood. O(n^2)
+ * here (a spatial hash is the named optimisation for large candidate sets;
+ * correctness, not performance, is this pass's concern).
+ *
+ * Exported generic (16 Aug 2026) so `sectorFootprint.ts` can merge the
+ * stellar and remnant layers together (stellar wins on a tie, via a key
+ * that sorts earlier) WITHOUT a second copy of this algorithm - Law 1. This
+ * module remains the single owner of "what the merge pass is"; the string
+ * `key` a caller supplies is entirely THEIR ordering convention.
  */
-export function applyExclusion(candidates: readonly PlacedSystem[]): PlacedSystem[] {
-  const sorted = [...candidates].sort(keyOrder);
-  const r2 = EXCLUSION_RADIUS_PC * EXCLUSION_RADIUS_PC;
+export interface MergeCandidate {
+  readonly key: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+export function mergeLocalSymmetric<T extends MergeCandidate>(
+  candidates: readonly T[], exclusionRadiusPc: number = EXCLUSION_RADIUS_PC,
+): T[] {
+  const sorted = [...candidates].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const r2 = exclusionRadiusPc * exclusionRadiusPc;
   const dropped = new Array(sorted.length).fill(false);
   for (let i = 0; i < sorted.length; i++) {
     for (let j = 0; j < i; j++) {
-      const a = sorted[i]!.positionPc, b = sorted[j]!.positionPc;
+      const a = sorted[i]!, b = sorted[j]!;
       const d2 = (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
       if (d2 < r2) { dropped[i] = true; break; }
     }
   }
   return sorted.filter((_, i) => !dropped[i]);
+}
+
+/** `PlacedSystem`-specific wrapper over `mergeLocalSymmetric` - unchanged
+ *  behaviour, now expressed via the shared generic core. */
+export function applyExclusion(candidates: readonly PlacedSystem[]): PlacedSystem[] {
+  const sorted = [...candidates].sort(keyOrder);
+  const tagged = sorted.map((s, i) => ({
+    key: String(i).padStart(12, '0'), x: s.positionPc.x, y: s.positionPc.y, z: s.positionPc.z,
+  }));
+  const keptKeys = new Set(mergeLocalSymmetric(tagged, EXCLUSION_RADIUS_PC).map((k) => k.key));
+  return sorted.filter((_, i) => keptKeys.has(String(i).padStart(12, '0')));
 }
 
 /* --------------------------------- gates ------------------------------------ */
@@ -251,7 +297,7 @@ export const glossary: GlossaryEntry[] = [
   {
     term: 'Cell-based Thomas-process sampling', status: 'calibrated',
     short: 'How individual systems are scattered in space so they cluster realistically instead of forming an artificial grid.',
-    long: 'CELL_SIZE_PC / JITTER_SIGMA_PC parameterise a per-cell Poisson-then-jitter (Thomas process) point pattern, a standard spatial-statistics technique for clustered point processes - the specific pc-scale values here are tunable to taste, not read from a stellar-clustering survey.',
+    long: 'The genuine two-level construction (16 Aug 2026, ported from a sibling build): a Poisson-distributed PARENT count per cell, each parent independently spawning a Poisson-distributed OFFSPRING count (mean = meanGroupSize - 1) if its population is clustered, every offspring jittered around its own parent. CELL_SIZE_PC / JITTER_SIGMA_PC parameterise the geometry - a standard spatial-statistics technique for clustered point processes, the specific pc-scale values here tunable to taste, not read from a stellar-clustering survey.',
     source: 'Thomas 1949 (clustered point process), as used broadly in spatial statistics',
   },
   {

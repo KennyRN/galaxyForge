@@ -3,7 +3,7 @@
  */
 
 import {
-  isWithinFootprint, isWithinSlab, cellsTouchingFootprint, generateSector, SECTOR_FOOTPRINT_GATES,
+  isWithinFootprint, isWithinSlab, cellsTouchingFootprint, generateSector, assembleSector, SECTOR_FOOTPRINT_GATES,
 } from './sectorFootprint';
 import { createSpiralModel } from './galaxyModel';
 import { CELL_SIZE_PC, EXCLUSION_RADIUS_PC } from './placement';
@@ -106,7 +106,62 @@ check('generateSector is deterministic', (() => {
   return JSON.stringify(a) === JSON.stringify(b);
 })());
 
-check('gate count matches SECTOR_FOOTPRINT_GATES', SECTOR_FOOTPRINT_GATES === 7);
+/* 8-11. assembleSector - the real sector conductor, wiring remnants + conatal
+ *       chemistry into actual sector generation for the first time ---------------- */
+
+{
+  const model = createSpiralModel(false);
+  const centre = { x: 8178, y: 0, z: 0 };
+  // Kept deliberately small - assembleSector's exclusion pass is O(n^2) in
+  // candidate count (same as generateSector's own applyExclusion), and the
+  // solar-circle cell density is high enough that a much larger radius here
+  // was measured to make this suite take minutes rather than seconds.
+  const RADIUS = 25, THICK = 15;
+  const sectorOnce = assembleSector('assemble-gate-seed', model, centre, RADIUS, THICK, 'circle');
+  const sectorTwice = assembleSector('assemble-gate-seed', model, centre, RADIUS, THICK, 'circle');
+
+  check('8 assembleSector is deterministic', JSON.stringify(sectorOnce) === JSON.stringify(sectorTwice));
+
+  check('9 remnants actually appear in an assembled sector at this radius (the gap the ' +
+    'audit found: remnants.ts was fully built and gated but never called from anything ' +
+    'that produces a real sector)', sectorOnce.remnants.length > 0);
+
+  check('10 at least one stellar system in the sector carries a conatal group ' +
+    '(shared age/[Fe/H] chemistry, not independently rolled)',
+    sectorOnce.stellar.some((m) => m.conatal !== undefined));
+
+  check('10b every conatal member\'s age is EXACTLY its group\'s stored age - every member ' +
+    'sharing the same groupId shares the same ageGyr, not just internal self-consistency', (() => {
+    const withGroup = sectorOnce.stellar.filter((m) => m.conatal !== undefined);
+    if (withGroup.length === 0) return true;   // covered by gate 10; do not double-fail here
+    const byGroup = new Map<string, number[]>();
+    for (const m of withGroup) {
+      const arr = byGroup.get(m.conatal!.groupId) ?? [];
+      arr.push(m.conatal!.ageGyr);
+      byGroup.set(m.conatal!.groupId, arr);
+    }
+    return [...byGroup.values()].every((ages) => ages.every((a) => a === ages[0]));
+  })());
+
+  check('11 exclusion runs across BOTH layers together - no stellar/remnant pair in the ' +
+    'assembled sector is closer than EXCLUSION_RADIUS_PC', (() => {
+    const all = [
+      ...sectorOnce.stellar.map((m) => m.placed.positionPc),
+      ...sectorOnce.remnants.map((r) => r.positionPc),
+    ];
+    const r2 = EXCLUSION_RADIUS_PC * EXCLUSION_RADIUS_PC;
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) {
+        const a = all[i]!, b = all[j]!;
+        const d2 = (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
+        if (d2 < r2) return false;
+      }
+    }
+    return true;
+  })());
+}
+
+check('gate count matches SECTOR_FOOTPRINT_GATES', SECTOR_FOOTPRINT_GATES === 11);
 
 /* --------------------------------- result ------------------------------------ */
 

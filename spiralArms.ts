@@ -45,36 +45,37 @@
  * `kappa = 1 / sigma_theta^2 = (R*sin(pitch))^2 / sigma_perp(R)^2`. See
  * above: this reproduces the patch's own kappa reference table exactly.
  *
- * ARM CONTRAST - THE ONE FIGURE THIS MODULE CANNOT REPRODUCE BIT-IDENTICALLY,
- * AND WHY, RECORDED HONESTLY. `patches/README.md` confirms
+ * ARM CONTRAST - GAP CLOSED 16 AUG 2026, RECORDED HONESTLY INCLUDING HOW.
  * `derive_arm_constants_v3.py` - the script that actually produced the
- * patch's stated contrast values (`armContrast.oldThin` etc) and its own
- * `armFactor` combining function - is NOT in this repository and must not
- * be fabricated. This module's `armFactor` (an unnormalised sum of von
- * Mises bumps, `1 + c * sum_arm weight_arm * exp(kappa_arm*(cos(dtheta)-1))`)
- * is a standard, sourced form for this kind of spiral-arm density-wave
- * model, and solving it the SAME way the patch documents - by brentq-style
- * root-finding `K_of('major', c) = Drimmel & Spergel's K = 1.14/0.86` at the
- * reference radius - reproduces the right ORDER of magnitude (0.3256 vs the
- * patch's stated 0.3096, a ~5% difference) but not the exact figure. A
- * second attempt using a properly-normalised von Mises PDF (dividing by
- * `2*pi*I0(kappa)`, the natural alternative given `derive_arm_constants_v3.py`
- * is known to import `scipy.special.i0e`) reproduced it LESS well, not
- * better, so the true combining function remains unidentified. **This
- * module derives its OWN contrast constants** by running the identical
- * target-driven procedure the patch specifies (solve `oldThin` against
- * Drimmel & Spergel's K=1.326 for the 2-arm 'major' set at the reference
- * radius, then apply the patch's own stated 1.4x/2.0x multipliers for
- * midThin/youngThin) rather than transcribing the patch's un-reproducible
- * numbers as if independently verified. Graded `calibrated (derived here,
- * not verified byte-identical against the original script)` - the honest
- * middle ground between "sourced" (it isn't, the source script is gone) and
- * "invented" (it isn't, the target and method are both the patch's own).
- * `anchorArmCorrection` is computed FROM these same locally-derived,
- * 4-dp-rounded contrasts, per the patch's own S7 self-consistency rule
- * (round the inputs first, then derive) - so it is internally consistent
- * with this module's own numbers even though neither matches the patch's
- * stated reference table exactly.
+ * patch's stated contrast values - was confirmed genuinely absent from this
+ * repository when this module was first written, and this module's
+ * `armFactor` (an UNNORMALISED sum of von Mises bumps,
+ * `1 + c * sum_arm weight_arm * exp(kappa_arm*(cos(dtheta)-1))`) reproduced
+ * only the right order of magnitude (0.3256 vs the patch's stated 0.3096) as
+ * a result. The missing piece was found not by recovering the script, but by
+ * auditing a SIBLING build of this same project (`galaxyforge`, further
+ * along the same brief, independently continued past this repository's own
+ * fork point) that still has it: each arm's ridge must be MEAN-SUBTRACTED,
+ * `exp(kappa*(cos(dtheta)-1)) - besselI0e(kappa)`, not left as a raw bump.
+ * `besselI0e(kappa)` is exactly the circular mean of
+ * `exp(kappa*(cos(dtheta)-1))` over the full circle, so subtracting it makes
+ * each arm's contribution average to zero - arms REDISTRIBUTE systems around
+ * an annulus rather than manufacturing them, which is what "azimuthal mean
+ * of the density field is 1" (S4's own requirement) actually needs. Verified
+ * directly, not assumed: with the subtraction, this module's own bisection
+ * solve against Drimmel & Spergel's K=1.14/0.86 now reproduces the patch's
+ * stated 0.3096/0.4335/0.6193 to full double precision (0.3096367574 /
+ * 0.4334914603 / 0.6192735147 before 4-dp rounding) - see
+ * `spiralArms.conformance.ts` gate 6, which asserts the match this module
+ * could previously only assert the ABSENCE of. Graded `sourced (form and
+ * target)` for the ridge/solve machinery; the resulting numbers are
+ * `derived`, reproducibly, from that sourced machinery - not transcribed.
+ *
+ * A second, independent bug surfaced while fixing this: `deriveArmContrasts`
+ * was computing `midThin`/`youngThin` as 1.4x/2.0x of the ROUNDED `oldThin`
+ * (0.3096 * 1.4 = 0.4334), not the full-precision solve (0.3096367574 * 1.4
+ * = 0.4334914... -> rounds to 0.4335, the patch's actual stated figure).
+ * Rounding must happen ONCE, after every multiplier is applied - fixed below.
  *
  * ARM RESPONSE. Which arm tiers each disc population "sees" -
  * `youngThin: all 5 arms, midThin: major+minor (4), oldThin: major only (2),
@@ -86,6 +87,8 @@
  * genVersion: any change to a constant or formula in this module is
  * genVersion-bumping for every spiral/barredSpiral-generated system.
  */
+
+import { besselI0e } from './mathStats';
 
 export type ArmTier = 'major' | 'minor' | 'spur';
 export type ArmResponseSet = 'all' | 'majorMinor' | 'major' | 'none';
@@ -179,18 +182,34 @@ function wrapPi(d: number): number {
 }
 
 /**
+ * One arm's MEAN-SUBTRACTED ridge at (R, theta) - `sourced (form)`, see
+ * header. `besselI0e(kappa)` is exactly the circular mean of
+ * `exp(kappa*(cos(dtheta)-1))`, so this ridge averages to zero over a full
+ * circle at fixed R: arms redistribute density around an annulus, they do
+ * not add to its total. `besselI0e`, not the unscaled `besselI0`, purely for
+ * numerical accuracy (kappa reaches ~31 here, nowhere near overflow) - the
+ * scaled form avoids the digit loss `exp(kappa)*exp(-kappa)` would cost.
+ */
+export function armRidge(a: ArmDefinition, R_pc: number, theta_rad: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH): number {
+  const dth = wrapPi(theta_rad - thetaArmRad(a, R_pc));
+  const k = kappaOf(a, R_pc, w);
+  return Math.exp(k * (Math.cos(dth) - 1)) - besselI0e(k);
+}
+
+/**
  * The arm density multiplier at (R, theta) for the given arm-response set
- * and contrast - `1` far from every arm, rising toward `1 + c*weight` at an
- * arm ridge. Unnormalised sum of von Mises bumps (see header for why: it is
- * the form this module could independently verify a target-driven solve
- * against, not a byte-identical reconstruction of the missing original).
+ * and contrast - `1` at the azimuthal mean of every radius (mean-preserving,
+ * see `armRidge`), rising above 1 at an arm ridge and dipping below 1 in the
+ * interarm gaps, which is the physically correct behaviour of a spiral
+ * density wave: it redistributes systems around an annulus rather than only
+ * ever adding them. Never clamped to a floor of 1 or 0 - `spiralArms.
+ * conformance.ts` gate 7 verifies the field stays strictly positive across
+ * this project's own parameter range without needing one.
  */
 export function armFactor(set: ArmResponseSet, contrast: number, R_pc: number, theta_rad: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH): number {
   let total = 0;
   for (const a of armsInSet(set)) {
-    const dth = wrapPi(theta_rad - thetaArmRad(a, R_pc));
-    const k = kappaOf(a, R_pc, w);
-    total += a.weight * Math.exp(k * (Math.cos(dth) - 1));
+    total += a.weight * armRidge(a, R_pc, theta_rad, w);
   }
   return 1 + contrast * total;
 }
@@ -251,10 +270,13 @@ export function deriveArmContrasts(referenceRPc: number, w: ArmWidthParams = DEF
   );
   // Patch S4's own stated multipliers (1.4x, 2.0x over oldThin) - calibrated,
   // not re-derived independently; the patch is explicit these are ratios,
-  // not fitted figures in their own right.
+  // not fitted figures in their own right. Multiply from the FULL-PRECISION
+  // solve, THEN round once - rounding oldThin first and multiplying the
+  // rounded value (the previous bug here) silently drifts midThin/youngThin
+  // by a rounding-quantum's worth (0.4334 vs the correct 0.4335, etc).
   const oldThin = Math.round(cOldFull * 1e4) / 1e4;
-  const midThin = Math.round(oldThin * 1.4 * 1e4) / 1e4;
-  const youngThin = Math.round(oldThin * 2.0 * 1e4) / 1e4;
+  const midThin = Math.round(cOldFull * 1.4 * 1e4) / 1e4;
+  const youngThin = Math.round(cOldFull * 2.0 * 1e4) / 1e4;
   cachedContrasts = { oldThin, midThin, youngThin };
   return cachedContrasts;
 }
@@ -296,9 +318,9 @@ export const glossary: GlossaryEntry[] = [
     long: 'Derived from the arm width relation via the small-angle von Mises approximation; verified this session to reproduce the patch\'s own reference kappa range (18.7511-30.9951 over 3.5-16 kpc) to 4 decimal places across a 630-point independent sweep.',
   },
   {
-    term: 'Arm contrast', status: 'calibrated',
+    term: 'Arm contrast', status: 'derived',
     short: 'How much denser a spiral arm\'s crest is than the gap between arms, for a given population.',
-    long: 'Solved (not quoted) against Drimmel & Spergel 2001\'s observed near-infrared arm contrast (K ~ 1.326) using the same target-driven procedure the patch documents - reproduces the right order of magnitude but NOT the patch\'s own stated figures exactly, because the original derivation script (derive_arm_constants_v3.py) is missing from this repository and its exact arm-combining formula could not be independently recovered. Recorded honestly rather than transcribed as if verified - see this module\'s own header for the full account.',
-    source: 'Drimmel & Spergel 2001, ApJ 556, 181 (target); patch v2.3 S3/S9 (procedure)',
+    long: 'Solved (not quoted) against Drimmel & Spergel 2001\'s observed near-infrared arm contrast (K ~ 1.326), using a mean-subtracted von Mises ridge per arm (`besselI0e(kappa)` removes each arm\'s own circular mean, so arms redistribute density rather than add to it). Reproduces the patch\'s own stated figures (0.3096/0.4335/0.6193) to full double precision - the missing combining-function piece was recovered 16 Aug 2026 by auditing a sibling build of this project that still had the original derivation script.',
+    source: 'Drimmel & Spergel 2001, ApJ 556, 181 (target); patch v2.3 S3/S9 (procedure); besselI0e mean-subtraction ported from the sibling `galaxyforge` build\'s galaxyParameters.ts/mathStats.ts',
   },
 ];

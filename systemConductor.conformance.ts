@@ -140,6 +140,40 @@ check('no planet, moon, atmosphere, surface, biosphere, terraforming or humanHab
   return !str.includes('__NAN__');
 }));
 
+/* -- co-natal override (Policy 10, 16 Aug 2026) ---------------------------------- */
+
+{
+  const pop = populations.get('youngThin')!;
+  const groupAge = 0.42;
+  const groupFeh = -0.05;
+  const withGroup = generateSystemCore(makeInputs('conatal-a', pop, {
+    conatal: { groupId: 'conatal.1.2.3.0', ageGyr: groupAge, fehMeanDex: groupFeh },
+  }));
+  check('a co-natal system\'s age is EXACTLY the group\'s stored age, not independently rolled',
+    withGroup.ctx.age === groupAge);
+  check('a co-natal system\'s [Fe/H] is close to the group mean (SIGMA_INTRA = 0.02 dex scatter)',
+    Math.abs(withGroup.ctx.feh - groupFeh) < 0.1);
+  check('a co-natal system carries its conatalGroupId', withGroup.ctx.conatalGroupId === 'conatal.1.2.3.0');
+
+  const withoutGroup = generateSystemCore(makeInputs('conatal-b', pop));
+  check('a FIELD system (no conatal input) carries no conatalGroupId', withoutGroup.ctx.conatalGroupId === undefined);
+
+  const withGroupAgain = generateSystemCore(makeInputs('conatal-a', pop, {
+    conatal: { groupId: 'conatal.1.2.3.0', ageGyr: groupAge, fehMeanDex: groupFeh },
+  }));
+  check('the co-natal override is deterministic, same as every other input',
+    JSON.stringify(withGroup) === JSON.stringify(withGroupAgain));
+
+  // Two DIFFERENT sysids sharing the SAME conatal group get the exact same
+  // age but (very likely) a different feh scatter - the property that
+  // actually makes them "co-natal" rather than "identical".
+  const memberTwo = generateSystemCore(makeInputs('conatal-c', pop, {
+    conatal: { groupId: 'conatal.1.2.3.0', ageGyr: groupAge, fehMeanDex: groupFeh },
+  }));
+  check('two different members of the same conatal group share EXACTLY the same age',
+    memberTwo.ctx.age === withGroup.ctx.age);
+}
+
 /* --------------------------------- result ------------------------------------ */
 
 if (failures > 0) {

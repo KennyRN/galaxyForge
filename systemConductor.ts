@@ -97,8 +97,17 @@
  *     planet is safe: every indexed channel is independently seeded, so
  *     never opening one stream cannot perturb any other planet's own.
  *
+ *  10. CO-NATAL OVERRIDE (16 Aug 2026). `GenerateSystemInputs.conatal`, when
+ *      present, replaces the independent age/[Fe/H] roll with the group's
+ *      own shared values - see `ageFehAndStarCensus` and `types.ts`'s own
+ *      `conatalGroupId` doc comment, which already specified this contract
+ *      before anything called it. The CALLER (the sector-composition layer,
+ *      not this module) decides which systems belong to a group, by the
+ *      same (cellKey, parentOrdinal) convention `placement.ts`'s Thomas
+ *      process already produces.
+ *
  * genVersion: any change to the ordering, channel assignment, or any of the
- * eight invented policies above is genVersion-bumping - it changes what a
+ * ten invented policies above is genVersion-bumping - it changes what a
  * generated system core actually contains, even though no science module
  * itself changed.
  */
@@ -114,6 +123,7 @@ import { CHANNELS } from './types';
 import { pickClass, type StellarPopulationCtx } from './stellarPopulation';
 import { rollAge } from './age';
 import { rollMetallicity } from './metallicity';
+import { memberFeh } from './conatal';
 import {
   representativeMass, teffK, colourBV, radiusSol as msRadiusSol, luminositySol as msLuminositySol,
   type StellarClass,
@@ -140,6 +150,22 @@ export interface GenerateSystemInputs {
   readonly populationMeta: Population;
   readonly formationRank: number;
   readonly terraformScale: number;   // 0-6, authoring input
+  /**
+   * Present iff this system is a member of a co-natal group (16 Aug 2026,
+   * wiring `conatal.ts` into real generation for the first time - it
+   * previously existed fully built and gated but was never called from
+   * anywhere that produces a real sector). When present, age/[Fe/H] are NOT
+   * independently rolled: age is the group's own stored value EXACTLY
+   * (conatal.ts's own "exact age sharing" design), and [Fe/H] is
+   * `conatal.memberFeh` - the group's mean scattered by SIGMA_INTRA, still
+   * ONE draw on this system's own `metallicity` channel, never the group's
+   * `conatalGroup` channel (Law 2 isolation - conatal.ts's own header).
+   */
+  readonly conatal?: {
+    readonly groupId: string;
+    readonly ageGyr: number;
+    readonly fehMeanDex: number;
+  };
 }
 
 /* --------------------------------- channels ------------------------------------ */
@@ -196,11 +222,17 @@ function atmosphereComposition(draw: AtmosphereDraw): SpeciesFraction[] {
  *  -identical results to one only ever quick-censused (Law 1 - one place
  *  this prefix is computed, not two copies that could drift apart). */
 function ageFehAndStarCensus(inputs: GenerateSystemInputs) {
-  const { sysid, worldSeed, positionPc, populationMeta, formationRank } = inputs;
+  const { sysid, worldSeed, positionPc, populationMeta, formationRank, conatal } = inputs;
   const galactocentricRadiusPc = Math.hypot(positionPc.x, positionPc.y, positionPc.z);
 
-  const age = rollAge(ch(worldSeed, CHANNELS.age, sysid), populationMeta, formationRank);
-  const feh = rollMetallicity(ch(worldSeed, CHANNELS.metallicity, sysid), populationMeta, galactocentricRadiusPc, formationRank);
+  // Co-natal members skip the independent age/[Fe/H] roll entirely - age is
+  // the group's own stored value EXACTLY, [Fe/H] is the group's mean plus
+  // this member's own SIGMA_INTRA scatter (still one draw on THIS system's
+  // metallicity channel, so channel isolation is unaffected either way).
+  const age = conatal ? conatal.ageGyr : rollAge(ch(worldSeed, CHANNELS.age, sysid), populationMeta, formationRank);
+  const feh = conatal
+    ? memberFeh(ch(worldSeed, CHANNELS.metallicity, sysid), conatal.fehMeanDex)
+    : rollMetallicity(ch(worldSeed, CHANNELS.metallicity, sysid), populationMeta, galactocentricRadiusPc, formationRank);
 
   const starsRng = ch(worldSeed, CHANNELS.stars, sysid);
   const primaryClass: StellarClass = pickClass(starsRng, { age, feh } satisfies StellarPopulationCtx);
@@ -262,6 +294,7 @@ export function generateSystemCore(inputs: GenerateSystemInputs): SystemCore {
 
   const ctx: SystemContext = {
     sysid, genVersion, positionPc, galactocentricRadiusPc, population, formationRank,
+    conatalGroupId: inputs.conatal?.groupId,
     age, feh, geometry, history, terraformScale,
   };
 

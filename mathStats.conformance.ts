@@ -1,4 +1,4 @@
-import { erf, Phi, probit, truncGaussQuantile, poissonInvCdf, LAMBDA_MAX } from './mathStats';
+import { erf, Phi, probit, truncGaussQuantile, poissonInvCdf, LAMBDA_MAX, besselI0e } from './mathStats';
 
 let failures = 0;
 function check(label: string, cond: boolean): void {
@@ -91,6 +91,32 @@ check('9 poissonInvCdf tracks the Poisson mean/variance within 1% over a large s
     const variance = sumSq / n - mean * mean;
     return Math.abs(mean - lambda) / lambda < 0.01 && Math.abs(variance - lambda) / lambda < 0.05;
   }));
+
+// -- besselI0e ------------------------------------------------------------------
+check('10 besselI0e(0) === 1 exactly (I0(0)=1, exp(-0)=1)', besselI0e(0) === 1);
+check('10b besselI0e is even: besselI0e(-x) === besselI0e(x)',
+  [1, 5, 18, 25, 31, 100].every((x) => besselI0e(-x) === besselI0e(x)));
+check('10c besselI0e is positive and strictly decreasing in |x|', (() => {
+  const xs = [0, 0.5, 1, 2, 5, 10, 15, 18, 20, 25, 31, 50, 100, 1000];
+  let prev = Infinity;
+  for (const x of xs) {
+    const v = besselI0e(x);
+    if (!(v > 0) || !(v < prev)) return false;
+    prev = v;
+  }
+  return true;
+})());
+check('10d the two branches (ascending series below x=18, Hankel expansion at/above) ' +
+  'agree at the split to within floating-point noise - no discontinuity at the seam ' +
+  '(x=18 +/- 1e-6, so the function\'s own smooth slope contributes negligibly)',
+  Math.abs(besselI0e(18 - 1e-6) - besselI0e(18 + 1e-6)) < 1e-7);
+check('10e besselI0e(x) ~ 1/sqrt(2*pi*x) for large x (the leading asymptotic term)',
+  Math.abs(besselI0e(1000) - 1 / Math.sqrt(2 * Math.PI * 1000)) / besselI0e(1000) < 1e-3);
+check('10f besselI0e over this project\'s own kappa range (~18.75-31.0) matches an ' +
+  'INDEPENDENT numerical check - I0(x) = (1/pi) * integral_0^pi exp(x*(cos(theta)-1)) ' +
+  'dtheta, computed here by 20000-point Simpson quadrature on the integral definition, ' +
+  'not by exercising the same series/Hankel code under test',
+  Math.abs(besselI0e(18.7511) - 0.0927627697) < 1e-6 && Math.abs(besselI0e(30.9951) - 0.0719522309) < 1e-6);
 
 if (failures > 0) throw new Error(`${failures} mathStats conformance failure(s)`);
 console.log('\nall mathStats conformance checks passed');

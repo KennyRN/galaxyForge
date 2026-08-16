@@ -136,6 +136,53 @@ export function truncGaussQuantile(
 }
 
 /**
+ * Exponentially scaled modified Bessel function of the first kind, order 0:
+ * `besselI0e(x) = exp(-|x|) I0(x)`. `sourced (form)` - the ascending series
+ * below x=18 and the asymptotic Hankel expansion above it are both standard
+ * (Abramowitz & Stegun 9.6.12 / 9.7.1); the specific split point and iteration
+ * caps are ported verbatim from the sibling `galaxyforge` build's own
+ * `mathStats.ts` (16 Aug 2026 port), where its docstring records why: the
+ * older A&S *polynomial* approximation (9.8.1/9.8.2) leaves a ~1.4e-8
+ * mean-preservation residual against `spiralArms.ts`'s 1e-12 gate, because
+ * `armFactor`'s ridge subtraction (`exp(k*(cos(dtheta)-1)) - besselI0e(k)`)
+ * needs this function's error to be far below the ridge terms it is
+ * subtracted from, not merely "small" in an absolute sense. Both branches
+ * verified against 50-digit references to full double precision over
+ * x in [0, 1e5] by the sibling build; not independently re-verified to that
+ * standard here, only exercised against the values this project's own kappa
+ * range (~18.75-31.0) actually needs.
+ */
+export function besselI0e(x: number): number {
+  if (!Number.isFinite(x)) {
+    if (x === Infinity || x === -Infinity) return 0;
+    throw new RangeError(`besselI0e: x must not be NaN`);
+  }
+  const ax = Math.abs(x);
+  if (ax < 18) {
+    let term = 1;
+    let sum = 1;
+    const q = (ax * ax) / 4;
+    for (let k = 1; k <= 80; k++) {
+      term *= q / (k * k);
+      sum += term;
+      if (term < 1e-18 * sum) break;
+    }
+    return Math.exp(-ax) * sum;
+  }
+  let term = 1;
+  let sum = 1;
+  for (let k = 1; k <= 40; k++) {
+    const m = 2 * k - 1;
+    const next = (term * (m * m)) / (8 * k * ax);
+    if (Math.abs(next) >= Math.abs(term)) break;
+    term = next;
+    sum += term;
+    if (Math.abs(term) < 1e-18 * Math.abs(sum)) break;
+  }
+  return sum / Math.sqrt(2 * Math.PI * ax);
+}
+
+/**
  * Guard against `Math.exp(-lambda)` underflowing to exactly zero
  * (lambda >= 746), which would otherwise make every draw return `kMax`
  * silently. Verified in the S4.8 audit: with a fixed 1000-ceiling and no
@@ -180,5 +227,9 @@ export function poissonInvCdf(lambda: number, u: number): number {
  *     decreases the returned k, for fixed lambda.
  *  7. poissonInvCdf tracks the Poisson mean/variance within tolerance over a
  *     large sample, at small/medium/large in-range lambda.
+ *  8. besselI0e(0) === 1 exactly (I0(0)=1, exp(-0)=1); besselI0e is positive,
+ *     decreasing in |x|, and its two branches (ascending series / Hankel
+ *     expansion) agree with each other at the x=18 split to high precision -
+ *     the property `spiralArms.ts`'s mean-preservation gate depends on.
  */
-export const MATH_STATS_GATES = 7 as const;
+export const MATH_STATS_GATES = 8 as const;

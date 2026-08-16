@@ -27,7 +27,7 @@
 
 import { Plugin, Notice, type TFile } from 'obsidian';
 import { createSpiralModel } from './galaxyModel';
-import { generateSector } from './sectorFootprint';
+import { assembleSector } from './sectorFootprint';
 import { writeSystemNote } from './vault';
 import type { RenderSystemInput } from './render';
 import { GalaxyScreen1Modal } from './galaxyCreationModals';
@@ -56,10 +56,15 @@ export default class StarForgePlugin extends Plugin {
 
   private async generateTestRegion(): Promise<void> {
     const model = createSpiralModel(false);
-    const systems = generateSector(TEST_WORLD_SEED, model, TEST_CENTRE_PC, TEST_RADIUS_PC, TEST_THICKNESS_PC, 'circle');
+    // assembleSector (16 Aug 2026), not generateSector: composes the
+    // stellar, remnant AND co-natal-chemistry layers together - see
+    // sectorFootprint.ts's own header for why generateSector alone left
+    // remnants.ts/conatal.ts unreachable from any real sector.
+    const assembled = assembleSector(TEST_WORLD_SEED, model, TEST_CENTRE_PC, TEST_RADIUS_PC, TEST_THICKNESS_PC, 'circle');
 
     let written = 0;
-    for (const s of systems) {
+    for (const m of assembled.stellar) {
+      const s = m.placed;
       const dx = s.positionPc.x - TEST_CENTRE_PC.x, dy = s.positionPc.y - TEST_CENTRE_PC.y, dz = s.positionPc.z - TEST_CENTRE_PC.z;
       const input: RenderSystemInput = {
         sysid: s.sysid, name: null, population: s.population,
@@ -68,7 +73,16 @@ export default class StarForgePlugin extends Plugin {
       await writeSystemNote(this.app.vault, input, null);
       written++;
     }
-    new Notice(`StarForge: wrote ${written} system note(s) to StarForge/Systems/`);
+    for (const r of assembled.remnants) {
+      const dx = r.positionPc.x - TEST_CENTRE_PC.x, dy = r.positionPc.y - TEST_CENTRE_PC.y, dz = r.positionPc.z - TEST_CENTRE_PC.z;
+      const input: RenderSystemInput = {
+        sysid: r.sysid, name: null, population: r.kind,
+        positionPc: r.positionPc, distanceFromSectorOriginPc: Math.hypot(dx, dy, dz),
+      };
+      await writeSystemNote(this.app.vault, input, null);
+      written++;
+    }
+    new Notice(`StarForge: wrote ${written} system note(s) (${assembled.remnants.length} remnants) to StarForge/Systems/`);
   }
 
   onunload(): void {

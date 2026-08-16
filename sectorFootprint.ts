@@ -46,7 +46,12 @@
  */
 
 import type { GalaxyModel } from './galaxyModel';
-import { rollCell, applyExclusion, CELL_SIZE_PC, type CellKey, type PlacedSystem } from './placement';
+import {
+  rollCell, applyExclusion, mergeLocalSymmetric, CELL_SIZE_PC, EXCLUSION_RADIUS_PC,
+  type CellKey, type PlacedSystem, type MergeCandidate,
+} from './placement';
+import { rollRemnantCell, type RemnantSystem } from './remnants';
+import { conatalProbability, drawGroup, groupRng } from './conatal';
 
 export type FootprintShape = 'circle' | 'square' | 'hexagon';
 
@@ -123,6 +128,110 @@ export function generateSector(
   return applyExclusion(candidates);
 }
 
+/* --------------------------- the full assembled sector --------------------------- */
+
+export interface AssembledStellarSystem {
+  readonly placed: PlacedSystem;
+  /** Present iff `placed` belongs to a co-natal cluster - see
+   *  `systemConductor.ts`'s own `GenerateSystemInputs.conatal` doc comment,
+   *  which this is built to feed directly. */
+  readonly conatal?: { readonly groupId: string; readonly ageGyr: number; readonly fehMeanDex: number };
+}
+
+export interface AssembledSector {
+  readonly stellar: readonly AssembledStellarSystem[];
+  readonly remnants: readonly RemnantSystem[];
+}
+
+/**
+ * The REAL sector conductor (16 Aug 2026) - `generateSector` above only ever
+ * produced the stellar-placement layer; `remnants.ts` and `conatal.ts` were
+ * both fully built and gated but never called from anywhere that produces a
+ * real sector, so an actual generated sector had zero remnant systems and
+ * no shared co-natal chemistry despite both being finished science (found
+ * by audit, closed here). Composes, per footprint:
+ *
+ *  1. The stellar layer (`placement.rollCell`, unchanged).
+ *  2. The remnant layer (`remnants.rollRemnantCell`, additive - Law 5).
+ *  3. Co-natal group chemistry (`conatal.drawGroup`) for every Thomas-process
+ *     cluster that has offspring - the realism ruling `SystemContext`'s own
+ *     `conatalGroupId` doc comment already specified: EVERY placed group is
+ *     conatal, there is no separate "is this cluster co-natal" coin flip.
+ *  4. ONE exclusion merge across BOTH layers together (`mergeLocalSymmetric`,
+ *     Law 1 - the same generic core `applyExclusion` uses), stellar sorting
+ *     first so a remnant within `EXCLUSION_RADIUS_PC` of a kept star is the
+ *     one dropped - mirrors a sibling build's own `mergeStellarThenRemnants`
+ *     ordering rationale: a dropped remnant is never converted into a
+ *     companion, `multiplicity.ts`'s own WD-companion promotion already
+ *     models that case, and merging here too would double-count it.
+ */
+export function assembleSector(
+  worldSeed: string, model: GalaxyModel,
+  centrePc: { readonly x: number; readonly y: number; readonly z: number },
+  radiusPc: number, thicknessPc: number, footprintShape: FootprintShape,
+): AssembledSector {
+  const cells = cellsTouchingFootprint(centrePc, radiusPc, thicknessPc);
+
+  const stellarCandidates: PlacedSystem[] = [];
+  const remnantCandidates: RemnantSystem[] = [];
+  const conatalByGroupKey = new Map<string, { groupId: string; ageGyr: number; fehMeanDex: number }>();
+
+  for (const cell of cells) {
+    const cellStellar = rollCell(worldSeed, model, cell);
+    stellarCandidates.push(...cellStellar);
+    remnantCandidates.push(...rollRemnantCell(worldSeed, model, cell));
+
+    const parentsWithOffspring = new Set<number>();
+    for (const s of cellStellar) {
+      if (s.isOffspring && s.parentOrdinal !== undefined) parentsWithOffspring.add(s.parentOrdinal);
+    }
+    for (const parentOrdinal of parentsWithOffspring) {
+      const parent = cellStellar.find((s) => s.ordinal === parentOrdinal && !s.isOffspring);
+      if (!parent) continue;   // a parentOrdinal always has its own parent record; defensive only
+      const popMeta = model.populations.find((p) => p.key === parent.population);
+      if (!popMeta || conatalProbability(popMeta) <= 0) continue;
+      const group = drawGroup(groupRng(worldSeed, cell, parentOrdinal), cell, parentOrdinal, popMeta);
+      conatalByGroupKey.set(
+        `${cell.ix}.${cell.iy}.${cell.iz}.${parentOrdinal}`,
+        { groupId: group.groupId, ageGyr: group.ageGyr, fehMeanDex: group.fehMeanDex },
+      );
+    }
+  }
+
+  const withinFootprint = (p: { readonly x: number; readonly y: number; readonly z: number }): boolean => {
+    const dx = p.x - centrePc.x, dy = p.y - centrePc.y, dz = p.z - centrePc.z;
+    return isWithinFootprint(dx, dy, radiusPc, footprintShape) && isWithinSlab(dz, thicknessPc);
+  };
+  const inFootprintStellar = stellarCandidates.filter((s) => withinFootprint(s.positionPc));
+  const inFootprintRemnants = remnantCandidates.filter((r) => withinFootprint(r.positionPc));
+
+  interface Tagged extends MergeCandidate { readonly kind: 'stellar' | 'remnant'; readonly index: number; }
+  const tagged: Tagged[] = [
+    ...inFootprintStellar.map((s, index): Tagged => ({
+      key: `0,${s.cellKey.ix},${s.cellKey.iy},${s.cellKey.iz},${s.ordinal}`,
+      x: s.positionPc.x, y: s.positionPc.y, z: s.positionPc.z, kind: 'stellar', index,
+    })),
+    ...inFootprintRemnants.map((r, index): Tagged => ({
+      key: `1,${r.cellKey.ix},${r.cellKey.iy},${r.cellKey.iz},${r.ordinal}`,
+      x: r.positionPc.x, y: r.positionPc.y, z: r.positionPc.z, kind: 'remnant', index,
+    })),
+  ];
+  const kept = mergeLocalSymmetric(tagged, EXCLUSION_RADIUS_PC);
+
+  const stellar: AssembledStellarSystem[] = kept
+    .filter((c) => c.kind === 'stellar')
+    .map((c): AssembledStellarSystem => {
+      const placed = inFootprintStellar[c.index]!;
+      const groupKey = placed.isOffspring
+        ? `${placed.cellKey.ix}.${placed.cellKey.iy}.${placed.cellKey.iz}.${placed.parentOrdinal}`
+        : `${placed.cellKey.ix}.${placed.cellKey.iy}.${placed.cellKey.iz}.${placed.ordinal}`;
+      return { placed, conatal: conatalByGroupKey.get(groupKey) };
+    });
+  const remnants: RemnantSystem[] = kept.filter((c) => c.kind === 'remnant').map((c) => inFootprintRemnants[c.index]!);
+
+  return { stellar, remnants };
+}
+
 /* --------------------------------- gates ------------------------------------ */
 
 /**
@@ -146,8 +255,17 @@ export function generateSector(
  *     resolved by `generateSector` (verified directly: a pair placed to
  *     straddle a cell boundary is not both kept).
  *  7. DETERMINISM - same inputs give a bit-identical sector, always.
+ *  8. assembleSector (16 Aug 2026) is deterministic, same as generateSector.
+ *  9. assembleSector's remnant layer is actually populated - the gap the
+ *     audit found (remnants.ts fully built and gated, never called from
+ *     anything that produces a real sector).
+ *  10. assembleSector's stellar layer carries real conatal-group chemistry
+ *      for Thomas-process clusters - every member of the SAME group shares
+ *      EXACTLY the same age, verified directly.
+ *  11. Exclusion runs across the stellar AND remnant layers TOGETHER, not
+ *      as two independent passes that could leave a too-close pair standing.
  */
-export const SECTOR_FOOTPRINT_GATES = 7 as const;
+export const SECTOR_FOOTPRINT_GATES = 11 as const;
 
 /* -------------------------------- glossary ----------------------------------- */
 
