@@ -21,10 +21,10 @@
  * still holds.
  */
 
-import type { GalaxyParameters, BarParams } from './galaxyParameters';
+import type { GalaxyParameters, BulgeParams } from './galaxyParameters';
 import { DEFAULT_GALAXY_PARAMETERS, anchorArmCorrectionFor } from './galaxyParameters';
 import { armFactor, type ArmResponseSet } from './spiralArms';
-import { smootherstep } from './mathStats';
+import { smootherstep, lnGamma } from './mathStats';
 import { prugnielSimienMassDensity } from './prugnielSimien';
 
 export type GalaxyModelName = 'spiral' | 'barredSpiral' | 'elliptical' | 'lenticular';
@@ -77,6 +77,11 @@ export type PopulationKey =
   | 'spiralOldThin'
   | 'spiralThick'
   | 'spiralHalo'
+  // Boxy/peanut bulge (Amendment A4, morphology patch v3.0, 17 Aug 2026) -
+  // additive, mass-normalised, NOT a disc-shaped population (see
+  // `discGeometryFor`'s own `default: return null` branch) - its geometry
+  // lives in `GalaxyParameters.bulge`, not on the `Population` record.
+  | 'spiralBoxyPeanutBulge'
   // elliptical - 2.1, 2.3a
   | 'ellipticalInSitu'
   | 'ellipticalAccreted'
@@ -290,6 +295,32 @@ export const R0_PC = 8178;          // sourced, GRAVITY Collaboration 2019
 const F_HALO = 0.01;                // tunable, S4.6 - MW is a low outlier
 const ERWIN = { disc: 0.61, pseudo: 0.33, classical: 0.06 };   // sourced, Erwin et al. 2015
 
+// Licquia & Newman 2015 (ApJ 806, 96), "Improved Estimates of the Milky
+// Way's Stellar Mass and Star Formation Rate from Hierarchical Bayesian
+// Meta-Analysis" - bulge mass 0.91e10 Msol, total stellar mass 6.08e10 Msol
+// (disc 5.17e10). `sourced`. `BULGE_MASS_FRACTION_OF_GALAXY` is `derived`
+// from the two (not independently transcribed, so it cannot drift out of
+// sync with them); `BulgeParams.totalStellarMassSol`
+// (`galaxyParameters.ts`) carries the SAME 6.08e10 figure as the actual
+// Tier G anchor `spiralBoxyPeanutBulge.massFractionGalaxy` multiplies
+// against - this module-level constant exists only to derive that fraction
+// once, honestly, rather than a bare 0.15 literal with no shown working.
+const LICQUIA_NEWMAN_BULGE_MASS_SOL = 0.91e10;
+const LICQUIA_NEWMAN_TOTAL_MASS_SOL = 6.08e10;
+const BULGE_MASS_FRACTION_OF_GALAXY = LICQUIA_NEWMAN_BULGE_MASS_SOL / LICQUIA_NEWMAN_TOTAL_MASS_SOL;
+const NON_BULGE_MASS_FRACTION = 1 - BULGE_MASS_FRACTION_OF_GALAXY;   // 0.10/0.30/0.30/0.25/0.05 renormalised against it, so all SIX populations sum to 1 (stage0.conformance.ts's own gate)
+
+/** `calibrated` fallback Upsilon (mass-to-count conversion), used only when
+ *  `createSpiralModel`'s `upsilonFor` parameter is omitted - S4.3's own
+ *  "should land near 2 systems per solar mass" sanity anchor. A caller with
+ *  access to `galacticDensity.upsilonFor` (population-accurate, age/feh
+ *  -dependent) should inject the real function instead - this module cannot
+ *  import it directly (the one-way `galacticDensity -> galaxyModel`
+ *  direction, same reason `createEllipticalModel`/`createLenticularModel`
+ *  already take `upsilonFor` as an injected parameter rather than a default
+ *  import). */
+const DEFAULT_BULGE_UPSILON = 2.0;
+
 /** Hernquist k = R_e/a, computed by numerical integration of the projected
  *  profile - never quoted (S4.5's own ruling). See stage0.conformance.ts's
  *  gate asserting this lands at 1.815271. */
@@ -337,28 +368,47 @@ const A_IN_SITU_PC = 2400;   // a = R_e/k, Shen (S4.5)
 
 export const SPIRAL_POPULATIONS: Population[] = [
   { key: 'spiralYoungThin', label: 'Young thin disc', nLocal: 0.018, ageGyr: [0, 3],
-    ageMeanGyr: 1.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.10,
+    ageMeanGyr: 1.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.10 * NON_BULGE_MASS_FRACTION,
     fehMeanDex: 0.0, fehSigmaDex: 0.15,
     fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
     clusteredFraction: 0.6, meanGroupSize: 12, armAmplitude: 0.35 },
   { key: 'spiralMidThin', label: 'Mid thin disc', nLocal: 0.030, ageGyr: [3, 6],
-    ageMeanGyr: 4.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.30,
+    ageMeanGyr: 4.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.30 * NON_BULGE_MASS_FRACTION,
     fehMeanDex: -0.05, fehSigmaDex: 0.18,
     fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
     armAmplitude: 0.25 },
   { key: 'spiralOldThin', label: 'Old thin disc', nLocal: 0.024, ageGyr: [6, 8],
-    ageMeanGyr: 7.0, ageSigmaGyr: 0.8, massFractionGalaxy: 0.30,
+    ageMeanGyr: 7.0, ageSigmaGyr: 0.8, massFractionGalaxy: 0.30 * NON_BULGE_MASS_FRACTION,
     fehMeanDex: -0.15, fehSigmaDex: 0.20,
     fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
     armAmplitude: 0.15 },
   { key: 'spiralThick', label: 'Thick disc', nLocal: 0.006, ageGyr: [8, 12],
-    ageMeanGyr: 10.0, ageSigmaGyr: 1.2, massFractionGalaxy: 0.25,
+    ageMeanGyr: 10.0, ageSigmaGyr: 1.2, massFractionGalaxy: 0.25 * NON_BULGE_MASS_FRACTION,
     fehMeanDex: -0.55, fehSigmaDex: 0.25,
     fehGradientForm: 'linear', fehGradient: -0.000015, fehGradientRefPc: R0_PC,
     armAmplitude: 0.0 },
   { key: 'spiralHalo', label: 'Stellar halo', nLocal: 0.0002, ageGyr: [11, 13.5],
-    ageMeanGyr: 12.0, ageSigmaGyr: 0.9, massFractionGalaxy: 0.05,
+    ageMeanGyr: 12.0, ageSigmaGyr: 0.9, massFractionGalaxy: 0.05 * NON_BULGE_MASS_FRACTION,
     fehMeanDex: -1.6, fehSigmaDex: 0.4, armAmplitude: 0.0 },
+  // Boxy/peanut bulge (Amendment A4, morphology patch v3.0, 17 Aug 2026) -
+  // an ADDITIVE, mass-normalised population, not `barFactor`'s old
+  // multiplier on the disc. nLocal: 0 (unused placeholder, matching the
+  // elliptical/lenticular convention for every other mass-normalised
+  // population here) - this population has no solar-neighbourhood anchor;
+  // its geometry lives in `GalaxyParameters.bulge`
+  // (`createSpiralModel`/`boxyPeanutBulgeMassDensity` below), the same
+  // separation `barFactor` used before it (galaxy-level geometry off the
+  // Population record, demographic data on it). Old, metal-rich per Wegg &
+  // Gerhard's own characterisation of the structure; `calibrated` age/feh
+  // distribution (W&G13 gives geometry only, no stellar population),
+  // deliberately similar to `lenticularClassicalBulge`'s numbers as the
+  // closest already-modelled analogue of "an old, centrally concentrated
+  // spheroidal component" - NOT claimed as the same physical object (a
+  // classical bulge forms by mergers, a boxy/peanut bulge by bar buckling;
+  // this project does not model formation channel, only age/feh output).
+  { key: 'spiralBoxyPeanutBulge', label: 'Boxy/peanut bulge', nLocal: 0, ageGyr: [8, 13],
+    ageMeanGyr: 10.0, ageSigmaGyr: 1.5, massFractionGalaxy: BULGE_MASS_FRACTION_OF_GALAXY,
+    fehMeanDex: 0.05, fehSigmaDex: 0.30, armAmplitude: 0 },
 ];
 
 export const ELLIPTICAL_POPULATIONS: Population[] = [
@@ -547,46 +597,126 @@ function truncatedPowerLawNorm(total: number, index: number, flattening: number,
   return total / (4 * Math.PI * flattening * shape);
 }
 
-/* ------------------------------- bar geometry --------------------------------- */
+/* -------------------------- boxy/peanut bulge geometry ------------------------- */
 
 // smootherstep moved to mathStats.ts (16 Aug 2026) - imported above.
 
-// Wegg & Gerhard 2013 / Wegg, Gerhard & Portail 2015 bar geometry - sourced
-// except the taper window and strength (tunable, S4.4's own ledger). NO
-// LONGER DECLARED HERE (15 Aug 2026, patch v2.3) - `galaxyParameters
-// .DEFAULT_BAR` is the single source now (Law 1); `barFactor` below takes
-// `BarParams` as an explicit argument instead of closing over a module
-// -level const, so `createSpiralModel`'s injected `params.bar` is what
-// actually reaches it.
+// Wegg & Gerhard 2013 / Wegg, Gerhard & Portail 2015 bulge geometry -
+// sourced. NOT DECLARED HERE - `galaxyParameters.DEFAULT_BULGE` is the
+// single source (Law 1); `boxyPeanutBulgeMassDensity` below takes
+// `BulgeParams` as an explicit argument instead of closing over a
+// module-level const, so `createSpiralModel`'s injected `params.bulge` is
+// what actually reaches it.
 
-/** Returns EXACTLY 1 when `enabled` is false - the short-circuit that
- *  guarantees `barredSpiral` with the bar off reproduces `spiral`
- *  bit-identically (S4.4's own gate). */
-function barFactor(enabled: boolean, bar: BarParams, R: number, theta: number, z: number): number {
-  if (!enabled || bar.strength === 0) return 1;
-  const dth = theta - bar.phaseRad;
+/**
+ * C(n) = INT_{R^3} exp(-||u||_n) du dv dw, the volume integral of a unit
+ * Lp-norm exponential decay in 3D - closed form via the substitution to
+ * "radial shell" coordinates (the Lp-ball's volume is homogeneous of degree
+ * 3 in its own radius, same argument as a plain sphere's 4/3*pi*r^3):
+ * C(n) = 3*V_unit(n) * Gamma(3) where V_unit(n) = (2*Gamma(1+1/n))^3 /
+ * Gamma(1+3/n) is the unit Lp-ball's own volume - collecting terms gives the
+ * form below. `derived` (a standard superellipsoid/Lp-ball volume identity,
+ * not a citation of its own). Verified numerically (disposable diagnostic
+ * script, this session): C(2) matches the known ellipsoid case 8*pi to 14
+ * significant digits exactly; C(4) and the full mass-recovery integral
+ * (`boxyPeanutBulgeMassDensity` below) both match a brute-force 3D
+ * quadrature within that quadrature's own ~0.2-0.6% grid error.
+ */
+function superellipsoidExpNormConstant(n: number): number {
+  return 48 * Math.exp(3 * lnGamma(1 + 1 / n) - lnGamma(1 + 3 / n));
+}
+
+/**
+ * The boxy/peanut bulge (Amendment A4, morphology patch v3.0, 17 Aug 2026) -
+ * an ADDITIVE, mass-normalised population term. Replaces `barFactor`'s old
+ * role as a MULTIPLIER on the disc, which was modelling a bulge as if it
+ * were the bar's enhancement of disc density - a scope error, not a
+ * transcription error (see `BulgeParams`'s own header in `galaxyParameters.ts`).
+ *
+ * `barEnabled` selects the bulge's own SHAPE, not whether it exists at all -
+ * a spiral ALWAYS has a bulge now. `true` gives the real Wegg & Gerhard
+ * triaxial anisotropy (x/y scaled independently by `scalePc.x`/`scalePc.y`,
+ * boxiness exponent `bulge.boxiness`); `false` axisymmetrises it - x/y both
+ * scaled by their geometric mean (`sqrt(scalePc.x * scalePc.y)`, the same
+ * cross-sectional AREA as the triaxial ellipse, `calibrated`) AND the
+ * exponent forced to n=2 (a plain ellipsoid, NOT `bulge.boxiness` at a=b -
+ * a superellipsoid with a=b but n>2 is still a "squircle" cross-section, not
+ * a circle, since `|cos(theta)|^n + |sin(theta)|^n` is not constant in
+ * theta for n!=2; boxiness IS the bar-aligned anisotropy, so an axisymmetric
+ * bulge genuinely has none of it, not merely a rounder version of it) - so
+ * an unbarred spiral shows a truly round bulge rather than smuggling in bar
+ * structure through the back door under a different exponent. Either way
+ * the TOTAL MASS is identical - `massSol` normalises via `a*b*c*C(n)` with
+ * whichever `(a,b,c,n)` the branch above selected, so toggling `barEnabled`
+ * changes shape, never total light (S4.4's "one implementation, one flag"
+ * restated for the new bulge form - gate G4).
+ *
+ * No core-floor clamp needed (unlike `haloTerm`'s r^-2.8 cusp): `exp(-s)` is
+ * bounded by 1 at s=0, never diverges.
+ */
+function boxyPeanutBulgeMassDensity(
+  barEnabled: boolean, bulge: BulgeParams, massSol: number, R: number, theta: number, z: number,
+): number {
+  const { x: aTri, y: bTri, z: c } = bulge.scalePc;
+  if (!barEnabled) {
+    // Axisymmetrised: n FORCED to 2 (a plain ellipsoid), not `bulge.boxiness`
+    // at a=b - a superellipsoid with a=b but n>2 is still a "squircle"
+    // cross-section, not a circle (|cos(theta)|^n + |sin(theta)|^n is not
+    // constant in theta for n!=2); boxiness IS the bar-aligned anisotropy,
+    // so an axisymmetric bulge genuinely has none of it, not a rounder
+    // version of it. `theta` is DELIBERATELY never read in this branch
+    // (mirroring `haloTerm`'s own `Math.hypot(R, z/flattening)` pattern) -
+    // going through `R*cos(dth)`/`R*sin(dth)` and relying on the
+    // cos^2+sin^2=1 identity to cancel theta out would only be
+    // mathematically exact, not BIT-identical (floating-point round-off in
+    // `Math.cos`/`Math.sin` does not generally satisfy the identity to the
+    // last ULP), which would silently break the exact axisymmetry gate G4a.
+    const abEff = Math.sqrt(aTri * bTri);
+    const s = Math.hypot(R / abEff, z / c);
+    const peakDensity = massSol / (abEff * abEff * c * superellipsoidExpNormConstant(2));
+    return peakDensity * Math.exp(-s);
+  }
+  const n = bulge.boxiness;
+  const dth = theta - bulge.phaseRad;
   const x = R * Math.cos(dth), y = R * Math.sin(dth);
-  const s = Math.abs(x) / bar.scalePc.x + Math.abs(y) / bar.scalePc.y + Math.abs(z) / bar.scalePc.z;
-  const window = 1 - smootherstep(bar.taperInnerPc, bar.taperOuterPc, R);
-  return 1 + bar.strength * Math.exp(-s) * window;
+  const s = Math.pow(Math.pow(Math.abs(x) / aTri, n) + Math.pow(Math.abs(y) / bTri, n) + Math.pow(Math.abs(z) / c, n), 1 / n);
+  const peakDensity = massSol / (aTri * bTri * c * superellipsoidExpNormConstant(n));
+  return peakDensity * Math.exp(-s);
 }
 
 /* ------------------------------- model factories ------------------------------- */
 
 /**
- * ONE implementation, one flag (S4.4). `barEnabled = false` reproduces the
- * pure spiral bit-identically, because `barFactor` returns exactly 1 and the
- * halo is NEVER multiplied by it (S4.2's halo/bar bug fix - a bar is a disc
- * instability, not a halo feature).
+ * ONE implementation, one flag (S4.4). `barEnabled` no longer touches the
+ * disc at all (that was `barFactor`'s old, wrong role - see
+ * `boxyPeanutBulgeMassDensity`'s own header) - every disc/halo population's
+ * density is now IDENTICAL between `spiral` and `barredSpiral` at every
+ * radius, not merely outside a taper window (gate: "every non-bulge
+ * population is bit-identical between barred and unbarred"). `barEnabled`
+ * now selects only the bulge's shape (triaxial vs axisymmetrised).
  *
  * `params` (patch v2.3, 15 Aug 2026) is OPTIONAL, defaulting to
  * `DEFAULT_GALAXY_PARAMETERS` - a caller that omits it gets the identical
- * `R0Pc`/`bar` values this function always had, so every prior call site
+ * `R0Pc`/`bulge` values this function always had, so every prior call site
  * (a single positional `barEnabled` argument) keeps compiling and keeps its
- * existing behaviour. The arm/complex modulation, however, is NOT optional
- * once `params` IS supplied - it is what `params` is actually for.
+ * existing behaviour for the five original populations. The arm/complex
+ * modulation, however, is NOT optional once `params` IS supplied - it is
+ * what `params` is actually for.
+ *
+ * `upsilonFor` (17 Aug 2026, additive) is OPTIONAL, defaulting to a flat
+ * `calibrated` fallback (`DEFAULT_BULGE_UPSILON`) - only the new bulge
+ * population consumes it (the five disc/halo populations are
+ * `nLocal`-anchored and need no mass-to-count conversion at all). A caller
+ * with access to `galacticDensity.upsilonFor` should inject the real,
+ * population-accurate function - `galaxyCreationModals.ts`'s own
+ * `modelFromDraft` does exactly this, the same way it already does for
+ * `createEllipticalModel`/`createLenticularModel`.
  */
-export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters = DEFAULT_GALAXY_PARAMETERS): GalaxyModel {
+export function createSpiralModel(
+  barEnabled: boolean,
+  params: GalaxyParameters = DEFAULT_GALAXY_PARAMETERS,
+  upsilonFor: (pop: Population) => number = () => DEFAULT_BULGE_UPSILON,
+): GalaxyModel {
   const populations = SPIRAL_POPULATIONS;
   return {
     morphology: barEnabled ? 'barredSpiral' : 'spiral',
@@ -596,11 +726,15 @@ export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters 
         .reduce((a, b) => a + b, 0);
     },
     densityByPopulation(R, theta, z): DensityByPopulation {
-      const bar = barFactor(barEnabled, params.bar, R, theta, z);
       const out: Partial<Record<PopulationKey, number>> = {};
       for (const pop of populations) {
         if (pop.key === 'spiralHalo') {
           out[pop.key] = haloTerm(pop.nLocal, R, z);    // AXISYMMETRIC - never barred, never arm-modulated
+          continue;
+        }
+        if (pop.key === 'spiralBoxyPeanutBulge') {
+          const massSol = params.bulge.totalStellarMassSol * pop.massFractionGalaxy * params.bulge.strength;
+          out[pop.key] = boxyPeanutBulgeMassDensity(barEnabled, params.bulge, massSol, R, theta, z) * upsilonFor(pop);
           continue;
         }
         // spiralYoungThin's complex-tier boost is NOT applied here (removed 16 Aug
@@ -614,7 +748,7 @@ export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters 
         // per `complexParticipation` - see that module's header) rather
         // than the complex layer adding on top of an already-full field,
         // which is what this multiplier used to do.
-        out[pop.key] = discTerm(pop, R, theta, z, params) * bar;
+        out[pop.key] = discTerm(pop, R, theta, z, params);
       }
       return out;
     },
@@ -629,24 +763,26 @@ export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters 
  * confirmed by a full-codebase search for `.scale` before writing this).
  *
  * WHY A COORDINATE WRAPPER, not touching `galaxyParameters.ts`'s stored
- * constants or `discTerm`/`haloTerm`/`barFactor`'s own internals: every
- * length-typed quantity those three functions read (`params.R0Pc` and the
- * disc scale-length/height in `discTerm`; the halo's own R0-anchor,
- * flattening-weighted radius and truncation in `haloTerm`; the bar's own
- * `scalePc`/taper window in `barFactor`; `armInnerTaper`'s start radii; the
- * arm log-spiral geometry itself) is used ONLY as a ratio against the query
- * `R`/`z` - never mixed with an independently-scaled quantity. That makes
- * the WHOLE model homogeneous of degree -1 under a uniform length rescale:
- * building a second model with every one of those constants multiplied by
- * `scale` and querying it at the real `(R, theta, z)` gives EXACTLY the
- * same answer as querying THIS (unscaled) model at `(R/scale, theta,
- * z/scale)` - verified by hand for the disc exponential (`exp(-(R-R0)/L)`
- * is invariant under `R->R/s, R0->R0*s, L->L*s`, and dividing every one of
- * R0/L/R by `s` uniformly reduces to exactly this), the halo's oblate
- * power law INCLUDING its truncation and core-floor clamp (the truncation/
- * floor thresholds become effectively `s` times larger in the query's own
- * frame, which is the correct "the whole galaxy got bigger" behaviour), the
- * bar's taper/strength envelope (`smootherstep` of a ratio, same argument),
+ * constants or `discTerm`/`haloTerm`/`boxyPeanutBulgeMassDensity`'s own
+ * internals: every length-typed quantity those three functions read
+ * (`params.R0Pc` and the disc scale-length/height in `discTerm`; the halo's
+ * own R0-anchor, flattening-weighted radius and truncation in `haloTerm`;
+ * the bulge's own `scalePc` in `boxyPeanutBulgeMassDensity`; `armInnerTaper`'s
+ * start radii; the arm log-spiral geometry itself) is used ONLY as a ratio
+ * against the query `R`/`z` - never mixed with an independently-scaled
+ * quantity. That makes the WHOLE model homogeneous of degree -1 under a
+ * uniform length rescale: building a second model with every one of those
+ * constants multiplied by `scale` and querying it at the real
+ * `(R, theta, z)` gives EXACTLY the same answer as querying THIS (unscaled)
+ * model at `(R/scale, theta, z/scale)` - verified by hand for the disc
+ * exponential (`exp(-(R-R0)/L)` is invariant under `R->R/s, R0->R0*s,
+ * L->L*s`, and dividing every one of R0/L/R by `s` uniformly reduces to
+ * exactly this), the halo's oblate power law INCLUDING its truncation and
+ * core-floor clamp (the truncation/floor thresholds become effectively `s`
+ * times larger in the query's own frame, which is the correct "the whole
+ * galaxy got bigger" behaviour), the bulge's `exp(-s)` (`s` is built purely
+ * from `|x|/a, |y|/b, |z|/c` ratios, same argument exactly - re-verified
+ * 17 Aug 2026 after the bulge became mass-normalised, see next paragraph),
  * and the arm log-spiral (log-spirals are scale-invariant under a uniform
  * radius rescale BY CONSTRUCTION - `spiralArms.ts` needs no changes at all).
  *
@@ -654,16 +790,38 @@ export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters 
  * reference - every existing default-scale caller (every conformance gate,
  * the golden master, `main.ts`'s own test command) is completely untouched.
  *
- * VALID ONLY FOR LOCALLY-ANCHORED MODELS (spiral/barredSpiral, anchored at
- * `nLocal` near R0) - NOT for the elliptical/lenticular factories below,
- * whose density is MASS-NORMALISED (integrates to a fixed total, not
- * pinned to a local value). A mass-normalised profile rescaled this same
- * way would need an extra `1/scale^3` volume correction to keep its total
- * mass fixed, which this wrapper does not supply - calling it on anything
- * but a spiral/barredSpiral model would silently misstate that model's own
- * total mass. Elliptical/lenticular already have working size scaling via
- * `galaxyMassSol` (`createEllipticalModel`/`createLenticularModel`'s own
- * first parameter) and are untouched by this function's existence.
+ * THE BULGE IS MASS-NORMALISED AND THIS WRAPPER STILL WORKS ON IT, unlike
+ * elliptical/lenticular below - the distinction is WHAT the fixed mass
+ * means, not whether one exists. `createEllipticalModel`/
+ * `createLenticularModel`'s `galaxyMassSol` is an EXTERNALLY SUPPLIED total
+ * (the "Galaxy size" GUI value, driving the ENTIRE model's mass budget) that
+ * a coordinate rescale alone would silently understate by `scale^3` if
+ * nothing corrected for it - which is why this wrapper is documented as
+ * invalid for them. The bulge's `BulgeParams.totalStellarMassSol`/
+ * `massFractionGalaxy` are instead FIXED, SOURCED constants (Licquia &
+ * Newman 2015) that the "Galaxy size" slider never touches directly at all -
+ * so letting the wrapper's coordinate remap change its EFFECTIVE integrated
+ * mass by `scale^3` is not an error to guard against, it is the SAME "a
+ * bigger galaxy has proportionally more stars" behaviour every disc
+ * population already exhibits under this wrapper (their `nLocal` anchors
+ * are equally fixed constants the slider never touches directly either),
+ * arrived at through mass-normalisation's own mechanism instead of a local
+ * anchor's. Verified numerically (disposable diagnostic script, this
+ * session): the population-level self-similarity identity holds EXACTLY
+ * (`===`) for the bulge at several `k`, and a scale=2 galaxy's numerically
+ * -integrated bulge mass lands at exactly 8x (2^3) a scale=1 galaxy's.
+ *
+ * VALID ONLY FOR LOCALLY-ANCHORED OR INTERNALLY-SOURCED-MASS MODELS
+ * (spiral/barredSpiral, including its bulge) - NOT for the elliptical/
+ * lenticular factories below, whose EVERY population's mass is externally
+ * supplied via `galaxyMassSol`. A model built that way rescaled through this
+ * wrapper would need an extra `1/scale^3` volume correction to keep the
+ * CALLER's chosen total mass fixed, which this wrapper does not supply -
+ * calling it on anything but a spiral/barredSpiral model would silently
+ * misstate that model's own total mass. Elliptical/lenticular already have
+ * working size scaling via `galaxyMassSol` (`createEllipticalModel`/
+ * `createLenticularModel`'s own first parameter) and are untouched by this
+ * function's existence.
  *
  * `starFormingComplexes.ts`'s own absolute-pc constants (a star-forming
  * complex is genuinely ~600 pc, Efremov 1978, regardless of how big the

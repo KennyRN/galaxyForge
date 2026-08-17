@@ -387,7 +387,14 @@ function modelFromDraft(d: Screen1Draft): DraftModel {
     // for honest provenance, even though the wrapper - not `params.scale`
     // being read internally - is what actually produces the effect.
     const params: GalaxyParameters = { ...baseParams, scale: sizeValue };
-    const model = scaleSpiralModel(createSpiralModel(resolveBarEnabled(d.morphology), params), sizeValue);
+    // `upsilonFor` (17 Aug 2026, Amendment A4) - injected here the same way
+    // it already is for `createEllipticalModel`/`createLenticularModel`
+    // below, rather than left at `createSpiralModel`'s own flat `calibrated`
+    // fallback (`DEFAULT_BULGE_UPSILON`); this is the GUI's one real
+    // generation entry point, so it should use the population-accurate
+    // (age/feh-dependent) mass-to-count conversion wherever one is
+    // available, exactly like every other mass-normalised population here.
+    const model = scaleSpiralModel(createSpiralModel(resolveBarEnabled(d.morphology), params, upsilonFor), sizeValue);
     return { model, params };
   }
   const params = makeDefaultGalaxyParameters(d.worldSeed);
@@ -528,8 +535,9 @@ function boundaryPointsPc(radiusPc: number, shape: FootprintShape): { x: number;
  * RESOLUTION (200x200, up from an earlier 80x80): a cell at 80x80 over this
  * span is 500pc across - coarser than a spiral arm's own perpendicular
  * width (183-511pc across this project's radius range, `spiralArms
- * .armWidthPc`) and coarser than the bar's own core scale (700/440pc,
- * `DEFAULT_BAR.scalePc`). Verified directly (this session's own diagnostic
+ * .armWidthPc`) and coarser than the bulge's own core scale (700/440pc,
+ * `DEFAULT_BULGE.scalePc` - renamed from `DEFAULT_BAR` 17 Aug 2026, see
+ * `galaxyParameters.ts`'s own `BulgeParams` header). Verified directly (this session's own diagnostic
  * script, ASCII-rendered the field at several resolutions): at 500pc/cell
  * an arm ridge is aliased into blocky noise rather than a resolvable curve,
  * which is a real contributor to "just a uniform collection of dots" - not

@@ -32,6 +32,7 @@ function family(key: PopulationKey): 'disc' | 'spheroid' {
       return 'disc';
     case 'spiralHalo': case 'ellipticalInSitu': case 'ellipticalAccreted':
     case 'lenticularClassicalBulge': case 'lenticularHalo':
+    case 'spiralBoxyPeanutBulge':
       return 'spheroid';
     default:
       return assertNever(key);             // compile error if a key is added

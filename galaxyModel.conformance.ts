@@ -46,13 +46,23 @@ for (const [name, model] of [['spiral', spiral], ['barredSpiral', barred], ['ell
 check('spiral: morphology label is "spiral"', spiral.morphology === 'spiral');
 check('barredSpiral: morphology label is "barredSpiral"', barred.morphology === 'barredSpiral');
 
-// -- barredSpiral (S4.4) ----------------------------------------------------------
-check('barredSpiral: bar factor is EXACTLY 1 outside taperOuterPc (5800 pc) - ' +
-  'toggling the bar off at R=8178 (well outside) reproduces spiral bit-identically there',
-  PROBES.every(([R, t, z]) => R > 5800 ? barred.densityAt(R, t, z) === spiral.densityAt(R, t, z) : true));
+// -- barredSpiral / boxy-peanut bulge (S4.4, restated for the new bulge form,
+//    Amendment A4, morphology patch v3.0, 17 Aug 2026 - gate G4) -----------------
+//
+// `barFactor`'s old multiplicative role (a taper window on the disc) is
+// retired outright, not merely re-tuned - every gate below tests the NEW
+// claim directly rather than patching the old one's premise.
 
-check('barredSpiral: the stellar halo is UNAFFECTED by the bar - halo-only density ' +
-  'is bit-identical with the bar on and off, at every radius, including inside the taper',
+const NON_BULGE_KEYS = ['spiralYoungThin', 'spiralMidThin', 'spiralOldThin', 'spiralThick', 'spiralHalo'] as const;
+
+check('barredSpiral: every NON-BULGE population is bit-identical between barred and ' +
+  'unbarred, at EVERY radius - barFactor no longer touches the disc at all (superseding ' +
+  'the old "outside taperOuterPc only" claim, which described a mechanism this patch retires)',
+  PROBES.every(([R, t, z]) =>
+    NON_BULGE_KEYS.every((k) => barred.densityByPopulation(R, t, z)[k] === spiral.densityByPopulation(R, t, z)[k])));
+
+check('barredSpiral: the stellar halo specifically is UNAFFECTED by the bar (S4.2\'s own ' +
+  'halo/bar bug fix) - halo-only density is bit-identical with the bar on and off, at every radius',
   (() => {
     const rs = [1000, 3000, 4500, 8178, 15000];
     return rs.every((R) => {
@@ -63,14 +73,71 @@ check('barredSpiral: the stellar halo is UNAFFECTED by the bar - halo-only densi
   })());
 
 check('barredSpiral: toggling the bar off (createSpiralModel(false)) reproduces ' +
-  'spiral BIT-IDENTICALLY everywhere, not just outside the taper',
+  'spiral BIT-IDENTICALLY everywhere (self-consistency, not merely the two module-level bindings)',
   PROBES.every(([R, t, z]) => createSpiralModel(false).densityAt(R, t, z) === spiral.densityAt(R, t, z)));
 
-check('barredSpiral: the bar factor is continuous - no jump at the taper boundary',
+// -- G4: barEnabled selects the BULGE's shape (triaxial vs axisymmetrised),
+//    never whether it exists - see boxyPeanutBulgeMassDensity's own header --------
+
+check('G4a: with the bar OFF, the bulge is genuinely AXISYMMETRIC - identical density ' +
+  'across a spread of theta, at fixed (R, z)',
   (() => {
-    const justInside = barred.densityByPopulation(5799.9, 0, 0).spiralYoungThin!;
-    const justOutside = barred.densityByPopulation(5800.1, 0, 0).spiralYoungThin!;
-    return Math.abs(justInside - justOutside) / justOutside < 0.01;
+    const R = 600, z = 100;
+    const thetas = [0, 0.7, 1.5, Math.PI, 4.2, 5.9];
+    const vals = thetas.map((t) => spiral.densityByPopulation(R, t, z).spiralBoxyPeanutBulge);
+    return vals.every((v) => v === vals[0]);
+  })());
+
+check('G4b: with the bar ON, the bulge is genuinely TRIAXIAL - density VARIES with theta ' +
+  'at fixed (R, z), off the major/minor axes (not manufactured: the axisymmetric case above ' +
+  'proves the harness itself would show equality if the shape genuinely were round)',
+  (() => {
+    const R = 600, z = 100;
+    const thetas = [0, 0.7, 1.5, Math.PI, 4.2, 5.9];
+    const vals = thetas.map((t) => barred.densityByPopulation(R, t, z).spiralBoxyPeanutBulge!);
+    return vals.some((v) => v !== vals[0]);
+  })());
+
+check('G4c: toggling barEnabled changes the bulge\'s SHAPE but not its TOTAL MASS - ' +
+  'numerically integrated (full-domain grid, generous tolerance - the point is catching a ' +
+  'gross normalisation bug, not certifying quadrature precision) triaxial and axisymmetrised ' +
+  'total mass agree to within 2%',
+  (() => {
+    // Explicit upsilonFor = identity-scaled CONST_UPSILON, so the Upsilon
+    // this test divides back out is KNOWN rather than coincidentally equal
+    // to galaxyModel.ts's own internal default - avoids the test silently
+    // depending on two unrelated constants happening to match.
+    const spiralForMass = createSpiralModel(false, undefined, () => CONST_UPSILON);
+    const barredForMass = createSpiralModel(true, undefined, () => CONST_UPSILON);
+    // FULL (x,y) domain, not an octant-symmetry shortcut - the bulge's own
+    // `phaseRad` (27 deg) rotates the triaxial shape off the x/y axes, which
+    // breaks the "reflect across x=0/y=0" assumption an octant shortcut
+    // relies on (found the hard way: an earlier version of this gate used
+    // that shortcut and reported a spurious ~25% "mass mismatch" that was
+    // entirely the shortcut's own error, not the model's - z=0 reflection
+    // alone remains exactly valid regardless of phaseRad, so only that axis
+    // is still doubled).
+    function integrateMass(model: GalaxyModel, lim: number, N: number): number {
+      const h = (2 * lim) / N;
+      let sum = 0;
+      for (let i = 0; i < N; i++) {
+        const x = -lim + (i + 0.5) * h;
+        for (let j = 0; j < N; j++) {
+          const y = -lim + (j + 0.5) * h;
+          const R = Math.hypot(x, y);
+          const theta = Math.atan2(y, x);
+          for (let k = 0; k < N / 2; k++) {
+            const z = (k + 0.5) * h;
+            sum += (model.densityByPopulation(R, theta, z).spiralBoxyPeanutBulge ?? 0) / CONST_UPSILON;
+          }
+        }
+      }
+      return 2 * sum * h * h * h;   // MASS, not count - divided out CONST_UPSILON above; only z doubled
+    }
+    const lim = 6000, N = 60;
+    const triaxialMass = integrateMass(barredForMass, lim, N);
+    const axiMass = integrateMass(spiralForMass, lim, N);
+    return Math.abs(triaxialMass - axiMass) / axiMass < 0.02;
   })());
 
 // -- elliptical (S4.5) --------------------------------------------------------------

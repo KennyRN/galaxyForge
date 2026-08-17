@@ -105,15 +105,28 @@ function densityAtOrigin8200(params: GalaxyParameters, barEnabled = false): numb
     check(`GATE 19: perturbing WIRED field "${name}" changes densityAt (load-bearing, not vestigial)`, changed);
   }
 
-  // bar.strength only bites with the bar ENABLED, and near the bar itself
-  // (R=8200 sits outside taperOuterPc=5800, so probe closer in) - tested
-  // separately since it needs both a different barEnabled AND a different
-  // radius to actually exercise, unlike the other three.
-  check('GATE 19: perturbing WIRED field "bar.strength" changes densityAt near the bar, with the bar enabled', (() => {
-    const model1 = createSpiralModel(true, base);
-    const strong: GalaxyParameters = { ...base, bar: { ...base.bar, strength: base.bar.strength * 3 } };
-    const model2 = createSpiralModel(true, strong);
+  // bulge.strength/boxiness only bite near the bulge itself (R=8200 sits
+  // ~11.7 bulge scale-lengths out, negligibly lit either way) - tested
+  // separately at R=4000, close enough to the ~700pc bulge scale for a
+  // perturbation to have real bite. Renamed from `bar.*` 17 Aug 2026
+  // (Amendment A4/BulgeParams) - the bulge is present regardless of
+  // `barEnabled` now, so these two no longer need the bar switched on to
+  // exercise (unlike the old multiplicative bar term, which needed
+  // `barEnabled=true` before `strength` did anything at all).
+  check('GATE 19: perturbing WIRED field "bulge.strength" changes densityAt near the bulge', (() => {
+    const model1 = createSpiralModel(false, base);
+    const strong: GalaxyParameters = { ...base, bulge: { ...base.bulge, strength: base.bulge.strength * 3 } };
+    const model2 = createSpiralModel(false, strong);
     return model1.densityAt(4000, 0.7, 0) !== model2.densityAt(4000, 0.7, 0);
+  })());
+  check('GATE 19: perturbing WIRED field "bulge.boxiness" changes densityAt off-axis near the bulge', (() => {
+    const model1 = createSpiralModel(true, base);
+    const boxier: GalaxyParameters = { ...base, bulge: { ...base.bulge, boxiness: base.bulge.boxiness * 2 } };
+    const model2 = createSpiralModel(true, boxier);
+    // Off the major/minor axes (theta != 0, phaseRad), where a boxier vs
+    // rounder isodensity surface genuinely differs at fixed R - ON either
+    // axis the two exponents can coincidentally agree at some radii.
+    return model1.densityAt(600, 0.9, 100) !== model2.densityAt(600, 0.9, 100);
   })());
 
   // NOT-YET-WIRED fields (see this file's header) - perturbing these is

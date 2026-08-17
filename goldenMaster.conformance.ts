@@ -123,11 +123,16 @@ const MORPHOLOGIES: MorphologyFixture[] = [
   },
   {
     name: 'barredSpiral', model: createSpiralModel(true),
-    // Inside taperOuterPc=5800 pc (ix=417 -> R~4170 pc) so the bar's own
-    // factor is genuinely != 1 here - the same reference cell as spiral
-    // would sit outside the bar entirely (barFactor=1, densityByPopulation
-    // bit-identical to unbarred, so the fixture would silently test
-    // nothing bar-specific).
+    // Close enough to the boxy/peanut bulge's own ~700/440pc scale (ix=417
+    // -> R~4170 pc, ~6 scale-lengths out) that its triaxial-vs-axisymmetrised
+    // shape (barEnabled, Amendment A4, morphology patch v3.0, 17 Aug 2026)
+    // genuinely differs from `spiral`'s here - confirmed empirically, not
+    // merely asserted: placement/remnants DO change from the pre-bulge
+    // fixture at this radius, and DON'T at spiral's own R~8170pc reference
+    // cell (astronomically negligible bulge density there either way). This
+    // comment previously described `barFactor`'s own retired taper window
+    // (`taperOuterPc=5800`) - same reference cell, a different, current
+    // reason it is still the right one to keep testing.
     referenceCells: cellRange(417, 417, 0, 0), expandedCells: cellRange(415, 420, -2, 2),
   },
   {

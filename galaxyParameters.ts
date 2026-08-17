@@ -21,7 +21,9 @@
  * declared. `createSpiralModel(barEnabled, params?)` reads `params.R0Pc`,
  * `params.bar` and the arm/complex fields directly; omitting `params`
  * reproduces the prior hardcoded behaviour exactly (verified - see the
- * golden master re-cut, CHANGELOG.md 15 Aug 2026).
+ * golden master re-cut, CHANGELOG.md 15 Aug 2026). `params.bar` was renamed
+ * `params.bulge` 17 Aug 2026 (Amendment A4, morphology patch v3.0) - see
+ * `BulgeParams`'s own header for why.
  *
  * The patch's S5 ALSO names disc structure, Juric geometry, Erwin fractions
  * and halo shape for `elliptical`/`lenticular`, and cell/jitter/exclusion
@@ -119,20 +121,45 @@ export const DEFAULT_JURIC: JuricParams = { f: 0.12, lThin: 2600, hThin: 300, lT
 export interface ErwinParams { readonly disc: number; readonly pseudo: number; readonly classical: number; }
 export const DEFAULT_ERWIN: ErwinParams = { disc: 0.61, pseudo: 0.33, classical: 0.06 };
 
-export interface BarParams {
-  readonly phaseRad: number;
-  readonly scalePc: { readonly x: number; readonly y: number; readonly z: number };
-  readonly halfLengthPc: number;
-  readonly taperInnerPc: number;
-  readonly taperOuterPc: number;
+/**
+ * The spiral/barredSpiral boxy/peanut bulge (Amendment A4, morphology patch
+ * v3.0, 17 Aug 2026) - RENAMED from `BarParams`/`DEFAULT_BAR`, not merely
+ * relabelled. The old name was the bug: `halfLengthPc`/`taperInnerPc`/
+ * `taperOuterPc` (a LONG BAR's own taper window, a different structure
+ * outside the bulge entirely) were bolted onto Wegg & Gerhard 2013's bulge
+ * geometry, and `barFactor` (retired, see `galaxyModel.ts`) applied the
+ * whole thing as a MULTIPLIER on the disc - both wrong for what these
+ * numbers actually describe. `scalePc`/`phaseRad` were always right (Wegg &
+ * Gerhard 2013's own triaxial exponential scale lengths/bar angle); this
+ * interface now carries ONLY what an additive, mass-normalised bulge
+ * population needs, and nothing a long bar (not modelled - would be a
+ * SEPARATE term with its own citation, per the patch's own instruction) or
+ * `barFactor`'s old multiplicative role required.
+ */
+export interface BulgeParams {
+  readonly phaseRad: number;   // sourced, Wegg & Gerhard 2013 (27 deg +/- 2)
+  readonly scalePc: { readonly x: number; readonly y: number; readonly z: number };   // sourced, Wegg & Gerhard 2013 (0.70:0.44:0.18 kpc)
+  /** Superellipsoid exponent for the isodensity surface:
+   *  s = ((|x|/a)^n + (|y|/b)^n + (|z|/c)^n)^(1/n), n=2 is a plain ellipsoid,
+   *  n>2 is boxy. `calibrated` - Wegg & Gerhard's map is non-parametric (axis
+   *  ratios and scale lengths only, no closed-form boxiness given); n=4
+   *  follows a published precedent for exactly this generalisation in the
+   *  boxy-bulge literature, not W&G13 itself. */
+  readonly boxiness: number;
+  /** Msol, `sourced` - Licquia & Newman 2015 (ApJ 806, 96) total MW stellar
+   *  mass, the denominator `SPIRAL_POPULATIONS.spiralBoxyPeanutBulge
+   *  .massFractionGalaxy` (0.91e10/6.08e10) is relative to. */
+  readonly totalStellarMassSol: number;
+  /** `tunable` - multiplies the sourced mass; 1.0 (default) reproduces the
+   *  Licquia & Newman figure exactly. A dial for bulge prominence on a
+   *  non-Milky-Way-analogue spiral, not itself sourced to anything. */
   readonly strength: number;
 }
-export const DEFAULT_BAR: BarParams = {
+export const DEFAULT_BULGE: BulgeParams = {
   phaseRad: (27 * Math.PI) / 180,
   scalePc: { x: 700, y: 440, z: 180 },
-  halfLengthPc: 5000,
-  taperInnerPc: 4200,
-  taperOuterPc: 5800,
+  boxiness: 4,
+  totalStellarMassSol: 6.08e10,
   strength: 1.0,
 };
 
@@ -244,7 +271,7 @@ export interface GalaxyParameters {
   readonly haloFlattening: number;    // sourced, Juric 2008 (c/a)
   readonly haloTruncationPc: number;  // tunable, Juric's calibration edge
   readonly coreFloorPc: number;       // tunable, numerical guard
-  readonly bar: BarParams;
+  readonly bulge: BulgeParams;
   readonly placement: PlacementParams;
 
   // -- elliptical/lenticular (16 Aug 2026 - WIRED, not merely declared) --
@@ -302,7 +329,7 @@ export function makeDefaultGalaxyParameters(
     haloFlattening: 0.64,
     haloTruncationPc: 20000,
     coreFloorPc: 10,
-    bar: DEFAULT_BAR,
+    bulge: DEFAULT_BULGE,
     placement: DEFAULT_PLACEMENT_PARAMS,
     elliptical: DEFAULT_ELLIPTICAL_PARAMS,
     lenticular: DEFAULT_LENTICULAR_PARAMS,

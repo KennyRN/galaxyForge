@@ -131,6 +131,30 @@
  * historical snapshot of pre-rename output, never silently overwritten in
  * place.
  *
+ * BUMP 8, 17 Aug 2026 (morphology & render patch v3.0, step 1 - Amendment
+ * A4): `spiralBoxyPeanutBulge` - a real boxy/peanut bulge population,
+ * Wegg & Gerhard 2013 geometry, Licquia & Newman 2015 mass (0.91e10/6.08e10
+ * of total MW stellar mass) - lands on `spiral`/`barredSpiral`, replacing
+ * `barFactor`'s old role as a MULTIPLIER on the disc (which was modelling a
+ * bulge as if it were the bar enhancing disc density - a scope error, see
+ * `galaxyParameters.ts`'s own `BulgeParams` header). Every spiral/barred
+ * galaxy generated for a given `worldSeed` now has different total density
+ * near the centre (the bulge adds real mass there) and disc-only density
+ * that is now genuinely bar-INDEPENDENT everywhere (the old taper-windowed
+ * multiplier is gone outright, not re-tuned) - both a placed-system-set
+ * change, confirmed empirically: re-running the suite against the
+ * still-committed `gen7.json` fails placement/remnants byte-identity for
+ * `barredSpiral` at its own reference cell (~4170pc, close enough to the
+ * bulge's ~700pc scale to matter) and passes for `spiral` at its reference
+ * cell (~8170pc, negligibly lit by the bulge either way) - both outcomes
+ * are the real, current behaviour, not a partial migration.
+ * `barEnabled` no longer touches the disc at all; it now selects only the
+ * bulge's own shape (triaxial when true, axisymmetrised - forced to a
+ * plain n=2 ellipsoid, not `boxiness` at a=b, see `boxyPeanutBulgeMassDensity`'s
+ * own header for why - when false), with total bulge mass identical either
+ * way (gate G4). `verification/golden/gen8.json` is the fixture cut against
+ * THIS version.
+ *
  * NOT bumped again by anything built in this same pass.
  */
-export const CURRENT_GEN_VERSION = 7;
+export const CURRENT_GEN_VERSION = 8;
