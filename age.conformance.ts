@@ -10,7 +10,7 @@ function check(label: string, cond: boolean): void {
 
 // A representative disc population - shape only, per S4.2's field list.
 const MID_THIN: Population = {
-  key: 'midThin', label: 'Mid thin disc', nLocal: 0.030,
+  key: 'spiralMidThin', label: 'Mid thin disc', nLocal: 0.030,
   ageGyr: [3, 6], ageMeanGyr: 4.5, ageSigmaGyr: 1.0,
   massFractionGalaxy: 0.30, fehMeanDex: -0.05, fehSigmaDex: 0.18,
 };

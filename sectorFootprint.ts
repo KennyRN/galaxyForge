@@ -204,18 +204,19 @@ export function assembleSector(
   const remnantCandidates: RemnantSystem[] = [];
   const conatalByGroupKey = new Map<string, { groupId: string; ageGyr: number; fehMeanDex: number }>();
 
-  // -- complex-tier participation: how much of youngThin is complex-organised,
-  //    and the wrapped model that reduces its SMOOTH density by (1 - w) so
-  //    the two paths partition the total rather than one adding to the other
-  //    (see starFormingComplexes.ts's own header on count conservation). ----
-  const youngPop = model.populations.find((p) => p.key === 'youngThin');
+  // -- complex-tier participation: how much of spiralYoungThin is
+  //    complex-organised, and the wrapped model that reduces its SMOOTH
+  //    density by (1 - w) so the two paths partition the total rather than
+  //    one adding to the other (see starFormingComplexes.ts's own header on
+  //    count conservation). ----
+  const youngPop = model.populations.find((p) => p.key === 'spiralYoungThin');
   const complexW = youngPop ? complexParticipation(youngPop, params.complexTier) : 0;
   const meanSystemsPerGroup = youngPop?.meanGroupSize ?? 12;
   const smoothModel: GalaxyModel = complexW > 0 ? {
     ...model,
     densityByPopulation: (R: number, theta: number, z: number) => {
       const d = model.densityByPopulation(R, theta, z);
-      return { ...d, youngThin: (d.youngThin ?? 0) * (1 - complexW) };
+      return { ...d, spiralYoungThin: (d.spiralYoungThin ?? 0) * (1 - complexW) };
     },
   } : model;
 
@@ -245,7 +246,7 @@ export function assembleSector(
   if (complexW > 0 && youngPop) {
     const youngSurfaceAt = (x: number, y: number): number => {
       const d = densityByPopulationAtCartesian(model, x, y, 0);
-      return thicknessPc * (d.youngThin ?? 0);
+      return thicknessPc * (d.spiralYoungThin ?? 0);
     };
     const complexCandidates: ComplexPlacedCandidate[] = placeYoungClustered(
       worldSeed, centrePc.x, centrePc.y, centrePc.z, radiusPc, thicknessPc, complexW,
@@ -268,7 +269,7 @@ export function assembleSector(
         const formationRank = channelRng(worldSeed, 'formationRank', sysid)();
         stellarCandidates.push({
           cellKey: cKey, ordinal: c.ordinal, sysid,
-          positionPc: { x: c.x, y: c.y, z: c.z }, population: 'youngThin', formationRank,
+          positionPc: { x: c.x, y: c.y, z: c.z }, population: 'spiralYoungThin', formationRank,
           isOffspring: c.isOffspring, parentOrdinal: c.parentOrdinal,
         });
       }

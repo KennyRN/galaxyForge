@@ -26,11 +26,11 @@ const ERWIN = { disc: 0.61, pseudo: 0.33, classical: 0.06 };  // decomposed LIGH
 // -- the union is closed and switchable --------------------------------------
 function family(key: PopulationKey): 'disc' | 'spheroid' {
   switch (key) {
-    case 'youngThin': case 'midThin': case 'oldThin': case 'thick':
+    case 'spiralYoungThin': case 'spiralMidThin': case 'spiralOldThin': case 'spiralThick':
     case 'lenticularThinDisc': case 'lenticularThickDisc':
     case 'lenticularPseudoBulge':
       return 'disc';
-    case 'halo': case 'ellipticalInSitu': case 'ellipticalAccreted':
+    case 'spiralHalo': case 'ellipticalInSitu': case 'ellipticalAccreted':
     case 'lenticularClassicalBulge': case 'lenticularHalo':
       return 'spheroid';
     default:
@@ -115,11 +115,13 @@ check('thin/thick seam sits at 8 Gyr (Xiang & Rix 2022)',
 check('criteria default is solo', criteria.multiplicity === 'solo');
 
 // -- the naming convention is enforced, not just documented ------------------
-const FROZEN: PopulationKey[] = ['youngThin', 'midThin', 'oldThin', 'thick', 'halo'];
-const PREFIXES = ['elliptical', 'lenticular'];
-const newKeys = all.map(p => p.key).filter(k => !FROZEN.includes(k));
-check('every non-frozen key is morphology-prefixed',
-  newKeys.every(k => PREFIXES.some(pre => k.startsWith(pre))));
+// FROZEN retired 17 Aug 2026 (Amendment A9, morphology patch v3.0): the five
+// spiral keys were the convention's only documented exception, and are now
+// themselves prefixed (spiralYoungThin etc.) - PopulationKey has ZERO
+// exceptions to the naming rule any more, so the gate below checks ALL keys.
+const PREFIXES = ['spiral', 'elliptical', 'lenticular'];
+check('every key is morphology-prefixed (Amendment A9 retired the last exception)',
+  all.every(p => PREFIXES.some(pre => p.key.startsWith(pre))));
 check('no key contains a colon (reserved for PRNG channel names)',
   all.every(p => !p.key.includes(':')));
 // BUILD 1 (Part R): the remnant layer's channels exist, and no CONSTANT channel

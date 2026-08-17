@@ -72,7 +72,7 @@ check('5 every drawn population key is one of the model\'s own populations',
 // 6. exclusion is local and symmetric
 function mkSystem(x: number, y: number, z: number, ix: number, ord: number): PlacedSystem {
   return { cellKey: { ix, iy: 0, iz: 0 }, ordinal: ord, sysid: `${ix}.0.0.${ord}`,
-    positionPc: { x, y, z }, population: 'oldThin', formationRank: 0.5 };
+    positionPc: { x, y, z }, population: 'spiralOldThin', formationRank: 0.5 };
 }
 check('6 a close pair (within the exclusion radius) drops the later-keyed one',
   (() => {
@@ -125,12 +125,12 @@ check('7 EXPANSION STABILITY - systems in already-included cells keep their ' +
 check('8 clustering measurably tightens nearest-neighbour distances for a ' +
   'clustered population versus a uniform-random baseline at the same count/volume',
   (() => {
-    // youngThin has clusteredFraction set; oldThin does not (per SPIRAL_POPULATIONS).
+    // spiralYoungThin has clusteredFraction set; spiralOldThin does not (per SPIRAL_POPULATIONS).
     const cells: CellKey[] = [];
     for (let ix = CELL.ix - 2; ix <= CELL.ix + 2; ix++) for (let iy = -2; iy <= 2; iy++) cells.push({ ix, iy, iz: 0 });
     const all = cells.flatMap((c) => rollCell(WORLD_SEED, model, c));
-    const young = all.filter((s) => s.population === 'youngThin').map((s) => s.positionPc);
-    const old = all.filter((s) => s.population === 'oldThin').map((s) => s.positionPc);
+    const young = all.filter((s) => s.population === 'spiralYoungThin').map((s) => s.positionPc);
+    const old = all.filter((s) => s.population === 'spiralOldThin').map((s) => s.positionPc);
 
     function meanNearestNeighbour(pts: { x: number; y: number; z: number }[]): number | null {
       if (pts.length < 2) return null;

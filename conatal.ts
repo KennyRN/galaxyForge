@@ -157,8 +157,8 @@ export function groupRng(worldSeed: string, cellKey: { ix: number; iy: number; i
 /**
  * Invariants this module owes:
  *  1. conatalProbability is 0 for a population whose age interval never
- *     dips below the coherence window (e.g. `thick`, `halo`), and strictly
- *     positive for one that does (e.g. `youngThin`).
+ *     dips below the coherence window (e.g. `spiralThick`, `spiralHalo`), and
+ *     strictly positive for one that does (e.g. `spiralYoungThin`).
  *  2. Every drawn group's age is STRICTLY below COHERENCE_WINDOW_GYR -
  *     never merely close, always strictly under, regardless of the
  *     population's own mean/sigma.

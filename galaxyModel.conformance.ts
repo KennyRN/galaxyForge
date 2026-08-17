@@ -56,8 +56,8 @@ check('barredSpiral: the stellar halo is UNAFFECTED by the bar - halo-only densi
   (() => {
     const rs = [1000, 3000, 4500, 8178, 15000];
     return rs.every((R) => {
-      const barredHalo = barred.densityByPopulation(R, 1.0, 0).halo;
-      const spiralHalo = spiral.densityByPopulation(R, 1.0, 0).halo;
+      const barredHalo = barred.densityByPopulation(R, 1.0, 0).spiralHalo;
+      const spiralHalo = spiral.densityByPopulation(R, 1.0, 0).spiralHalo;
       return barredHalo === spiralHalo;
     });
   })());
@@ -68,8 +68,8 @@ check('barredSpiral: toggling the bar off (createSpiralModel(false)) reproduces 
 
 check('barredSpiral: the bar factor is continuous - no jump at the taper boundary',
   (() => {
-    const justInside = barred.densityByPopulation(5799.9, 0, 0).youngThin!;
-    const justOutside = barred.densityByPopulation(5800.1, 0, 0).youngThin!;
+    const justInside = barred.densityByPopulation(5799.9, 0, 0).spiralYoungThin!;
+    const justOutside = barred.densityByPopulation(5800.1, 0, 0).spiralYoungThin!;
     return Math.abs(justInside - justOutside) / justOutside < 0.01;
   })());
 

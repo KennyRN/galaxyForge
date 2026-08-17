@@ -10,9 +10,9 @@ function check(label: string, cond: boolean): void {
   else console.log(`ok    ${label}`);
 }
 
-const youngThin = SPIRAL_POPULATIONS.find((p) => p.key === 'youngThin')!;
-const thick = SPIRAL_POPULATIONS.find((p) => p.key === 'thick')!;
-const halo = SPIRAL_POPULATIONS.find((p) => p.key === 'halo')!;
+const youngThin = SPIRAL_POPULATIONS.find((p) => p.key === 'spiralYoungThin')!;
+const thick = SPIRAL_POPULATIONS.find((p) => p.key === 'spiralThick')!;
+const halo = SPIRAL_POPULATIONS.find((p) => p.key === 'spiralHalo')!;
 const CELL = { ix: 817, iy: 0, iz: 0 };
 
 // 1. conatalProbability zero/positive as appropriate

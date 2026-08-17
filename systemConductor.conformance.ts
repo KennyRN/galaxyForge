@@ -35,15 +35,15 @@ const TEST_SYSIDS = Array.from({ length: 200 }, (_, i) => `test.${i}`);
 /* 1. determinism ---------------------------------------------------------------- */
 
 check('generateSystemCore is deterministic for the same inputs', (() => {
-  const inputs = makeInputs('det-test', populations.get('oldThin')!);
+  const inputs = makeInputs('det-test', populations.get('spiralOldThin')!);
   const a = JSON.stringify(generateSystemCore(inputs));
   const b = JSON.stringify(generateSystemCore(inputs));
   return a === b;
 })());
 
 check('a different worldSeed changes the output', (() => {
-  const a = generateSystemCore(makeInputs('seed-test', populations.get('oldThin')!, { worldSeed: 'seed-A' }));
-  const b = generateSystemCore(makeInputs('seed-test', populations.get('oldThin')!, { worldSeed: 'seed-B' }));
+  const a = generateSystemCore(makeInputs('seed-test', populations.get('spiralOldThin')!, { worldSeed: 'seed-A' }));
+  const b = generateSystemCore(makeInputs('seed-test', populations.get('spiralOldThin')!, { worldSeed: 'seed-B' }));
   return JSON.stringify(a) !== JSON.stringify(b);
 })());
 
@@ -143,7 +143,7 @@ check('no planet, moon, atmosphere, surface, biosphere, terraforming or humanHab
 /* -- co-natal override (Policy 10, 16 Aug 2026) ---------------------------------- */
 
 {
-  const pop = populations.get('youngThin')!;
+  const pop = populations.get('spiralYoungThin')!;
   const groupAge = 0.42;
   const groupFeh = -0.05;
   const withGroup = generateSystemCore(makeInputs('conatal-a', pop, {

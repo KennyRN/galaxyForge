@@ -105,6 +105,32 @@
  * placed system set) for the same worldSeed than it was before this fix.
  * `verification/golden/gen6.json` is the fixture cut against THIS version.
  *
+ * BUMP 7, 17 Aug 2026 (morphology & render patch v3.0, step 0 - Amendment
+ * A9): the five spiral/barredSpiral population keys were renamed to close
+ * the last exception to the morphology-prefix naming convention
+ * (`youngThin`->`spiralYoungThin`, and the same for `midThin`, `oldThin`,
+ * `thick`, `halo` - see `galaxyModel.ts`'s own `PopulationKey` header for
+ * the full reasoning). No density, position, mass, age or any other NUMERIC
+ * quantity changes - this was planned as a pure label rename with no
+ * genVersion consequence. It gets one anyway, found empirically rather than
+ * assumed: `SystemContext.population` stamps this key as a STRING directly
+ * into `SystemCore` (and from there into generated note content), so the
+ * string a previously-generated Spiral/Barred/Milky-Way-Analogue galaxy
+ * would now produce for the same worldSeed genuinely differs, even though
+ * every number underneath it is bit-identical - confirmed directly, not
+ * inferred: re-running the suite against the STILL-committed `gen6.json`
+ * fails placement/remnants/SystemCore hash and byte-identity checks for
+ * exactly `spiral` and `barredSpiral` (the two morphologies that carry the
+ * renamed keys) and ONLY those two - `elliptical`/`lenticular` pass
+ * unchanged. This is the same "coordinate, do not trickle" posture bump 4
+ * already established for an equally subtle content change (there, a
+ * `Math.pow` reprocessing that didn't even change the underlying
+ * distribution); a stamped string is a plainer case than that, not a
+ * softer one. `verification/golden/gen7.json` is the fixture cut against
+ * THIS version - `gen6.json` is left exactly as committed, an accurate
+ * historical snapshot of pre-rename output, never silently overwritten in
+ * place.
+ *
  * NOT bumped again by anything built in this same pass.
  */
-export const CURRENT_GEN_VERSION = 6;
+export const CURRENT_GEN_VERSION = 7;

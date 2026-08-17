@@ -20,8 +20,8 @@ function check(name: string, cond: boolean) {
 }
 
 const P = DEFAULT_COMPLEX_TIER;
-const youngThin = SPIRAL_POPULATIONS.find((p) => p.key === 'youngThin')!;
-const oldThin = SPIRAL_POPULATIONS.find((p) => p.key === 'oldThin')!;
+const youngThin = SPIRAL_POPULATIONS.find((p) => p.key === 'spiralYoungThin')!;
+const oldThin = SPIRAL_POPULATIONS.find((p) => p.key === 'spiralOldThin')!;
 
 // A flat, uniform young-surface field - simplest possible input for the
 // placement-hierarchy gates, isolates the mechanism from the real density

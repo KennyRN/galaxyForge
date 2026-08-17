@@ -456,7 +456,7 @@ function complexCentresForOverview(
   model: GalaxyModel, worldSeed: string, complexTier: ComplexTierParams,
   centrePc: { readonly x: number; readonly y: number; readonly z: number }, radiusPc: number,
 ): readonly ComplexCentre[] {
-  const youngPop = model.populations.find((p) => p.key === 'youngThin');
+  const youngPop = model.populations.find((p) => p.key === 'spiralYoungThin');
   if (!youngPop) return [];   // elliptical/lenticular/thick/halo-only morphologies: no young disc, no complexes
   const w = complexParticipation(youngPop, complexTier);
   if (!(w > 0)) return [];
@@ -465,7 +465,7 @@ function complexCentresForOverview(
   };
   const youngSurfaceAt = (x: number, y: number): number => {
     const d = densityByPopulationAtCartesian(model, x, y, 0);
-    return PREVIEW_COMPLEX_SURFACE_SCALE * (d.youngThin ?? 0);
+    return PREVIEW_COMPLEX_SURFACE_SCALE * (d.spiralYoungThin ?? 0);
   };
   const guardPc = preview.guardBandSigma * preview.sigmaComplexPc;
   const cells = complexCellsOverlapping(centrePc.x, centrePc.y, radiusPc, preview.cellSizePc, guardPc, youngSurfaceAt, preview.cellMeanSubGridN);

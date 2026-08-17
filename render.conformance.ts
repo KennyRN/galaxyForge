@@ -12,7 +12,7 @@ function check(label: string, cond: boolean): void {
 }
 
 const SYSTEM: RenderSystemInput = {
-  sysid: '817.0.0.3', name: null, population: 'oldThin',
+  sysid: '817.0.0.3', name: null, population: 'spiralOldThin',
   positionPc: { x: 8180, y: 5, z: -2 }, distanceFromSectorOriginPc: 12.345,
 };
 
@@ -87,10 +87,10 @@ check('6 buildNoteContent and mergeWithExisting are deterministic for the same i
 // 7. FULL SYSTEMCORE DETAIL (16 Aug 2026) - a real generated system, not a
 // hand-built fixture, so this exercises the actual field names/shapes
 // generateSystemCore produces, not a stale mock of them.
-const oldThinPop = SPIRAL_POPULATIONS.find((p) => p.key === 'oldThin')!;
+const oldThinPop = SPIRAL_POPULATIONS.find((p) => p.key === 'spiralOldThin')!;
 const coreInputs: GenerateSystemInputs = {
   sysid: '817.0.0.3', genVersion: 3, worldSeed: 'render-gate-seed',
-  positionPc: { x: 8180, y: 5, z: -2 }, population: 'oldThin', populationMeta: oldThinPop,
+  positionPc: { x: 8180, y: 5, z: -2 }, population: 'spiralOldThin', populationMeta: oldThinPop,
   formationRank: 0.42, terraformScale: 3, terraformIntensity: 3,
 };
 const CORE = generateSystemCore(coreInputs);

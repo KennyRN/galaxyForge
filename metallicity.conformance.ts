@@ -11,8 +11,8 @@ function check(name: string, cond: boolean) {
   if (!cond) { failures++; console.error(`FAIL: ${name}`); } else { console.log(`ok - ${name}`); }
 }
 
-const oldThin = SPIRAL_POPULATIONS.find((p) => p.key === 'oldThin')!;
-const halo = SPIRAL_POPULATIONS.find((p) => p.key === 'halo')!;
+const oldThin = SPIRAL_POPULATIONS.find((p) => p.key === 'spiralOldThin')!;
+const halo = SPIRAL_POPULATIONS.find((p) => p.key === 'spiralHalo')!;
 const seed = (s: string) => mulberry32(xmur3(s)());
 
 /* 1. determinism -------------------------------------------------------------- */

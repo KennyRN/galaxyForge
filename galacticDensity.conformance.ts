@@ -12,7 +12,7 @@ function check(label: string, cond: boolean): void {
 // 2 systems per solar mass... agreement within about ten per cent means the
 // chain is sound".
 const SOLAR_LIKE: Population = {
-  key: 'oldThin', label: 'test', nLocal: 0, ageGyr: [6, 8], ageMeanGyr: 7.0, ageSigmaGyr: 0.8,
+  key: 'spiralOldThin', label: 'test', nLocal: 0, ageGyr: [6, 8], ageMeanGyr: 7.0, ageSigmaGyr: 0.8,
   massFractionGalaxy: 0.3, fehMeanDex: 0, fehSigmaDex: 0.2,
 };
 const upsilonSolar = upsilonFor(SOLAR_LIKE);

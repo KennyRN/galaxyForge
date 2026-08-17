@@ -34,29 +34,24 @@ export type GalaxyModelName = 'spiral' | 'barredSpiral' | 'elliptical' | 'lentic
  * additive and sanctioned (0.5). Downstream code NEVER special-cases a key.
  *
  * -- NAMING CONVENTION, and it is binding -----------------------------------
- * New keys are MORPHOLOGY-PREFIXED camelCase. The five unprefixed keys predate
- * the convention and are frozen; they are not evidence against it. This is the
- * `nLocal` precedent applied deliberately - a documented historical exception
- * beats either a corrupting rename or a convention nobody wrote down (0.2).
+ * New keys are MORPHOLOGY-PREFIXED camelCase, with NO EXCEPTIONS as of
+ * Amendment A9 (17 Aug 2026, morphology patch v3.0) - see the rename note on
+ * the spiral keys below for what changed and why now.
  *
- * WHY FROZEN, and it is stronger than Law 5: the five are STAMPED INTO
- * GENERATED NOTES via `SystemContext.population`. A rename is silent corruption
- * of stored user data, which is the one thing the project promises never to do.
+ * WHY FROZEN ONCE SHIPPED, and it is stronger than Law 5: every key here is
+ * STAMPED INTO GENERATED NOTES via `SystemContext.population`. A rename after
+ * that has happened is silent corruption of stored user data, which is the
+ * one thing the project promises never to do. That is precisely why the A9
+ * rename below was only safe on the day it landed - the owner confirmed no
+ * galaxy existed on disk yet - and why it is a closing window, not a
+ * precedent for renaming freely later: the moment a key is written into a
+ * real note, it is frozen exactly as hard as any of the others.
  *
  * WHY PREFIXED: a key identifies a population *instance definition*, not a
  * physical category. Two morphologies' classical bulges share a word and share
  * nothing else - different scale radius, mass fraction, age and metallicity -
  * so a shared key makes every glossary entry and every stamp wrong for one of
- * them. This is not hypothetical for `classicalBulge`: 0.9 instructs "apply
- * the bar to disc and bulge terms only", and Part 9 already carries Licquia &
- * Newman's Milky Way bulge mass, so the unprefixed name is a slot the spiral
- * will claim. AUDIT CORRECTION (1 Aug): an earlier draft of this comment
- * asserted the spiral's density field "has a bulge term TODAY". That could not
- * be verified from this package - the only spiral reference implementation in
- * it (1.3) is haloTerm + discs, with no bulge term - and the shipped plugin
- * code is not in the archive to arbitrate. Do not go hunting for a term 1.3
- * does not show. The reservation of the unprefixed key does not depend on
- * whether the term exists yet; 0.9's instruction binds whichever terms do.
+ * them.
  *
  * THE PREFIX NAMES THE MODEL THAT OWNS THE POPULATION SET, not the model
  * instance. `spiral` and `barredSpiral` share one set - 1.0 requires the bar
@@ -71,12 +66,17 @@ export type GalaxyModelName = 'spiral' | 'barredSpiral' | 'elliptical' | 'lentic
  */
 export type PopulationKey =
   // spiral / barredSpiral - Xiang & Rix 2022, migrated from `age` (0.3).
-  // EXISTING AND FROZEN. Unprefixed by history, not by design.
-  | 'youngThin'
-  | 'midThin'
-  | 'oldThin'
-  | 'thick'
-  | 'halo'
+  // RENAMED 17 Aug 2026 (Amendment A9, morphology patch v3.0): these five
+  // were unprefixed by history (youngThin/midThin/oldThin/thick/halo),
+  // carrying an explicit documented exception to the naming convention above.
+  // No galaxy existed on disk yet, so the rename cost nothing and the
+  // exception is retired outright rather than left open for a future
+  // contributor to inherit - see the header comment's own reasoning.
+  | 'spiralYoungThin'
+  | 'spiralMidThin'
+  | 'spiralOldThin'
+  | 'spiralThick'
+  | 'spiralHalo'
   // elliptical - 2.1, 2.3a
   | 'ellipticalInSitu'
   | 'ellipticalAccreted'
@@ -87,12 +87,13 @@ export type PopulationKey =
   // THE DISC IS TWO POPULATIONS, RULED IN 3.3. Juric gives exactly two disc
   // components and the lenticular ledger commits to "disc structure as spiral,
   // Juric 2008", so two is what that source licenses. The spiral's
-  // midThin/oldThin boundary is an AGE-COHORT subdivision (Xiang & Rix), not a
-  // structural one - Juric assigns both the same scale height and length. A
-  // quenched galaxy has no ongoing formation laying down an age sequence, so
-  // the thin disc is one old population. That is what "drop the young cohort"
-  // means. Collapsing to a single disc would instead discard the thick disc's
-  // distinct chemistry, which is the thing the AMR coupling needs.
+  // spiralMidThin/spiralOldThin boundary is an AGE-COHORT subdivision (Xiang &
+  // Rix), not a structural one - Juric assigns both the same scale height and
+  // length. A quenched galaxy has no ongoing formation laying down an age
+  // sequence, so the thin disc is one old population. That is what "drop the
+  // young cohort" means. Collapsing to a single disc would instead discard
+  // the thick disc's distinct chemistry, which is the thing the AMR coupling
+  // needs.
   | 'lenticularThinDisc'
   | 'lenticularThickDisc'
   | 'lenticularPseudoBulge'
@@ -335,27 +336,27 @@ const A_IN_SITU_PC = 2400;   // a = R_e/k, Shen (S4.5)
 /* --------------------------------- populations ------------------------------- */
 
 export const SPIRAL_POPULATIONS: Population[] = [
-  { key: 'youngThin', label: 'Young thin disc', nLocal: 0.018, ageGyr: [0, 3],
+  { key: 'spiralYoungThin', label: 'Young thin disc', nLocal: 0.018, ageGyr: [0, 3],
     ageMeanGyr: 1.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.10,
     fehMeanDex: 0.0, fehSigmaDex: 0.15,
     fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
     clusteredFraction: 0.6, meanGroupSize: 12, armAmplitude: 0.35 },
-  { key: 'midThin', label: 'Mid thin disc', nLocal: 0.030, ageGyr: [3, 6],
+  { key: 'spiralMidThin', label: 'Mid thin disc', nLocal: 0.030, ageGyr: [3, 6],
     ageMeanGyr: 4.5, ageSigmaGyr: 1.0, massFractionGalaxy: 0.30,
     fehMeanDex: -0.05, fehSigmaDex: 0.18,
     fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
     armAmplitude: 0.25 },
-  { key: 'oldThin', label: 'Old thin disc', nLocal: 0.024, ageGyr: [6, 8],
+  { key: 'spiralOldThin', label: 'Old thin disc', nLocal: 0.024, ageGyr: [6, 8],
     ageMeanGyr: 7.0, ageSigmaGyr: 0.8, massFractionGalaxy: 0.30,
     fehMeanDex: -0.15, fehSigmaDex: 0.20,
     fehGradientForm: 'linear', fehGradient: -0.000059, fehGradientRefPc: R0_PC,
     armAmplitude: 0.15 },
-  { key: 'thick', label: 'Thick disc', nLocal: 0.006, ageGyr: [8, 12],
+  { key: 'spiralThick', label: 'Thick disc', nLocal: 0.006, ageGyr: [8, 12],
     ageMeanGyr: 10.0, ageSigmaGyr: 1.2, massFractionGalaxy: 0.25,
     fehMeanDex: -0.55, fehSigmaDex: 0.25,
     fehGradientForm: 'linear', fehGradient: -0.000015, fehGradientRefPc: R0_PC,
     armAmplitude: 0.0 },
-  { key: 'halo', label: 'Stellar halo', nLocal: 0.0002, ageGyr: [11, 13.5],
+  { key: 'spiralHalo', label: 'Stellar halo', nLocal: 0.0002, ageGyr: [11, 13.5],
     ageMeanGyr: 12.0, ageSigmaGyr: 0.9, massFractionGalaxy: 0.05,
     fehMeanDex: -1.6, fehSigmaDex: 0.4, armAmplitude: 0.0 },
 ];
@@ -412,10 +413,10 @@ const CORE_FLOOR_PC = 10;     // tunable, numerical guard against 1/r divergence
  *  values; halo is NOT a disc term (see haloTerm). */
 function discGeometryFor(key: PopulationKey): { scaleLengthPc: number; scaleHeightPc: number } | null {
   switch (key) {
-    case 'youngThin': case 'midThin': case 'oldThin':
+    case 'spiralYoungThin': case 'spiralMidThin': case 'spiralOldThin':
     case 'lenticularThinDisc':
       return { scaleLengthPc: JURIC.lThin, scaleHeightPc: JURIC.hThin };
-    case 'thick': case 'lenticularThickDisc':
+    case 'spiralThick': case 'lenticularThickDisc':
       return { scaleLengthPc: JURIC.lThick, scaleHeightPc: JURIC.hThick };
     default:
       return null;
@@ -430,11 +431,11 @@ function discGeometryFor(key: PopulationKey): { scaleLengthPc: number; scaleHeig
  */
 function armResponseFor(key: PopulationKey, params: GalaxyParameters): ArmResponseSet {
   switch (key) {
-    case 'youngThin': return params.armResponse.youngThin;
-    case 'midThin': return params.armResponse.midThin;
-    case 'oldThin': return params.armResponse.oldThin;
-    case 'thick': return params.armResponse.thick;
-    case 'halo': return params.armResponse.halo;
+    case 'spiralYoungThin': return params.armResponse.spiralYoungThin;
+    case 'spiralMidThin': return params.armResponse.spiralMidThin;
+    case 'spiralOldThin': return params.armResponse.spiralOldThin;
+    case 'spiralThick': return params.armResponse.spiralThick;
+    case 'spiralHalo': return params.armResponse.spiralHalo;
     default: return 'none';
   }
 }
@@ -459,6 +460,11 @@ function discTerm(pop: Population, R: number, theta: number, z: number, params: 
   const set = armResponseFor(pop.key, params);
   if (set === 'none') return smooth;
   const contrasts = params.armContrast();
+  // NOTE: `contrasts` is `spiralArms.ArmContrastSet`, a contrast-TIER record
+  // (oldThin/midThin/youngThin name which cohort's arm response each tier
+  // matches), not `PopulationKey` - Amendment A9 (17 Aug 2026) renamed the
+  // five POPULATION keys, not this unrelated interface, so these three field
+  // names are deliberately unchanged.
   const cFull = set === 'all' ? contrasts.youngThin : set === 'majorMinor' ? contrasts.midThin : contrasts.oldThin;
   const c = cFull * armInnerTaper(R, params);
   // params.arms (16 Aug 2026): previously OMITTED here despite being a real
@@ -593,11 +599,11 @@ export function createSpiralModel(barEnabled: boolean, params: GalaxyParameters 
       const bar = barFactor(barEnabled, params.bar, R, theta, z);
       const out: Partial<Record<PopulationKey, number>> = {};
       for (const pop of populations) {
-        if (pop.key === 'halo') {
+        if (pop.key === 'spiralHalo') {
           out[pop.key] = haloTerm(pop.nLocal, R, z);    // AXISYMMETRIC - never barred, never arm-modulated
           continue;
         }
-        // youngThin's complex-tier boost is NOT applied here (removed 16 Aug
+        // spiralYoungThin's complex-tier boost is NOT applied here (removed 16 Aug
         // 2026, ported architecture from a sibling build) - it is a
         // DISCRETE PLACEMENT-time mechanism now (`starFormingComplexes.
         // placeYoungClustered`, called from `sectorFootprint.assembleSector`),

@@ -25,7 +25,7 @@ const smooth: DensityField = {
     // Real PopulationKeys, deliberately NOT cast: a cast here would hide a
     // genuine mismatch if a key were ever renamed, which is the whole point of
     // the union existing.
-    return { youngThin: tot * 0.3, midThin: tot * 0.5, thick: tot * 0.2 };
+    return { spiralYoungThin: tot * 0.3, spiralMidThin: tot * 0.5, spiralThick: tot * 0.2 };
   },
 };
 

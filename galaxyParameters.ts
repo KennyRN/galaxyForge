@@ -58,16 +58,19 @@ import { ARMS, DEFAULT_ARM_WIDTH, deriveArmContrasts, anchorArmCorrection as com
 /* --------------------------------- arm block ---------------------------------- */
 
 export interface ArmResponseByPopulation {
-  readonly youngThin: ArmResponseSet;
-  readonly midThin: ArmResponseSet;
-  readonly oldThin: ArmResponseSet;
-  readonly thick: ArmResponseSet;
-  readonly halo: ArmResponseSet;
+  readonly spiralYoungThin: ArmResponseSet;
+  readonly spiralMidThin: ArmResponseSet;
+  readonly spiralOldThin: ArmResponseSet;
+  readonly spiralThick: ArmResponseSet;
+  readonly spiralHalo: ArmResponseSet;
 }
 
-/** By-law S3 (patch v2.3) - calibrated, see `spiralArms.ts`'s own header. */
+/** By-law S3 (patch v2.3) - calibrated, see `spiralArms.ts`'s own header.
+ *  Field names renamed 17 Aug 2026 (Amendment A9) to match `PopulationKey`'s
+ *  own spiral keys - this interface is one entry per spiral population, so
+ *  it follows that rename rather than being an independent naming choice. */
 export const DEFAULT_ARM_RESPONSE: ArmResponseByPopulation = {
-  youngThin: 'all', midThin: 'majorMinor', oldThin: 'major', thick: 'none', halo: 'none',
+  spiralYoungThin: 'all', spiralMidThin: 'majorMinor', spiralOldThin: 'major', spiralThick: 'none', spiralHalo: 'none',
 };
 
 export interface ComplexTierParams {
@@ -77,9 +80,10 @@ export interface ComplexTierParams {
   /** How many co-natal groups (see `conatal.ts`) one complex spawns -
    *  `calibrated`. */
   readonly meanGroupsPerComplex: number;
-  /** What fraction of youngThin's mass is complex-organised - `calibrated`,
-   *  DELIBERATELY the same number as `SPIRAL_POPULATIONS.youngThin
-   *  .clusteredFraction` (0.6) per the patch's own Law-1 instruction ("do
+  /** What fraction of spiralYoungThin's mass is complex-organised -
+   *  `calibrated`, DELIBERATELY the same number as `SPIRAL_POPULATIONS
+   *  .spiralYoungThin.clusteredFraction` (0.6) per the patch's own Law-1
+   *  instruction ("do
    *  not redeclare it... reference it"). Not re-declared as a literal here -
    *  see `starFormingComplexes.ts`'s own read of the population table. */
   readonly complexFraction: number;
