@@ -49,7 +49,7 @@
 import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App } from 'obsidian';
 import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, type GalaxyModel } from './galaxyModel';
 import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
-import { fieldFromModel, projectSlab, normaliseForDisplay, emphasiseArmsForDisplay, edgeOnDisplayField, type SlabRegionPc } from './densityMap';
+import { fieldFromModel, projectSlab, normaliseForDisplay, modulateArmsForDisplay, edgeOnDisplayField, type SlabRegionPc } from './densityMap';
 import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
 import { generateSeededArms } from './spiralArms';
 import { complexParticipation, complexCellsOverlapping, complexCentresInCell, type ComplexCentre } from './starFormingComplexes';
@@ -624,15 +624,21 @@ function computeDensityDisplayField(
 ): DensityDisplayField {
   const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
   const surface = projectSlab(fieldFromModel(model), region, res);
-  // emphasiseArmsForDisplay (16 Aug 2026) for spiral/barred - plain log
-  // normalisation was found to make arm structure invisible on a
-  // galaxy-wide view: the radial falloff (centre to outskirts, many
-  // orders of magnitude) swamps the much smaller azimuthal arm contrast
-  // once both are log-compressed into the same [0,1] range. Elliptical/
-  // lenticular have no arms to lose, so they stay on the simpler path.
+  // modulateArmsForDisplay (17 Aug 2026, rewritten - see densityMap.ts's own
+  // header) for spiral/barred - plain log normalisation alone still makes
+  // arm structure invisible on a galaxy-wide view (the radial falloff,
+  // centre to outskirts, many orders of magnitude, swamps the much smaller
+  // azimuthal arm contrast once both are log-compressed into the same
+  // [0,1] range), but the retired `emphasiseArmsForDisplay` fixed that by
+  // discarding the radial shape entirely, which made the boxy/peanut bulge
+  // (Amendment A4) undisplayable - the rewrite modulates the real
+  // log-normalised shape instead of replacing it, so both the bulge's
+  // radial concentration and the arm's azimuthal contrast survive together.
+  // Elliptical/lenticular have no arms to lose, so they stay on the
+  // simpler plain-log path.
   const isSpiralLike = model.morphology === 'spiral' || model.morphology === 'barredSpiral';
   const norm = isSpiralLike
-    ? emphasiseArmsForDisplay(surface.values, res.nx, res.ny, halfWidthPc, DEFAULT_JURIC.lThin, 1)
+    ? modulateArmsForDisplay(surface.values, res.nx, res.ny, halfWidthPc)
     : normaliseForDisplay(surface.values, { log: true });
   const complexCentres = complexOverlay
     ? complexCentresForOverview(model, complexOverlay.worldSeed, complexOverlay.complexTier, centrePc, halfWidthPc)

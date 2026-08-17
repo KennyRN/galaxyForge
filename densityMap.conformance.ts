@@ -1,5 +1,5 @@
 import {
-  sampleVolume, projectSlab, expectedSystemCount, normaliseForDisplay, emphasiseArmsForDisplay, edgeOnDisplayField,
+  sampleVolume, projectSlab, expectedSystemCount, normaliseForDisplay, modulateArmsForDisplay, edgeOnDisplayField,
   SLAB_THICKNESSES_PC, isSlabThickness, Z_SAMPLES,
   type DensityField, type PointPc, type SlabRegionPc,
 } from './densityMap';
@@ -109,7 +109,8 @@ const vol = sampleVolume(uniform, { min: { x: 0, y: 0, z: -5 }, max: { x: 10, y:
 check('+ sampleVolume returns a populated 3D grid (the v2 map, exercised today)',
   vol.values.length === 64 && vol.values.every((v) => v === N0));
 
-/* -- emphasiseArmsForDisplay (16 Aug 2026) --------------------------------------- */
+/* -- modulateArmsForDisplay (rewritten 17 Aug 2026, superseding the retired
+ *    emphasiseArmsForDisplay - see densityMap.ts's own header for why) ------------ */
 
 const NX = 64, NY = 64, HALF_PC = 20000, DISC_SCALE_PC = 2600;
 
@@ -141,52 +142,57 @@ const radialPlusArm = gridOf((x, y) => {
   return armBoost * Math.exp(-R / DISC_SCALE_PC);
 });
 
-check('8 emphasiseArmsForDisplay genuinely removes the radial gradient: a field ' +
-  'WITH a real azimuthal bump shows far more spread in the OUTPUT than the SAME ' +
-  'field run through normaliseForDisplay alone (which is dominated by the radial ' +
-  'falloff, not the arm) - this is the actual bug the port closes',
+// A sharp, strongly radially-concentrated peak at the centre - a crude
+// stand-in for "a bulge is here" (spiralBoxyPeanutBulge, Amendment A4),
+// with a MUCH shorter scale length than the disc so its whole extent sits
+// well inside a handful of grid cells, same as the real bulge's ~700pc
+// scale does against this project's 20000pc preview half-width.
+const radialPlusBulge = gridOf((x, y) => {
+  const R = Math.hypot(x, y);
+  return Math.exp(-R / DISC_SCALE_PC) + 500 * Math.exp(-R / 400);
+});
+
+check('8 modulateArmsForDisplay reveals real azimuthal contrast: a field WITH a ' +
+  'real azimuthal bump shows far more spread in the OUTPUT than the SAME field run ' +
+  'through normaliseForDisplay alone (which is dominated by the radial falloff, not ' +
+  'the arm) - the "arms invisible" bug this exists to close',
   (() => {
-    const armEmphasised = emphasiseArmsForDisplay(radialPlusArm, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+    const modulated = modulateArmsForDisplay(radialPlusArm, NX, NY, HALF_PC);
     const plainLog = normaliseForDisplay(radialPlusArm, { log: true });
     // Compare the value at a point ON the arm boost against a point at the
-    // SAME radius but off it - emphasiseArmsForDisplay should show a much
+    // SAME radius but off it - modulateArmsForDisplay should show a much
     // bigger difference (the arm should visibly stand out) than plain log
     // normalisation does (where the radial gradient swamps it).
     const onArmIdx = (NX / 2 + 20) + NX * (NY / 2);        // x > 0, near y=0
     const offArmIdx = (NX / 2 - 20) + NX * (NY / 2);       // x < 0, near y=0, SAME |R|
-    const emphDiff = Math.abs(armEmphasised[onArmIdx]! - armEmphasised[offArmIdx]!);
+    const modDiff = Math.abs(modulated[onArmIdx]! - modulated[offArmIdx]!);
     const plainDiff = Math.abs(plainLog[onArmIdx]! - plainLog[offArmIdx]!);
-    return emphDiff > plainDiff * 3;
+    return modDiff > plainDiff * 3;
   })());
 
-check('9 emphasiseArmsForDisplay always returns values in [0, 1]',
+check('9 modulateArmsForDisplay always returns values in [0, 1]',
   (() => {
-    const out = emphasiseArmsForDisplay(radialPlusArm, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+    const out = modulateArmsForDisplay(radialPlusArm, NX, NY, HALF_PC);
     return out.every((v) => v >= 0 && v <= 1);
   })());
 
-check('10 emphasiseArmsForDisplay fades toward 0 with radius - no hard cutoff, a ' +
-  'smooth ramp: the mean value in the outermost ring is measurably smaller than ' +
-  'in a middle ring', (() => {
-  const out = emphasiseArmsForDisplay(radialOnly, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
-  let innerSum = 0, innerN = 0, outerSum = 0, outerN = 0;
-  for (let iy = 0; iy < NY; iy++) {
-    for (let ix = 0; ix < NX; ix++) {
-      const x = -HALF_PC + (ix + 0.5) * (2 * HALF_PC / NX), y = -HALF_PC + (iy + 0.5) * (2 * HALF_PC / NY);
-      const R = Math.hypot(x, y);
-      const v = out[ix + NX * iy]!;
-      if (R < HALF_PC * 0.3) { innerSum += v; innerN++; }
-      if (R > HALF_PC * 0.9) { outerSum += v; outerN++; }
-    }
-  }
-  return outerN > 0 && innerN > 0 && (outerSum / outerN) < (innerSum / innerN);
+check('10 modulateArmsForDisplay does NOT erase a field\'s own radial concentration ' +
+  '- on a field with a strong central peak (a bulge stand-in), the CENTRE displays ' +
+  'brighter than a point far off-centre, never dimmer (the exact regression the ' +
+  'retired emphasiseArmsForDisplay caused for the real boxy/peanut bulge, confirmed ' +
+  'directly before this rewrite: centre 0.58, a point ~1750pc off-centre 0.94 - ' +
+  'brighter than the centre)', (() => {
+  const out = modulateArmsForDisplay(radialPlusBulge, NX, NY, HALF_PC);
+  const centreIdx = (NX / 2) + NX * (NY / 2);
+  const farIdx = (NX / 2 + 10) + NX * (NY / 2);   // ~6250pc off-centre (10 cells * 625pc/cell) - well past the ~400pc bulge stand-in, still inside the disc
+  return out[centreIdx]! > out[farIdx]!;
 })());
 
-check('11 on a RADIALLY SYMMETRIC field (no azimuthal structure at all), the ' +
-  'relative (post-detrend) value is uniform at fixed radius - within the lit ' +
-  'region, every cell in a thin ring lands within a tight band, not spread out ' +
-  '(nothing manufactured that is not there)', (() => {
-  const out = emphasiseArmsForDisplay(radialOnly, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+check('11 on a RADIALLY SYMMETRIC field (no azimuthal structure at all), ' +
+  'modulateArmsForDisplay\'s output is uniform at fixed radius - every cell in a ' +
+  'thin ring lands within a tight band, not spread out (nothing manufactured that ' +
+  'is not there)', (() => {
+  const out = modulateArmsForDisplay(radialOnly, NX, NY, HALF_PC);
   const ringVals: number[] = [];
   const targetR = HALF_PC * 0.2;
   for (let iy = 0; iy < NY; iy++) {
@@ -201,15 +207,14 @@ check('11 on a RADIALLY SYMMETRIC field (no azimuthal structure at all), the ' +
   return ringVals.every((v) => Math.abs(v - mean) < 0.15);
 })());
 
-check('12 emphasiseArmsForDisplay never renders a lit interarm/background cell as literal ' +
-  'black - a genuinely below-ring-mean trough still clears INTERARM_FLOOR once the fade ' +
-  'multiplier itself is not the thing zeroing it (the fix for "between arms is black, the ' +
+check('12 modulateArmsForDisplay never renders a lit interarm/background cell as ' +
+  'literal black - a genuinely below-ring-mean trough still clears ' +
+  'ARM_MODULATION_FLOOR\'s multiplier (the fix for "between arms is black, the ' +
   'reference image has stars between arms")', (() => {
-  const out = emphasiseArmsForDisplay(radialPlusArm, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
-  // Sample a ring of cells at a moderate radius, well inside the fade
-  // reach, that sit OFF the artificial arm boost (x < 0) - the "interarm"
-  // side of this fixture's own bump. None should be darker than the floor
-  // scaled by their own (near-1, this close in) fade factor.
+  const out = modulateArmsForDisplay(radialPlusArm, NX, NY, HALF_PC);
+  // Sample a ring of cells at a moderate radius that sit OFF the artificial
+  // arm boost (x < 0) - the "interarm" side of this fixture's own bump.
+  // None should be literal zero.
   let sampled = 0;
   for (let iy = 0; iy < NY; iy++) {
     for (let ix = 0; ix < NX; ix++) {
@@ -226,7 +231,7 @@ check('12 emphasiseArmsForDisplay never renders a lit interarm/background cell a
 check('13 the interarm floor does NOT erase the arm-vs-interarm contrast gate 8 already ' +
   'proved - an on-arm cell still reads meaningfully brighter than an off-arm cell at the ' +
   'same radius, floor and all', (() => {
-  const out = emphasiseArmsForDisplay(radialPlusArm, NX, NY, HALF_PC, DISC_SCALE_PC, 1);
+  const out = modulateArmsForDisplay(radialPlusArm, NX, NY, HALF_PC);
   const onArmIdx = (NX / 2 + 20) + NX * (NY / 2);
   const offArmIdx = (NX / 2 - 20) + NX * (NY / 2);
   return out[onArmIdx]! > out[offArmIdx]! + 0.1;

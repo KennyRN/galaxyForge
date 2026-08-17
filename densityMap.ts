@@ -413,30 +413,6 @@ export function normaliseForDisplay(
 }
 
 /**
- * Radial fade reach, in disc scale lengths (16 Aug 2026, ported from a
- * sibling build). `tunable` - purely a display choice, not a model
- * constant.
- *
- * RAISED 5 -> 8 (16 Aug 2026, a direct user follow-up: "no gradual fading
- * of the stars, but a solid cutoff"). Verified numerically (this session's
- * own diagnostic script) that at 5 scale lengths (rFade=13000pc) the
- * display value hits exactly 0 by R~=17000pc, well inside this project's
- * own 20000pc half-width preview - so real, if faint, DISC material past
- * that radius (still measured non-zero out to at least 24000pc) was being
- * cut off outright rather than fading into it. At 8 scale lengths the same
- * sweep stays in a smooth 0.12-0.86 range all the way to the view's own
- * corner, with no hard floor - genuinely gradual. This does NOT make the
- * stellar halo (`haloTerm`) show as a DISTINCT structure in this top-down,
- * full-z-integrated view - verified separately that halo never exceeds a
- * few percent of the in-plane total density at any radius within its own
- * truncation, so it is never locally dominant here no matter how far the
- * fade reaches; the halo's real visual signature is at high |z|, which is
- * what the edge-on view's own widened height (see `galaxyCreationModals
- * .ts`'s own `EDGE_ON_HALF_HEIGHT_PC`) is for.
- */
-export const ARM_DISPLAY_FADE_SCALE_LENGTHS = 8;
-
-/**
  * Contrast-boost exponent applied to a cell's deviation from its own ring
  * mean, BEFORE the percentile stretch (16 Aug 2026, a user-found gap: "never
  * more than 2 spirals" on a table that names 5). `tunable`, display-only -
@@ -469,71 +445,80 @@ export const ARM_DISPLAY_FADE_SCALE_LENGTHS = 8;
  * into looking as strong as a major arm, which would misrepresent the
  * calibrated arm-weight table this module owns no science over.
  */
-const ARM_DISPLAY_CONTRAST_GAMMA = 0.6;
+const ARM_MODULATION_CONTRAST_GAMMA = 0.6;
 
 /**
- * Minimum display brightness for any LIT cell (`fadeAt(R) > 0`), applied
- * AFTER the percentile stretch and BEFORE the fade multiply (16 Aug 2026, a
- * user-found gap: interarm gaps were rendering as literal black, "between
- * arms in the screenshot is black and in the [reference] image there's
- * stars between arms"). This is a genuine, correct property of the field
- * being crushed by DISPLAY scaling, not invented: an interarm trough
- * legitimately sits below the local ring mean (`armFactor`'s ridge is
- * mean-subtracting, so it dips as well as rises - see `spiralArms.ts`'s own
- * header), and a percentile stretch calibrated to the strong on-arm/bar
- * swing naturally maps a modest below-mean cell close to 0. Real disc
- * populations are never actually empty between arms, only sparser - a
- * floor says exactly that: never fewer than a handful of scattered dots in
- * any cell that is part of the lit galaxy at all, only fully black once
- * `fadeAt` itself reaches 0 (which this floor is multiplied BY, not
- * instead of - the true outer edge/void still fades to exact black, only
- * genuine interarm/background cells within the disc are floored).
- *
- * RAISED 0.22 -> 0.4 (16 Aug 2026, a direct user follow-up: the first pass
- * closed literal black to a bare handful of dots, but the user wanted the
- * overall arm/interarm contrast reduced further still - "so that you can
- * see more stars between the arms", also noting it would make the complex
- * -tier clumps (`galaxyCreationModals.ts`'s own overlay) "feel less odd and
- * more normal" against a sparser background. Still a floor, not a
- * flattening - the on-arm/off-arm gate (13) still requires a real, visible
- * gap between the two, just a narrower one than before.
+ * Minimum MODULATION for any lit cell, applied AFTER the percentile stretch
+ * (17 Aug 2026, ported over from the retired `INTERARM_FLOOR` - same value,
+ * same reasoning: an interarm trough legitimately sits below the local ring
+ * mean, `armFactor`'s ridge is mean-subtracting, so it dips as well as
+ * rises - see `spiralArms.ts`'s own header). This now floors a MULTIPLIER
+ * on the real shape brightness (see `modulateArmsForDisplay` below), not
+ * display brightness itself - a cell can still read as dim because the
+ * underlying field genuinely IS dim there (far out, or deep interarm), it
+ * just never reads as dimmer than `MODULATION_FLOOR` times what its own
+ * radial/vertical position alone would already show.
  */
-const INTERARM_FLOOR = 0.4;
+const ARM_MODULATION_FLOOR = 0.4;
 
 /**
- * Display normalisation FOR SPIRAL/BARRED MORPHOLOGIES ONLY (16 Aug 2026,
- * ported from a sibling build's own `emphasiseArmsForDisplay`) - closes a
- * real bug a user found: `normaliseForDisplay`'s global log min-max
- * ALWAYS washes out arm contrast on a galaxy-wide view, because the
- * RADIAL falloff (dense centre to near-empty outskirts, many orders of
- * magnitude) utterly dominates the AZIMUTHAL arm-vs-interarm contrast
- * (a Drimmel & Spergel K~1.3, a few tens of percent) - both get log
- * -compressed into the same [0,1] range, and the radial gradient wins
- * completely. A user correctly saw "a uniform collection of dots from
- * denser inside to less sparse outside" with no visible arm structure at
- * all - not a rendering-resolution problem, a NORMALISATION problem.
+ * Display transform FOR SPIRAL/BARRED MORPHOLOGIES ONLY (rewritten 17 Aug
+ * 2026, morphology patch v3.0, superseding the retired `emphasiseArmsFor
+ * Display` in full - Amendment A7 pulled forward from this patch's own
+ * later render step, found necessary NOW rather than deferred: a user
+ * reported the newly-added boxy/peanut bulge (Amendment A4, step 1) as
+ * "too small/faint" and, for the barred case, "wrong shape" - confirmed
+ * directly (disposable diagnostic script, this session) that the OLD
+ * function's ratio-to-ring-mean transform did not merely dim the bulge, it
+ * actively mis-shaped it: the galactic CENTRE displayed at 0.58, while a
+ * point ~1750pc off-centre displayed at 0.94 - BRIGHTER than the centre,
+ * because dividing every cell by its OWN ring's mean discards a population's
+ * absolute radial concentration entirely, keeping only its azimuthal
+ * ripple. That is precisely what Amendment A7 already diagnosed in the
+ * patch document ("the display layer may not detrend radially... any
+ * future display transform that removes the radial profile is a defect")
+ * - the same defect, now confirmed to ALSO block honest assessment of the
+ * upcoming armClass modulation (step 3) if left in place, not merely the
+ * bulge.
  *
- * The fix: for each cell, divide by the MEAN density at its own radius
- * (computed over 160 concentric rings) before display-scaling - this
- * REMOVES the radial gradient entirely, leaving only the ratio to the
- * local ring mean, which is exactly what an arm's contrast IS. The
- * resulting relative field is then percentile-stretched (2nd-99.5th) to
- * use the full display range, and faded toward 0 with radius (a smooth
- * `1.15 - 0.9*(R/rFade)` ramp, not a hard cutoff) so the outskirts settle
- * to black gracefully instead of either amplifying ring-mean noise where
- * the true density is negligible, or stopping abruptly at a truncation
- * radius (the same bug report's "outer edge too sharp"/"zoom wrong,
- * stars appear to be cut off before fading" symptoms - both are
- * consequences of having no fade term at all, not a separate bug).
+ * `normaliseForDisplay`'s own real bug the OLD function was built to fix
+ * still holds too (RADIAL falloff, many orders of magnitude, swamps
+ * AZIMUTHAL arm contrast under a single global log-compression) - so the
+ * fix here is not simply "delete and fall back to plain log", which would
+ * regress arm visibility. Instead: compute the real shape (log-normalised,
+ * exactly `normaliseForDisplay`'s own path, so it preserves EVERY absolute
+ * radial/vertical structure - the bulge, the disc falloff, all of it) and
+ * MODULATE it by a boosted ring-mean-deviation ratio, rather than replacing
+ * brightness with the ratio outright - the same "shape times a bounded
+ * modulation factor" pattern `edgeOnDisplayField` (below) already
+ * established correctly for the side-on view; this promotes that pattern
+ * to the top-down view instead of leaving two different, inconsistent
+ * philosophies in the same file.
  *
- * Returns values already in [0, 1] with the fade baked in - do NOT
- * log-normalise the result a second time (that would re-introduce the
- * exact problem this function exists to remove).
+ * A consequence worth stating plainly: `ARM_DISPLAY_FADE_SCALE_LENGTHS` (a
+ * hand-tuned radial fade heuristic, retired outright with this rewrite) is
+ * no longer needed - `shape` already fades correctly with radius because it
+ * is the REAL log-normalised density, not a heuristic standing in for one.
+ * This is a genuine simplification the shape-preserving redesign enables,
+ * not merely a deleted line: the previous function needed that heuristic
+ * BECAUSE it had thrown the real radial information away.
+ *
+ * This is an INTERIM design, not the patch's own final endpoint for arm
+ * contrast (Section 5.4: "colour is where most of the perceptual arm
+ * contrast comes from... should not be pushed to try [via luminance
+ * alone]") - per-population colour is still future work (a later step),
+ * expected to further simplify or partly replace the modulation term below
+ * once it lands. This rewrite exists to stop the display from actively
+ * erasing real model structure in the meantime, not to be the last word on
+ * arm rendering.
+ *
+ * Returns values already in [0, 1].
  */
-export function emphasiseArmsForDisplay(
+export function modulateArmsForDisplay(
   values: Float64Array, nx: number, ny: number, halfPc: number,
-  discScaleLengthPc: number, scale: number,
 ): Float64Array {
+  const shape = normaliseForDisplay(values, { log: true });
+
   const cellX = (2 * halfPc) / nx;
   const cellY = (2 * halfPc) / ny;
   const nRing = 160;
@@ -557,12 +542,7 @@ export function emphasiseArmsForDisplay(
   // than dividing by zero.
   for (let r = 1; r <= nRing; r++) if (mean[r]! === 0) mean[r] = mean[r - 1]!;
 
-  const rFade = ARM_DISPLAY_FADE_SCALE_LENGTHS * discScaleLengthPc * scale;
-  const fadeAt = (R: number): number =>
-    Math.min(1, Math.max(0, 1.15 - 0.9 * (R / Math.max(rFade, 1e-9))));
-
   const rel = new Float64Array(values.length);
-  const lit: number[] = [];
   for (let iy = 0; iy < ny; iy++) {
     for (let ix = 0; ix < nx; ix++) {
       const i = ix + nx * iy;
@@ -573,34 +553,31 @@ export function emphasiseArmsForDisplay(
       const rm = (1 - frac) * mean[r0]! + frac * mean[Math.min(nRing, r0 + 1)]!;
       const ratio = rm > 0 ? values[i]! / rm : 1;
       // Contrast-boost the DEVIATION from the ring mean, not the ratio
-      // itself - see ARM_DISPLAY_CONTRAST_GAMMA's own doc comment. A cell
-      // exactly at its ring mean (dev = 0) is unaffected regardless of
+      // itself - see ARM_MODULATION_CONTRAST_GAMMA's own doc comment. A
+      // cell exactly at its ring mean (dev = 0) is unaffected regardless of
       // gamma, which is what keeps gate 11 (no manufactured structure on a
       // radially symmetric field) true unconditionally.
       const dev = ratio - 1;
-      const boosted = dev === 0 ? 0 : Math.sign(dev) * Math.pow(Math.abs(dev), ARM_DISPLAY_CONTRAST_GAMMA);
+      const boosted = dev === 0 ? 0 : Math.sign(dev) * Math.pow(Math.abs(dev), ARM_MODULATION_CONTRAST_GAMMA);
       rel[i] = 1 + boosted;
-      if (fadeAt(R) > 0) lit.push(rel[i]!);
     }
   }
 
-  // Percentile stretch over the LIT region only (faded-out cells would
-  // otherwise pull the stretch toward their own, irrelevant, statistics).
-  lit.sort((a, b) => a - b);
-  const q = (p: number): number => (lit.length
-    ? lit[Math.min(lit.length - 1, Math.floor(p * lit.length))]!
-    : 1);
-  const LO = lit.length ? q(0.02) : 0.95;
-  const HI = lit.length ? q(0.995) : 1.50;
+  // Percentile stretch over the WHOLE grid (unlike the old function, there
+  // is no separate "lit" subset to restrict to - `shape` itself already
+  // carries the fade/cutoff behaviour honestly, so every cell's modulation
+  // is equally meaningful to stretch against).
+  const sorted = Array.from(rel).sort((a, b) => a - b);
+  const q = (p: number): number => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
+  const LO = q(0.02);
+  const HI = q(0.995);
   const span = Math.max(1e-6, HI - LO);
 
   const out = new Float64Array(values.length);
-  for (let iy = 0; iy < ny; iy++) {
-    for (let ix = 0; ix < nx; ix++) {
-      const i = ix + nx * iy;
-      const stretched = Math.min(1, Math.max(0, (rel[i]! - LO) / span));
-      out[i] = Math.max(INTERARM_FLOOR, stretched) * fadeAt(Rof(ix, iy));
-    }
+  for (let i = 0; i < values.length; i++) {
+    const stretched = Math.min(1, Math.max(0, (rel[i]! - LO) / span));
+    const modulation = ARM_MODULATION_FLOOR + (1 - ARM_MODULATION_FLOOR) * stretched;
+    out[i] = shape[i]! * modulation;
   }
   return out;
 }
@@ -786,23 +763,28 @@ export function edgeOnDisplayField(
  *  7. RESOLUTION INDEPENDENCE - `expectedSystemCount` at 16x16 and at 256x256
  *     agree to better than 0.5 % on a smooth field. Catches a cell-centre or
  *     cell-area error that a single fixed resolution would hide.
- *  8. emphasiseArmsForDisplay (16 Aug 2026) REMOVES the radial gradient - a
- *     field with a real azimuthal bump but a strong radial falloff shows a
- *     LARGER value spread across azimuth at fixed radius than
- *     `normaliseForDisplay` alone would leave visible relative to the
- *     radial spread - the property that fixes the "arms invisible" bug
- *     this was ported to close.
- *  9. emphasiseArmsForDisplay always returns values in [0, 1].
- *  10. emphasiseArmsForDisplay fades toward 0 as R grows past
- *      `ARM_DISPLAY_FADE_SCALE_LENGTHS * discScaleLengthPc` - no hard
- *      cutoff, a smooth ramp (the fix for "outer edge too sharp").
+ *  8. modulateArmsForDisplay (rewritten 17 Aug 2026, superseding the retired
+ *     `emphasiseArmsForDisplay`) reveals real azimuthal contrast - a field
+ *     with a real azimuthal bump but a strong radial falloff shows a LARGER
+ *     value spread across azimuth at fixed radius than `normaliseForDisplay`
+ *     alone would leave visible relative to the radial spread - the
+ *     property that fixes the "arms invisible" bug this exists to close.
+ *  9. modulateArmsForDisplay always returns values in [0, 1].
+ *  10. modulateArmsForDisplay does NOT erase a field's own radial
+ *      concentration - on a field with a strong central peak, the CENTRE
+ *      displays brighter than a point far off-centre at the same or lower
+ *      density, never dimmer (the exact regression the retired function's
+ *      ratio-to-ring-mean transform caused for the boxy/peanut bulge,
+ *      confirmed directly before this rewrite: centre displayed at 0.58,
+ *      a point ~1750pc off-centre at 0.94 - BRIGHTER than the centre).
  *  11. On a field with NO azimuthal structure at all (radially symmetric),
- *      emphasiseArmsForDisplay's relative field is uniform at every fixed
- *      radius (up to floating-point tolerance) - it does not manufacture
- *      structure that is not there.
- *  12. emphasiseArmsForDisplay never renders a LIT interarm/background cell
- *      as literal black - INTERARM_FLOOR guarantees a minimum brightness
- *      for any cell the fade multiplier has not itself zeroed.
+ *      modulateArmsForDisplay's output is uniform at every fixed radius (up
+ *      to floating-point tolerance) - it does not manufacture structure
+ *      that is not there.
+ *  12. modulateArmsForDisplay never renders a LIT interarm/background cell
+ *      as literal black - `ARM_MODULATION_FLOOR` guarantees a minimum
+ *      modulation multiplier for any cell the underlying shape has not
+ *      itself already faded near zero.
  *  13. The floor does not erase the on-arm/off-arm contrast gate 8 proved -
  *      an arm still reads meaningfully brighter than its own interarm gap.
  *  14. edgeOnDisplayField (16 Aug 2026) always returns values in [0, 1].
