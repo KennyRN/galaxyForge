@@ -534,6 +534,15 @@ export const CHANNELS = {
    *  system's content - the same reasoning `complexField`'s own comment
    *  gives for its isolation. */
   seededArms: 'seededArms',
+  /** `spiralArms.rollArmClass` (17 Aug 2026, Amendment A6, morphology patch
+   *  v3.0) - a Tier G, "rolled once at galaxy creation" draw, same pattern
+   *  as `seededArms` immediately above and isolated from it for the same
+   *  reason (arm TABLE geometry and arm CLASS are two independent
+   *  decisions about galaxy shape; a change to one must never perturb the
+   *  other's draw). Only consumed for `armSource: 'seeded'` - 'Milky Way
+   *  Analogue' fixes `armClass` to `'multipleArm'` without rolling, since
+   *  it is explicitly meant to model the real, already-classified galaxy. */
+  armClass: 'armClass',
   planets: 'planets',
   belts: 'belts',
   rotation: (starIndex: number) => `rotation:${starIndex}`,

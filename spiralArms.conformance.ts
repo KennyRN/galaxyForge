@@ -9,6 +9,7 @@
 import {
   ARMS, DEFAULT_ARM_WIDTH, armWidthPc, thetaArmRad, kappaOf, armFactor, armContrastRatio,
   deriveArmContrasts, anchorArmCorrection, generateSeededArms, DRIMMEL_SPERGEL_K,
+  rollArmClass, ARM_CLASS_PRIOR,
 } from './spiralArms';
 
 let failures = 0;
@@ -220,6 +221,63 @@ check('8i deriveArmContrasts keeps SEPARATE, non-colliding memoised results for 
     // re-fetching either seeded table's contrasts still returns ITS OWN values, not the other's
     deriveArmContrasts(8200, DEFAULT_ARM_WIDTH, armsA).oldThin === cA.oldThin &&
     deriveArmContrasts(8200, DEFAULT_ARM_WIDTH, armsB).oldThin === cB.oldThin;
+})());
+
+/* -- armClass (Amendment A6, morphology patch v3.0, 17 Aug 2026) --------------- */
+
+check('9 rollArmClass is deterministic - the same worldSeed always gives the same class',
+  ['ac-a', 'ac-b', 'ac-c'].every((s) => rollArmClass(s) === rollArmClass(s)));
+
+check('9b rollArmClass only ever returns one of the three declared classes',
+  Array.from({ length: 200 }, (_, i) => rollArmClass(`ac-range-${i}`))
+    .every((c) => c === 'flocculent' || c === 'multipleArm' || c === 'grandDesign'));
+
+check('9c rollArmClass\'s empirical frequency over a large sample roughly matches ARM_CLASS_PRIOR ' +
+  '(within 10 percentage points - a coarse sanity check on the roll, not a statistical test)', (() => {
+  const n = 3000;
+  const counts: Record<string, number> = { flocculent: 0, multipleArm: 0, grandDesign: 0 };
+  for (let i = 0; i < n; i++) counts[rollArmClass(`ac-freq-${i}`)] += 1;
+  return Object.entries(ARM_CLASS_PRIOR).every(([cls, p]) => Math.abs(counts[cls]! / n - p) < 0.10);
+})());
+
+check('9d generateSeededArms scales spur count/probability by armClass - flocculent (maxSpurs:3, ' +
+  'chancePerSpur:0.7) produces MORE than one spur at least sometimes; grandDesign (chancePerSpur:0.08) ' +
+  'produces a spur only rarely', (() => {
+  let flocculentMultiSpur = false;
+  let grandDesignSpurCount = 0;
+  const n = 300;
+  for (let i = 0; i < n; i++) {
+    const floc = generateSeededArms(`ac-spur-floc-${i}`, 'flocculent');
+    if (floc.filter((a) => a.tier === 'spur').length > 1) flocculentMultiSpur = true;
+    const grand = generateSeededArms(`ac-spur-grand-${i}`, 'grandDesign');
+    grandDesignSpurCount += grand.filter((a) => a.tier === 'spur').length;
+  }
+  // Expected grandDesign spur rate ~8%, so ~24 spurs over 300 draws - assert
+  // well below flocculent's own ~2.1 average (maxSpurs 3 * chancePerSpur 0.7),
+  // not an exact frequency match.
+  return flocculentMultiSpur && grandDesignSpurCount < n * 0.25;
+})());
+
+check('9e generateSeededArms(worldSeed) with no armClass argument reproduces the pre-Amendment-A6 ' +
+  'single-spur behaviour EXACTLY (default armClass is \'multipleArm\', same {maxSpurs:1, ' +
+  'chancePerSpur:0.45} as the historical constant, same draw order)',
+  JSON.stringify(generateSeededArms('ac-backcompat')) === JSON.stringify(generateSeededArms('ac-backcompat', 'multipleArm')));
+
+check('9f armFactor with no modulation argument reproduces pre-Amendment-A6 behaviour exactly ' +
+  '(env=1 unconditionally)', (() => {
+  const c = deriveArmContrasts(8200);
+  return armFactor('major', c.oldThin, 8178, 0.7) === armFactor('major', c.oldThin, 8178, 0.7, DEFAULT_ARM_WIDTH, ARMS, undefined);
+})());
+
+check('9g along-arm modulation preserves the mean-zero invariant at fixed R - armFactor\'s own ' +
+  'azimuthal mean stays 1 (arms redistribute, never add) EVEN WITH a modulation envelope applied, ' +
+  'since the envelope depends on R only, never theta', (() => {
+  const c = deriveArmContrasts(8200);
+  const modulation = { wavelengthPc: 3000, depth: 0.8 };
+  const n = 2048;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += armFactor('major', c.oldThin, 8178, (2 * Math.PI * i) / n, DEFAULT_ARM_WIDTH, ARMS, modulation);
+  return close(sum / n, 1, 1e-9);
 })());
 
 /* --------------------------------- result ------------------------------------ */

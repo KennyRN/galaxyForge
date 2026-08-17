@@ -35,7 +35,12 @@ function check(name: string, cond: boolean) {
     const stored = anchorArmCorrectionFor(params, set);
     const contrasts = params.armContrast();
     const c = set === 'all' ? contrasts.youngThin : set === 'majorMinor' ? contrasts.midThin : contrasts.oldThin;
-    const recomputed = armFactor(set, c, params.referenceRPc, (params.referenceThetaDeg * Math.PI) / 180, params.armWidth);
+    // params.armModulation (17 Aug 2026, Amendment A6) - MUST be threaded
+    // through here too, matching what anchorArmCorrectionFor now passes
+    // internally, or this recomputation silently diverges from the stored
+    // value the moment the default armClass carries a non-zero modulation
+    // depth (it does - 'multipleArm' is 0.30, not 0).
+    const recomputed = armFactor(set, c, params.referenceRPc, (params.referenceThetaDeg * Math.PI) / 180, params.armWidth, params.arms, params.armModulation);
     check(`GATE 26: anchorArmCorrection("${set}") reproduces from stored contrasts to 1e-12`, Math.abs(stored - recomputed) < 1e-12);
   }
 }
@@ -127,6 +132,23 @@ function densityAtOrigin8200(params: GalaxyParameters, barEnabled = false): numb
     // rounder isodensity surface genuinely differs at fixed R - ON either
     // axis the two exponents can coincidentally agree at some radii.
     return model1.densityAt(600, 0.9, 100) !== model2.densityAt(600, 0.9, 100);
+  })());
+
+  // armModulation.* (17 Aug 2026, Amendment A6) - the along-arm envelope,
+  // wired into discTerm's raw armFactor call. depth's own perturbation
+  // needs a real arm-response population (spiralYoungThin, set='all') at a
+  // radius/angle combination sensitive to R (the envelope's own variable).
+  check('GATE 19: perturbing WIRED field "armModulation.depth" changes densityAt', (() => {
+    const model1 = createSpiralModel(false, base);
+    const deeper: GalaxyParameters = { ...base, armModulation: { ...base.armModulation, depth: Math.min(0.95, base.armModulation.depth + 0.4) } };
+    const model2 = createSpiralModel(false, deeper);
+    return model1.densityAt(6000, 0.7, 0) !== model2.densityAt(6000, 0.7, 0);
+  })());
+  check('GATE 19: perturbing WIRED field "armModulation.wavelengthPc" changes densityAt', (() => {
+    const model1 = createSpiralModel(false, base);
+    const shorter: GalaxyParameters = { ...base, armModulation: { ...base.armModulation, wavelengthPc: base.armModulation.wavelengthPc * 0.4 } };
+    const model2 = createSpiralModel(false, shorter);
+    return model1.densityAt(6000, 0.7, 0) !== model2.densityAt(6000, 0.7, 0);
   })());
 
   // NOT-YET-WIRED fields (see this file's header) - perturbing these is

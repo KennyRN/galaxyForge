@@ -155,6 +155,43 @@
  * way (gate G4). `verification/golden/gen8.json` is the fixture cut against
  * THIS version.
  *
+ * BUMP 9, 17 Aug 2026 (morphology & render patch v3.0, step 3 - Amendment
+ * A6): `armClass` (`flocculent`/`multipleArm`/`grandDesign`), rolled once
+ * per galaxy for `armSource: 'seeded'` (a calibrated synthesis of Elmegreen
+ * & Elmegreen 1987/Ann & Lee 2013/Buta et al. 2015's own grand-design
+ * fractions - `spiralArms.ARM_CLASS_PRIOR`), fixed to `'multipleArm'`
+ * without rolling for `armSource: 'observed-mw'` ('Milky Way Analogue').
+ * Selects an arm-response table (flocculent zeroes every population but
+ * `spiralYoungThin`), a contrast target empirically calibrated against the
+ * real summed field to land inside Elmegreen et al. 2011's own A(R) bands
+ * (gate G2 - `spiralArms.ARM_CLASS_CONTRAST_TARGET_K`'s own header records
+ * the calibration), and an along-arm amplitude envelope + spur-count/
+ * -probability scaling (defect 1's own fix: "arms are always perfect - no
+ * spurs, no breaks, no fracturing") - `spiralArms.ARM_CLASS_MODULATION`/
+ * `ARM_CLASS_SPUR`.
+ *
+ * This is NOT limited to seeded galaxies: `armModulation` reaches
+ * `discTerm` unconditionally, and the DEFAULT `armClass` ('multipleArm',
+ * used whenever a caller omits the parameter - every existing conformance
+ * gate, the golden master, `main.ts`'s own test command, and 'Milky Way
+ * Analogue' itself) carries a non-zero modulation depth (0.30, not 0) -
+ * deliberate, not an oversight: defect 1 was reported as a general
+ * problem, not one limited to procedurally-seeded galaxies, and 'Milky Way
+ * Analogue' is very plausibly the single most common morphology choice, so
+ * leaving the default at zero modulation would have fixed the least-used
+ * case and left the most-used one exactly as broken as before. Confirmed
+ * empirically, not assumed: re-running the suite against the
+ * still-committed `gen8.json` fails placement/remnants byte-identity for
+ * `barredSpiral` at its own reference cell; `spiral`'s own reference cell
+ * happens to land on a Poisson-rounding coincidence where the (real,
+ * measured ~0.1-4% density) perturbation does not cross an integer-draw
+ * threshold at that one specific narrow cell - confirmed via a disposable
+ * diagnostic script that the underlying continuous field genuinely does
+ * differ there too, not a sign the mechanism is inert for `spiral`.
+ * DRIMMEL_SPERGEL_K itself is untouched - 'Milky Way Analogue's own
+ * contrast MAGNITUDE is unaffected, only its along-arm smoothness.
+ * `verification/golden/gen9.json` is the fixture cut against THIS version.
+ *
  * NOT bumped again by anything built in this same pass.
  */
-export const CURRENT_GEN_VERSION = 8;
+export const CURRENT_GEN_VERSION = 9;

@@ -1,8 +1,10 @@
 import {
-  createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel,
+  createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, measuredArmMagnitude,
   R0_PC, hernquistK, ELLIPTICAL_POPULATIONS, LENTICULAR_POPULATIONS, JURIC,
   type Population, type DensityByPopulation, type GalaxyModel,
 } from './galaxyModel';
+import { makeDefaultGalaxyParameters } from './galaxyParameters';
+import { ARMS, rollArmClass, type ArmClass } from './spiralArms';
 
 let failures = 0;
 function check(label: string, cond: boolean): void {
@@ -309,6 +311,44 @@ check('scaleSpiralModel: morphology/populations pass through unchanged (only the
   (() => {
     const scaled = scaleSpiralModel(spiral, 1.5);
     return scaled.morphology === spiral.morphology && scaled.populations === spiral.populations;
+  })());
+
+// -- armClass (Amendment A6, morphology patch v3.0, 17 Aug 2026) - G2/G3 ---------
+
+// R0 = 8178pc (the solar circle, matching DRIMMEL_SPERGEL_K's own anchor
+// radius) - the same reference point ARM_CLASS_CONTRAST_TARGET_K's own
+// header records the calibration measurements against.
+const ARM_CLASS_BAND: Readonly<Record<ArmClass, readonly [number, number]>> = {
+  flocculent: [0.7, 1.4],       // sourced, Elmegreen & Elmegreen 2011
+  multipleArm: [1.2, 1.6],      // calibrated - a band around the patch's own stated ~1.4 mag point value
+  grandDesign: [1.4, 4.0],      // sourced floor (">1.4 mag"), generous calibrated ceiling for sanity only
+};
+
+for (const armClass of ['flocculent', 'multipleArm', 'grandDesign'] as const) {
+  check(`G2: measured A(R0) for a seeded '${armClass}' galaxy falls inside its declared band ` +
+    `[${ARM_CLASS_BAND[armClass][0]}, ${ARM_CLASS_BAND[armClass][1]}] mag`,
+    (() => {
+      const params = makeDefaultGalaxyParameters('g2-gate-seed', ARMS, 'seeded', armClass);
+      const model = createSpiralModel(false, params);
+      const A = measuredArmMagnitude(model, R0_PC);
+      const [lo, hi] = ARM_CLASS_BAND[armClass];
+      return A >= lo && A <= hi;
+    })());
+}
+
+check('G3: armClass is stable under regeneration from the same worldSeed - ' +
+  'rollArmClass is a pure function, repeat calls give the identical class',
+  (() => {
+    const seeds = ['g3-a', 'g3-b', 'g3-c', 'g3-d', 'g3-e'];
+    return seeds.every((s) => rollArmClass(s) === rollArmClass(s));
+  })());
+
+check('G3b: armClass genuinely VARIES across worldSeeds (not manufactured stability - ' +
+  'a constant return value would trivially pass G3 above without this)',
+  (() => {
+    const classes = new Set<ArmClass>();
+    for (let i = 0; i < 60; i++) classes.add(rollArmClass(`g3-spread-${i}`));
+    return classes.size >= 2;   // 60 draws against a {0.15,0.60,0.25} prior essentially guarantees all 3
   })());
 
 if (failures > 0) throw new Error(`${failures} galaxyModel conformance failure(s)`);

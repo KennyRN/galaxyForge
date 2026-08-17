@@ -100,6 +100,17 @@ import { CHANNELS } from './types';
 export type ArmTier = 'major' | 'minor' | 'spur';
 export type ArmResponseSet = 'all' | 'majorMinor' | 'major' | 'none';
 
+/**
+ * Elmegreen & Elmegreen's collapsed three-class scheme (Amendment A6,
+ * morphology patch v3.0, 17 Aug 2026) - `flocculent` (short, ragged,
+ * fragmented arms, young-tracer only), `multipleArm` (3-4 arms, inner
+ * two-arm symmetry, the shipped table's own row - the Milky Way belongs
+ * here), `grandDesign` (two long, smooth, continuous arms). See
+ * `ARM_CLASS_PRIOR`/`ARM_CLASS_CONTRAST_TARGET_K`/`ARM_CLASS_MODULATION`
+ * below for what each class actually changes.
+ */
+export type ArmClass = 'flocculent' | 'multipleArm' | 'grandDesign';
+
 export interface ArmDefinition {
   readonly name: string;
   readonly tier: ArmTier;
@@ -185,7 +196,63 @@ export const ARMS: readonly ArmDefinition[] = [
  */
 const R0_SEEDED_REF_PC = 8178;   // matches galaxyModel.ts's own R0_PC - shared anchor, not re-derived
 
-export function generateSeededArms(worldSeed: string): readonly ArmDefinition[] {
+/**
+ * Seeded prior for `rollArmClass` (Amendment A6, morphology patch v3.0,
+ * 17 Aug 2026) - `calibrated (synthesis)`, NOT a single sourced table.
+ * Elmegreen & Elmegreen's own 1987 grand-design fraction is 13% (Ann & Lee
+ * 2013 give 19%, Buta et al. 2015 give 18% - a real, sample-dependent
+ * spread, not one textbook number); multiple-arm dominates barred/
+ * intermediate Hubble types at roughly 60%. The 1982 paper's 68%/32%
+ * flocculent/grand-design split is explicitly for ISOLATED NON-BARRED
+ * galaxies only and is deliberately NOT used here as a general prior (this
+ * project's own galaxy-creation flow has no Hubble-type input to condition
+ * on, so no single clean sourced 3-way split exists to transcribe
+ * verbatim). Values below: `grandDesign` anchored near the 1987/2013/2015
+ * spread's own centre, `multipleArm` at its own dominant ~60%, `flocculent`
+ * the remainder.
+ */
+export const ARM_CLASS_PRIOR: Readonly<Record<ArmClass, number>> = {
+  grandDesign: 0.15, multipleArm: 0.60, flocculent: 0.25,
+};
+
+/**
+ * Rolled ONCE per galaxy (Amendment A6), same "Tier G, rolled once at
+ * creation" pattern `generateSeededArms` immediately below already
+ * documents - isolated onto its own channel (`CHANNELS.armClass`) so this
+ * draw can never perturb `generateSeededArms`'s own arm-table draw or vice
+ * versa. Only ever called for `armSource: 'seeded'` - 'Milky Way Analogue'
+ * fixes its class to `'multipleArm'` directly (see `ARM_CLASS_CONTRAST_
+ * TARGET_K`'s own header for why that assignment is NOT merely a default,
+ * it is what keeps the real, sourced Drimmel & Spergel-anchored contrast
+ * untouched) rather than rolling.
+ */
+export function rollArmClass(worldSeed: string): ArmClass {
+  const rng = channelRng(worldSeed, CHANNELS.armClass);
+  const u = rng();
+  let cum = 0;
+  for (const cls of ['grandDesign', 'multipleArm', 'flocculent'] as const) {
+    cum += ARM_CLASS_PRIOR[cls];
+    if (u < cum) return cls;
+  }
+  return 'flocculent';   // floating-point safety net - cum should reach 1.0 exactly above
+}
+
+/**
+ * How many spurs `generateSeededArms` rolls for, and how likely each is -
+ * scaled by `armClass` (Amendment A6's own "a branching term whose rate
+ * scales with armClass depth", reusing the EXISTING single-spur mechanic
+ * below rather than inventing a second one - Law 1). `calibrated`, invented
+ * for this feature exactly like the base spur chance it extends.
+ * `grandDesign` arms stay smooth (near-zero spur chance); `flocculent`
+ * fractures more readily (multiple independent spur rolls, each likely).
+ */
+const ARM_CLASS_SPUR: Readonly<Record<ArmClass, { readonly maxSpurs: number; readonly chancePerSpur: number }>> = {
+  grandDesign: { maxSpurs: 1, chancePerSpur: 0.08 },
+  multipleArm: { maxSpurs: 1, chancePerSpur: 0.45 },   // unchanged from the pre-armClass single-spur behaviour
+  flocculent: { maxSpurs: 3, chancePerSpur: 0.7 },
+};
+
+export function generateSeededArms(worldSeed: string, armClass: ArmClass = 'multipleArm'): readonly ArmDefinition[] {
   const rng = channelRng(worldSeed, CHANNELS.seededArms);
   const armCount = 2 + Math.floor(rng() * 3);   // 2, 3 or 4
   const pitchDeg = 10 + rng() * 12;             // [10, 22)
@@ -204,12 +271,21 @@ export function generateSeededArms(worldSeed: string): readonly ArmDefinition[] 
     });
   }
 
-  if (rng() < 0.45) {
+  // Spur count/probability scaled by armClass (Amendment A6) - drawn from
+  // the SAME rng stream as the base arms above (still one channel, one
+  // draw sequence per galaxy), so `multipleArm`'s own {maxSpurs:1,
+  // chancePerSpur:0.45} reproduces the pre-armClass behaviour EXACTLY
+  // (same single `rng() < 0.45` check, same draw order) - the default
+  // parameter value and this table entry are deliberately the historical
+  // constant, not merely similar to it.
+  const spurPolicy = ARM_CLASS_SPUR[armClass];
+  for (let s = 0; s < spurPolicy.maxSpurs; s++) {
+    if (rng() >= spurPolicy.chancePerSpur) continue;
     const host = arms[Math.floor(rng() * arms.length)]!;
     const offsetDeg = (rng() < 0.5 ? -1 : 1) * (30 + rng() * 40);   // +/-(30-70) deg
     const radiusJitter = 1 + (rng() - 0.5) * 0.3;                    // +/-15%
     arms.push({
-      name: 'Seeded-spur', tier: 'spur', pitchDeg,
+      name: `Seeded-spur-${s + 1}`, tier: 'spur', pitchDeg,
       RrefPc: R0_SEEDED_REF_PC * radiusJitter, thetaRefDeg: host.thetaRefDeg + offsetDeg, weight: 0.35,
     });
   }
@@ -333,6 +409,69 @@ export function armRidge(a: ArmDefinition, R_pc: number, theta_rad: number, w: A
 }
 
 /**
+ * Along-arm amplitude envelope (Amendment A6, morphology patch v3.0, 17 Aug
+ * 2026) - defect 1's own fix ("arms are always perfect - no spurs, no
+ * breaks, no fracturing"). `armRidge` above is a function of (R, theta)
+ * with no variation ALONG a fixed arm at fixed pitch; this multiplies it by
+ * a smooth wave in R (a genuine arc-length parametrisation would differ
+ * slightly from raw R along a log-spiral, but R increases monotonically
+ * along any one continuous arm strand, and the envelope only needs to
+ * fragment the VISUAL/statistical structure, not model a real physical
+ * wavenumber - `calibrated` simplification, stated plainly rather than
+ * silently assumed exact).
+ *
+ * PRESERVES THE MEAN-ZERO INVARIANT `armRidge` itself establishes:
+ * `alongArmModulation` depends on R and the arm's own identity ONLY, never
+ * on theta - multiplying a circle-mean-zero function (fixed R) by a
+ * theta-INDEPENDENT scalar is still circle-mean-zero at that R. Arms still
+ * only ever redistribute systems around an annulus, never add to it,
+ * exactly as `armRidge`'s own header requires - a modulated arm is a
+ * FRAGMENTED arm, not a net density change.
+ *
+ * PER-ARM PHASE, not a stored field: derived from `a.RrefPc` (already
+ * distinct per arm in every table this project builds) via a cheap
+ * deterministic hash-like fold, rather than extending `ArmDefinition` with
+ * a new field - keeps every existing `ArmDefinition` literal (`ARMS`,
+ * every `generateSeededArms` push) untouched, and keeps this module's own
+ * stated invariant that arm EVALUATION (`armRidge`/`armFactor`/this
+ * function) consumes no PRNG channel - "a shape not a draw" (this file's
+ * own header) - the phase is derived, not rolled.
+ */
+export interface ArmModulationParams {
+  /** pc, along-arm (approximated as radial) wavelength of the envelope -
+   *  `calibrated`, the patch's own stated 2-5 kpc range. */
+  readonly wavelengthPc: number;
+  /** [0, 1) - how deep the envelope's troughs cut. 0 = no modulation at all
+   *  (a perfectly smooth arm, `armFactor`'s pre-A6 behaviour exactly - the
+   *  default). Approaching 1 fragments the arm into near-disconnected
+   *  segments at the envelope's own troughs. `calibrated`. */
+  readonly depth: number;
+}
+
+function alongArmModulation(a: ArmDefinition, R_pc: number, m: ArmModulationParams): number {
+  if (m.depth <= 0) return 1;
+  const phase = ((a.RrefPc % 997) / 997) * 2 * Math.PI;
+  const wave = Math.cos((2 * Math.PI * R_pc) / m.wavelengthPc + phase);   // in [-1, 1]
+  return 1 - m.depth * (0.5 - 0.5 * wave);   // in [1-depth, 1] - never boosts an arm beyond its own unmodulated ridge
+}
+
+/**
+ * Per-armClass along-arm modulation (Amendment A6) - `calibrated` starting
+ * values, not TBD-that-fails-loudly (this session's own pacing decision):
+ * `grandDesign` stays nearly smooth (low depth, matching "2 arms, low
+ * modulation" in the patch's own Section 4 table); `flocculent` fractures
+ * heavily (high depth, "many short segments, heavy along-arm modulation");
+ * `multipleArm` sits between the two, matching its own "3-4 arms, inner
+ * two-arm symmetry" description (visible structure, not yet fragmented
+ * into segments).
+ */
+export const ARM_CLASS_MODULATION: Readonly<Record<ArmClass, ArmModulationParams>> = {
+  grandDesign: { wavelengthPc: 5000, depth: 0.08 },
+  multipleArm: { wavelengthPc: 3500, depth: 0.30 },
+  flocculent: { wavelengthPc: 2200, depth: 0.80 },
+};
+
+/**
  * The arm density multiplier at (R, theta) for the given arm-response set
  * and contrast - `1` at the azimuthal mean of every radius (mean-preserving,
  * see `armRidge`), rising above 1 at an arm ridge and dipping below 1 in the
@@ -347,14 +486,20 @@ export function armRidge(a: ArmDefinition, R_pc: number, theta_rad: number, w: A
  * this is additive, not a rename. A caller with its own seeded table
  * (`generateSeededArms`) passes it explicitly; every arithmetic step below
  * is unchanged, it simply iterates a different table.
+ *
+ * `modulation` (17 Aug 2026, Amendment A6) is OPTIONAL - an omitted
+ * argument reproduces every prior call site's behaviour exactly (no
+ * along-arm envelope at all), bit-for-bit.
  */
 export function armFactor(
   set: ArmResponseSet, contrast: number, R_pc: number, theta_rad: number,
   w: ArmWidthParams = DEFAULT_ARM_WIDTH, arms: readonly ArmDefinition[] = ARMS,
+  modulation?: ArmModulationParams,
 ): number {
   let total = 0;
   for (const a of armsInSet(set, arms)) {
-    total += a.weight * armRidge(a, R_pc, theta_rad, w);
+    const env = modulation ? alongArmModulation(a, R_pc, modulation) : 1;
+    total += a.weight * armRidge(a, R_pc, theta_rad, w) * env;
   }
   return 1 + contrast * total;
 }
@@ -392,16 +537,85 @@ function bisect(f: (x: number) => number, lo: number, hi: number, target: number
 /** Drimmel & Spergel 2001's own reported near-IR spiral-arm contrast for the
  *  Milky Way, expressed as the same max/min ratio `armContrastRatio`
  *  computes - `sourced`, the patch's own stated target (S9: "Drimmel &
- *  Spergel K = 1.326"; 1.14/0.86 = 1.325581...). */
+ *  Spergel K = 1.326"; 1.14/0.86 = 1.325581...). This is `'Milky Way
+ *  Analogue'`'s OWN target - real, unchanged by Amendment A6 - and stays
+ *  `deriveArmContrasts`'s default `contrastTargetK` for exactly that
+ *  reason: every existing caller that omits the parameter (which is every
+ *  caller before 17 Aug 2026) keeps this real, sourced anchor. */
 export const DRIMMEL_SPERGEL_K = 1.14 / 0.86;
+
+/**
+ * Per-armClass contrast target (Amendment A6, morphology patch v3.0, 17 Aug
+ * 2026) that `deriveArmContrasts` bisects the 'major'-set/`oldThin`
+ * contrast against - `calibrated`, and calibrated EMPIRICALLY against the
+ * real SUMMED galaxy field (disposable diagnostic script, this session),
+ * not by the naive analytic conversion `K = 10^(A/2.5)` this constant's
+ * own first draft used. That naive conversion is WRONG for this project's
+ * own architecture and was caught, not assumed correct: `deriveArmContrasts`
+ * solves a target K against the ISOLATED 'major' arm-response set (matching
+ * `oldThin`'s own contrast alone), but `galaxyModel.measuredArmMagnitude`
+ * (gate G2) measures the FULL SUMMED field across every responding
+ * population -
+ * these are NOT the same quantity, and how far apart they land depends
+ * entirely on WHICH populations respond for a given class, not merely how
+ * strongly. Measured directly: at the naive `flocculent` target (K~2.51,
+ * from A~1.0mag applied to the isolated set), the SUMMED field's own A(R)
+ * came out to only ~0.50 mag - flocculent's response table zeroes out
+ * every population except `spiralYoungThin`, and that population is only
+ * ~23% of the local disc's total nLocal weight, so its own strong contrast
+ * is heavily DILUTED once the arm-free 77% is added back into the sum.
+ * `multipleArm`/`grandDesign` (four/five responding populations,
+ * effectively no dilution) OVERSHOT the naive conversion in the opposite
+ * direction for the same underlying reason. Re-swept empirically instead:
+ * for each class, multiple target K values were tried, the SUMMED field's
+ * `measuredArmMagnitude` re-measured at R0 (8178 pc) after each, and the
+ * value below chosen once it landed inside (flocculent, multipleArm) or
+ * clearly above (grandDesign) the patch's own stated band, with density
+ * confirmed to stay strictly positive at every radius tested (3500-14000
+ * pc) - not merely at the one reference point.
+ *
+ * Measured results at the chosen values (R0=8178pc): `flocculent` K=4.0 ->
+ * A(R0)=1.009 mag (sourced band 0.7-1.4); `multipleArm` K=2.65 ->
+ * A(R0)=1.415 mag (patch's own stated ~1.4 mag point value); `grandDesign`
+ * K=3.0 -> A(R0)=1.767 mag (sourced floor ">1.4 mag", comfortable margin
+ * above both 1.4 and `multipleArm`'s own value).
+ *
+ * DELIBERATELY NOT USED for `'Milky Way Analogue'` (`armSource:
+ * 'observed-mw'`) even though that morphology's `armClass` is fixed to
+ * `'multipleArm'` - a real tension in the patch document itself, resolved
+ * here rather than silently picked: the patch states BOTH "the current
+ * shipped table IS the multipleArm row" (implying today's DRIMMEL_SPERGEL_K
+ * -anchored contrast already qualifies) AND a ~1.4 mag target for that same
+ * row - but the shipped contrast's own measured value (summed field,
+ * ~0.38 mag, confirmed via the same measurement this session) does not
+ * reach even the flocculent band's lower edge, let alone 1.4 mag (Section
+ * 1.4 of the patch says so directly: "the rendered field is below the
+ * observed floor for the most fragmented real spirals"). Both cannot be
+ * literally true at once. Resolved by keeping 'Milky Way Analogue' on its
+ * real, sourced Drimmel & Spergel anchor unconditionally (it is pinned to
+ * the ACTUAL Milky Way, not to this procedural system) and reserving this
+ * per-class table for `armSource: 'seeded'` galaxies only, where gate G2
+ * actually tests the claim.
+ */
+export const ARM_CLASS_CONTRAST_TARGET_K: Readonly<Record<ArmClass, number>> = {
+  flocculent: 4.0,
+  multipleArm: 2.65,
+  grandDesign: 3.0,
+};
 
 /**
  * Derives this module's own `oldThin`/`midThin`/`youngThin` contrast
  * constants by the patch's own target-driven procedure - see header for why
  * these are `calibrated (derived here)`, not `sourced`, and do not match
  * the patch's own stated 4-dp figures exactly. Computed once per distinct
- * (arms, referenceRPc, w) combination, lazily, memoised (it is a root-find
- * over a 14401-point circle sweep - not free).
+ * (arms, referenceRPc, w, contrastTargetK) combination, lazily, memoised
+ * (it is a root-find over a 14401-point circle sweep - not free).
+ *
+ * `contrastTargetK` (17 Aug 2026, Amendment A6) defaults to
+ * `DRIMMEL_SPERGEL_K` - an omitted argument reproduces every prior call
+ * site's behaviour exactly, bit-for-bit. A caller with a rolled `armClass`
+ * passes `ARM_CLASS_CONTRAST_TARGET_K[armClass]` instead (`galaxyParameters
+ * .ts`'s own `armContrast` closure does this).
  *
  * CACHING, REVISED 16 Aug 2026: this used to be a SINGLE module-level slot
  * (`let cachedContrasts`), safe only because every call site in the project
@@ -411,10 +625,12 @@ export const DRIMMEL_SPERGEL_K = 1.14 / 0.86;
  * to every OTHER worldSeed's galaxy - a real correctness bug, not a
  * hypothetical one. The cache is now keyed on the `arms` array's own
  * identity (a `WeakMap`, so a table that goes out of scope is reclaimed
- * normally) and, within that, on the numeric inputs - `deriveArmContrasts
- * (8200)` still returns the IDENTICAL object on repeat calls (gate 5 in
- * `spiralArms.conformance.ts` asserts this unchanged), it just no longer
- * conflates two different tables' answers.
+ * normally) and, within that, on the numeric inputs (now including
+ * `contrastTargetK`, so two different armClass targets against the SAME
+ * table never collide) - `deriveArmContrasts(8200)` still returns the
+ * IDENTICAL object on repeat calls (gate 5 in `spiralArms.conformance.ts`
+ * asserts this unchanged), it just no longer conflates two different
+ * tables', or now two different targets', answers.
  */
 export interface ArmContrastSet {
   readonly oldThin: number;
@@ -424,16 +640,19 @@ export interface ArmContrastSet {
 
 const contrastCache = new WeakMap<readonly ArmDefinition[], Map<string, ArmContrastSet>>();
 
-export function deriveArmContrasts(referenceRPc: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH, arms: readonly ArmDefinition[] = ARMS): ArmContrastSet {
+export function deriveArmContrasts(
+  referenceRPc: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH, arms: readonly ArmDefinition[] = ARMS,
+  contrastTargetK: number = DRIMMEL_SPERGEL_K,
+): ArmContrastSet {
   let byKey = contrastCache.get(arms);
   if (!byKey) { byKey = new Map(); contrastCache.set(arms, byKey); }
-  const key = `${referenceRPc}|${w.refPc}|${w.slopePcPerKpc}|${w.r0Kpc}|${w.broadening}`;
+  const key = `${referenceRPc}|${w.refPc}|${w.slopePcPerKpc}|${w.r0Kpc}|${w.broadening}|${contrastTargetK}`;
   const cached = byKey.get(key);
   if (cached) return cached;
 
   const cOldFull = bisect(
     (c) => armContrastRatio('major', c, referenceRPc, w, 14401, arms),
-    1e-4, 3.0, DRIMMEL_SPERGEL_K,
+    1e-4, 3.0, contrastTargetK,
   );
   // Patch S4's own stated multipliers (1.4x, 2.0x over oldThin) - calibrated,
   // not re-derived independently; the patch is explicit these are ratios,
@@ -456,13 +675,23 @@ export function deriveArmContrasts(referenceRPc: number, w: ArmWidthParams = DEF
  * normalisation must be divided by so `densityAt(reference)` equals
  * `nLocal` exactly rather than as a ring mean (patch S4). `arms` - see
  * `armFactor`'s own doc comment.
+ *
+ * `modulation` (17 Aug 2026, Amendment A6) MUST be the SAME value the
+ * caller's own raw `armFactor` evaluation uses, not merely a compatible
+ * one - `galaxyModel.discTerm` passes `params.armModulation` to BOTH this
+ * function and its own raw call. Passing modulation to one but not the
+ * other would break the self-consistency this function exists for: at
+ * R=referenceRPc exactly, the raw and corrected values must be IDENTICAL
+ * (same formula, same point), which only holds if both include or both
+ * omit the along-arm envelope together.
  */
 export function anchorArmCorrection(
   set: ArmResponseSet, contrasts: ArmContrastSet, referenceRPc: number, referenceThetaRad: number,
   w: ArmWidthParams = DEFAULT_ARM_WIDTH, arms: readonly ArmDefinition[] = ARMS,
+  modulation?: ArmModulationParams,
 ): number {
   const c = set === 'all' ? contrasts.youngThin : set === 'majorMinor' ? contrasts.midThin : set === 'major' ? contrasts.oldThin : 0;
-  return armFactor(set, c, referenceRPc, referenceThetaRad, w, arms);
+  return armFactor(set, c, referenceRPc, referenceThetaRad, w, arms, modulation);
 }
 
 /* -------------------------------- glossary ----------------------------------- */

@@ -51,7 +51,7 @@ import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleS
 import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
 import { fieldFromModel, projectSlab, normaliseForDisplay, modulateArmsForDisplay, edgeOnDisplayField, type SlabRegionPc } from './densityMap';
 import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
-import { generateSeededArms } from './spiralArms';
+import { generateSeededArms, rollArmClass } from './spiralArms';
 import { complexParticipation, complexCellsOverlapping, complexCentresInCell, type ComplexCentre } from './starFormingComplexes';
 import { generateSector, assembleSector } from './sectorFootprint';
 import { searchNearestSystem } from './sectorSearch';
@@ -375,9 +375,17 @@ function modelFromDraft(d: Screen1Draft): DraftModel {
   const sizeValue = sizeValueFor(d.morphology, d.sizeStepIndex);
   if (name === 'spiral' || name === 'barredSpiral') {
     const isRealMilkyWay = d.morphology === 'milkyWayAnalogue';
+    // rollArmClass (17 Aug 2026, Amendment A6) - only for a SEEDED galaxy;
+    // 'Milky Way Analogue' fixes its own class to 'multipleArm' by omitting
+    // the argument (makeDefaultGalaxyParameters's own default), matching
+    // how it already keeps the real ARMS table instead of a seeded one.
+    // Rolled once into a local, not called twice - channelRng would give the
+    // SAME class either way (pure function of worldSeed), but one call is
+    // the honest reading of "rolled once per galaxy".
+    const seededArmClass = isRealMilkyWay ? undefined : rollArmClass(d.worldSeed);
     const baseParams = isRealMilkyWay
       ? makeDefaultGalaxyParameters(d.worldSeed)
-      : makeDefaultGalaxyParameters(d.worldSeed, generateSeededArms(d.worldSeed), 'seeded');
+      : makeDefaultGalaxyParameters(d.worldSeed, generateSeededArms(d.worldSeed, seededArmClass), 'seeded', seededArmClass);
     // scaleSpiralModel (16 Aug 2026, a found bug this session's own
     // investigation surfaced: "Galaxy size" had NO EFFECT on this whole
     // morphology family - `params.scale` was always 1.0 and never read

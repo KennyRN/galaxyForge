@@ -526,7 +526,11 @@ function discTerm(pop: Population, R: number, theta: number, z: number, params: 
   // conformance gate) is bit-for-bit unaffected - this only changes
   // behaviour for a caller that supplies a DIFFERENT arms table
   // (`galaxyCreationModals.ts`'s own seeded-arm construction).
-  const raw = armFactor(set, c, R, theta, params.armWidth, params.arms);
+  // params.armModulation (17 Aug 2026, Amendment A6): must reach BOTH the
+  // raw evaluation here and anchorArmCorrectionFor's own internal call -
+  // see anchorArmCorrection's own header for why passing it to only one
+  // side would break the "reference point reads exactly nLocal" invariant.
+  const raw = armFactor(set, c, R, theta, params.armWidth, params.arms, params.armModulation);
   const correction = anchorArmCorrectionFor(params, set);
   return smooth * (raw / correction);
 }
@@ -753,6 +757,43 @@ export function createSpiralModel(
       return out;
     },
   };
+}
+
+/**
+ * Elmegreen et al. 2011's `A(R)` arm/interarm contrast (V2, Amendment A6,
+ * morphology patch v3.0, 17 Aug 2026): `A(R) = 2.5*log10(2*I_arm /
+ * (I_interarm1 + I_interarm2))`, an arm-vs-adjacent-interarm flux ratio in
+ * magnitudes. Approximated here via a single GLOBAL max/min ratio over the
+ * full circle at fixed R (`K = max/min`, reducing to `A(R) = 2.5*log10(K)`
+ * when the two flanking interarm troughs are assumed comparable to the
+ * single global minimum) rather than literally locating the two troughs
+ * immediately adjacent to the brightest arm - `calibrated (simplification)`,
+ * stated plainly: for a roughly evenly-spaced arm pattern (every table this
+ * project builds, seeded or real) the global minimum sits close to both of
+ * an arm's own flanking troughs, but an irregular pattern could in
+ * principle see this diverge from the paper's own literal definition.
+ *
+ * Lives here rather than `spiralArms.ts` because it needs a full
+ * `GalaxyModel` (the SUMMED field across every responding population, not
+ * any one population's or arm-response set's isolated contrast) -
+ * `spiralArms.ts` sits BELOW this module in the project's one-way import
+ * direction and cannot import `GalaxyModel` back without creating a cycle.
+ *
+ * `n` (1441 default) matches this file's own `armContrastRatio` precedent
+ * in spirit (a dense enough circle sweep that the true max/min are not
+ * missed between samples) at a coarser count more appropriate for a gate
+ * that also has to build/evaluate a full model rather than the geometry
+ * alone.
+ */
+export function measuredArmMagnitude(model: GalaxyModel, R_pc: number, n = 1441): number {
+  let max = -Infinity, min = Infinity;
+  for (let i = 0; i < n; i++) {
+    const theta = (2 * Math.PI * i) / n;
+    const v = model.densityAt(R_pc, theta, 0);
+    if (v > max) max = v;
+    if (v < min) min = v;
+  }
+  return 2.5 * Math.log10(max / min);
 }
 
 /**

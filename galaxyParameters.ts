@@ -55,7 +55,11 @@
  */
 
 import type { GalaxyModelName } from './galaxyModel';
-import { ARMS, DEFAULT_ARM_WIDTH, deriveArmContrasts, anchorArmCorrection as computeAnchorArmCorrection, type ArmDefinition, type ArmWidthParams, type ArmResponseSet, type ArmContrastSet } from './spiralArms';
+import {
+  ARMS, DEFAULT_ARM_WIDTH, deriveArmContrasts, anchorArmCorrection as computeAnchorArmCorrection,
+  DRIMMEL_SPERGEL_K, ARM_CLASS_CONTRAST_TARGET_K, ARM_CLASS_MODULATION,
+  type ArmDefinition, type ArmWidthParams, type ArmResponseSet, type ArmContrastSet, type ArmClass, type ArmModulationParams,
+} from './spiralArms';
 
 /* --------------------------------- arm block ---------------------------------- */
 
@@ -70,9 +74,25 @@ export interface ArmResponseByPopulation {
 /** By-law S3 (patch v2.3) - calibrated, see `spiralArms.ts`'s own header.
  *  Field names renamed 17 Aug 2026 (Amendment A9) to match `PopulationKey`'s
  *  own spiral keys - this interface is one entry per spiral population, so
- *  it follows that rename rather than being an independent naming choice. */
+ *  it follows that rename rather than being an independent naming choice.
+ *  This is the `multipleArm`/`grandDesign` table (Amendment A6, 17 Aug
+ *  2026) - the two share one response table, differing only in their own
+ *  contrast target and along-arm modulation depth (see `ARM_CLASS_
+ *  CONTRAST_TARGET_K`/`ARM_CLASS_MODULATION`), per the patch's own Section
+ *  4: "as multipleArm" for grandDesign's response row. */
 export const DEFAULT_ARM_RESPONSE: ArmResponseByPopulation = {
   spiralYoungThin: 'all', spiralMidThin: 'majorMinor', spiralOldThin: 'major', spiralThick: 'none', spiralHalo: 'none',
+};
+
+/** `flocculent`'s own response table (Amendment A6, 17 Aug 2026) - per the
+ *  patch's own Section 4: only the youngest, dynamically coldest
+ *  population tracks a flocculent pattern at all (real flocculent
+ *  structure "lives in the young population alone" - the patch's own
+ *  framing of the Elmegreen & Elmegreen blue-vs-near-IR contrast reading).
+ *  `calibrated`, the same status `DEFAULT_ARM_RESPONSE` itself already
+ *  carries. */
+export const FLOCCULENT_ARM_RESPONSE: ArmResponseByPopulation = {
+  spiralYoungThin: 'all', spiralMidThin: 'none', spiralOldThin: 'none', spiralThick: 'none', spiralHalo: 'none',
 };
 
 export interface ComplexTierParams {
@@ -248,6 +268,18 @@ export interface GalaxyParameters {
   readonly armContrast: () => ArmContrastSet;
   readonly armStartInnerPc: number;   // calibrated, Wegg 2015 bar half-length
   readonly armStartOuterPc: number;   // calibrated
+  /** Amendment A6, 17 Aug 2026 - `'multipleArm'` for `armSource:
+   *  'observed-mw'` ALWAYS (the real Milky Way's own classification, never
+   *  rolled); rolled once per galaxy (`spiralArms.rollArmClass`) for
+   *  `armSource: 'seeded'`. Determines `armResponse` (flocculent gets its
+   *  own table) and `armModulation` below, and (for seeded galaxies only)
+   *  `armContrast`'s own target - see `spiralArms.ARM_CLASS_CONTRAST_
+   *  TARGET_K`'s header for why `'observed-mw'` never uses it. */
+  readonly armClass: ArmClass;
+  /** Along-arm amplitude envelope (Amendment A6) - `calibrated`, see
+   *  `spiralArms.ARM_CLASS_MODULATION`'s own header for the per-class
+   *  defaults this is set from. */
+  readonly armModulation: ArmModulationParams;
 
   // -- density anchor --
   readonly referenceRPc: number;
@@ -297,12 +329,22 @@ export interface GalaxyParameters {
  * `armContrast`'s own closure captures `arms` too - the memoisation this
  * function's own comment already documents is now correct per-table (see
  * `deriveArmContrasts`'s own header) rather than merely per-process.
+ *
+ * `armClass` (17 Aug 2026, Amendment A6) defaults to `'multipleArm'` -
+ * every existing call site (which never passes it) keeps `DEFAULT_ARM_
+ * RESPONSE`/`DRIMMEL_SPERGEL_K`-anchored contrast exactly as before.
+ * `armSource === 'observed-mw'` ALWAYS uses `DRIMMEL_SPERGEL_K` regardless
+ * of the `armClass` argument's value (see `ARM_CLASS_CONTRAST_TARGET_K`'s
+ * own header) - only `armSource === 'seeded'` actually reaches the
+ * per-class target.
  */
 export function makeDefaultGalaxyParameters(
   worldSeed = '', arms: readonly ArmDefinition[] = ARMS, armSource: 'observed-mw' | 'seeded' = 'observed-mw',
+  armClass: ArmClass = 'multipleArm',
 ): GalaxyParameters {
   const referenceRPc = 8200;
   const referenceThetaDeg = 0;
+  const contrastTargetK = armSource === 'observed-mw' ? DRIMMEL_SPERGEL_K : ARM_CLASS_CONTRAST_TARGET_K[armClass];
   return {
     fieldShapeVersion: 1,
     placementShapeVersion: 1,
@@ -313,10 +355,12 @@ export function makeDefaultGalaxyParameters(
     armSource,
     arms,
     armWidth: DEFAULT_ARM_WIDTH,
-    armResponse: DEFAULT_ARM_RESPONSE,
-    armContrast: () => deriveArmContrasts(referenceRPc, DEFAULT_ARM_WIDTH, arms),
+    armResponse: armClass === 'flocculent' ? FLOCCULENT_ARM_RESPONSE : DEFAULT_ARM_RESPONSE,
+    armContrast: () => deriveArmContrasts(referenceRPc, DEFAULT_ARM_WIDTH, arms, contrastTargetK),
     armStartInnerPc: 3500,
     armStartOuterPc: 5500,
+    armClass,
+    armModulation: ARM_CLASS_MODULATION[armClass],
     referenceRPc,
     referenceThetaDeg,
     nLocalPerPc3: 0.0606380,   // verification/reyle_anchor_result.json, 15 Aug 2026 (stars_only, adopted)
@@ -348,6 +392,7 @@ export const DEFAULT_GALAXY_PARAMETERS: GalaxyParameters = makeDefaultGalaxyPara
 export function anchorArmCorrectionFor(params: GalaxyParameters, set: ArmResponseSet): number {
   return computeAnchorArmCorrection(
     set, params.armContrast(), params.referenceRPc, (params.referenceThetaDeg * Math.PI) / 180, params.armWidth, params.arms,
+    params.armModulation,
   );
 }
 
