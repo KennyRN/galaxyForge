@@ -543,6 +543,15 @@ export const CHANNELS = {
    *  Analogue' fixes `armClass` to `'multipleArm'` without rolling, since
    *  it is explicitly meant to model the real, already-classified galaxy. */
   armClass: 'armClass',
+  /** `ism.ts` (17 Aug 2026, Amendment A8, morphology patch v3.0) - reserved
+   *  for REGISTRY COMPLETENESS ONLY. The ISM module is render-only at v1
+   *  and rolls nothing at all (its own header states this plainly) - no
+   *  code anywhere calls `channelRng(worldSeed, CHANNELS.ism, ...)` today.
+   *  The key exists now so the day sector-level extinction coupling is
+   *  built (see `sky.ts`'s own normative header comment), it has an
+   *  already-reserved, collision-free stream waiting rather than a new key
+   *  invented under time pressure at that point. */
+  ism: 'ism',
   planets: 'planets',
   belts: 'belts',
   rotation: (starIndex: number) => `rotation:${starIndex}`,

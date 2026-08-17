@@ -34,6 +34,22 @@
  * reduction of it; it owns no constant that could itself be
  * genVersion-bumping, but a change to `absMagV` (Stage 1) propagates here
  * automatically since nothing is duplicated.
+ *
+ * ISM COUPLING, NOT YET WIRED (17 Aug 2026, Amendment A8). `ism` exists and
+ * is built, but at v1 it feeds `render` only - nothing in this module reads
+ * it, and no apparent magnitude here carries extinction. That is a
+ * deliberate scoping choice, not an oversight: coupling extinction into
+ * apparent magnitude changes note CONTENT, which is a `genVersion` bump and
+ * a regeneration for every existing sector, whereas a render-only ISM is an
+ * Amendment R refresh that forks nothing. When this module is next audited
+ * or rebuilt, that coupling is the first thing to consider and the module
+ * to call is `ism`. Do not re-derive an extinction model here - Law 1. This
+ * sits ALONGSIDE the SCOPE paragraph above, not in place of it: that
+ * paragraph's own "derived-negligible... not modelled" finding is about
+ * sector-FOOTPRINT-scale extinction specifically (<=100pc, inside the Local
+ * Bubble) and remains true on its own terms; this note is about the
+ * SEPARATE, larger-scale ISM structure `ism.ts` now models for the galaxy
+ * preview, which this module does not yet consume for any reason.
  */
 
 import { absMagV, STELLAR_CLASSES, type StellarClass } from './stellarProperties';
