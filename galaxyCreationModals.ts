@@ -47,9 +47,10 @@
  */
 
 import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App } from 'obsidian';
-import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, type GalaxyModel, type PopulationKey } from './galaxyModel';
+import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, R0_PC, type GalaxyModel, type PopulationKey } from './galaxyModel';
 import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
-import { fieldFromModel, projectSlab, normaliseForDisplay, modulateArmsForDisplay, edgeOnDisplayField, type SlabRegionPc } from './densityMap';
+import { fieldFromModel, projectSlab, normaliseForDisplay, modulateArmsForDisplay, diametralEdgeOnDisplayField, type SlabRegionPc } from './densityMap';
+import { ismDensityAt, DEFAULT_ISM_PARAMS } from './ism';
 import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
 import { generateSeededArms, rollArmClass } from './spiralArms';
 import { complexParticipation, complexCellsOverlapping, complexCentresInCell, type ComplexCentre } from './starFormingComplexes';
@@ -558,15 +559,6 @@ function boundaryPointsPc(radiusPc: number, shape: FootprintShape): { x: number;
  * never recomputed on a slider tick that does not change the model itself.
  */
 const GALAXY_OVERVIEW_CENTRE_PC = { x: 0, y: 0, z: 0 } as const;
-/** BASE values, at `scale === 1` ("Standard") - see `previewScaleFor` below.
- *  Renamed from the plain (un-suffixed) constants this session's own
- *  `scaleSpiralModel` work introduced (16 Aug 2026): a "Grand" (scale=2.0)
- *  galaxy's real structure now genuinely extends past a window sized only
- *  for "Standard", and a "Small" one would look lost/zoomed-out inside it -
- *  every preview window scales with the actual galaxy alongside the model
- *  itself, or wiring `scale` would only be true of the DATA, not of what
- *  the user can actually see. */
-const GALAXY_OVERVIEW_HALF_WIDTH_BASE_PC = 20000;
 const GALAXY_OVERVIEW_THICKNESS_BASE_PC = 4000;
 const GALAXY_OVERVIEW_RES = { nx: 200, ny: 200 };
 
@@ -577,6 +569,84 @@ const GALAXY_OVERVIEW_RES = { nx: 200, ny: 200 };
  *  at those two morphologies today. */
 function previewScaleFor(model: GalaxyModel, params: GalaxyParameters): number {
   return model.morphology === 'spiral' || model.morphology === 'barredSpiral' ? params.scale : 1;
+}
+
+/**
+ * DERIVED FRAMING (17 Aug 2026, Amendment A7's own patch v3.0 Section 5.4,
+ * Step 6) - `GALAXY_OVERVIEW_HALF_WIDTH_BASE_PC`, a single fixed 20000pc
+ * constant scaled only by `previewScale`, is RETIRED outright: the patch's
+ * own root-cause analysis (S1.3) found it was "about right" for a
+ * Standard-scale spiral only by coincidence (~10 100pc R90 at that one
+ * scale) - it carried no relationship to a DIFFERENT morphology's own real
+ * extent (elliptical/lenticular's mass-driven size, S4.5/S4.6, was never
+ * reflected in it at all) and would have needed hand-retuning every time a
+ * model's own physical scale changed for any reason. `R90_MARGIN x R90
+ * (model)` scales with `params.scale` AND with morphology for free, because
+ * it is computed FROM the model's own real field, not asserted independent
+ * of it.
+ *
+ * R90_MARGIN: `measured` off the owner's own reference frame (ESA/Gaia/DPAC
+ * artist's impression, S8's own citation) - 90% of its light lies inside
+ * 0.55 of the frame half-width, so half-width = R90/0.55 ~= 1.818 x R90,
+ * rounded to `1.8`. `tunable`, per S8's own explicit ruling that every
+ * `measured` figure in this patch is a visual target only, never `sourced`.
+ */
+const R90_MARGIN = 1.8;
+const R90_TARGET_FRACTION = 0.9;
+/** Coarse resolution for the R90 SEARCH only (not the real display grid) -
+ *  cheap by design: this runs once per model change, alongside (and at
+ *  comparable but not dominant cost to) the real `GALAXY_OVERVIEW_RES`
+ *  field computation it precedes, purely to PLACE a framing radius, not to
+ *  reproduce a gated science quantity. */
+const R90_SEARCH_RES = { nx: 80, ny: 80 };
+/** Generous, not physics - 3x the old fixed 20000pc window, which the
+ *  patch's own root-cause analysis (S1.3) already measured as containing a
+ *  Standard-scale spiral's own R90 comfortably (~10 100pc, well under half
+ *  this bound). Scaled by `previewScale` so a "Grand" (scale=2) spiral's
+ *  genuinely larger extent stays safely inside the search bound too. */
+function r90SearchHalfWidthPc(previewScale: number): number {
+  return 3 * 20000 * previewScale;
+}
+
+/**
+ * The radius enclosing `R90_TARGET_FRACTION` of a model's own PROJECTED
+ * (through-the-preview-slab) surface density - radially bins the SAME
+ * `DensitySurface` quantity (`projectSlab`, `densityMap.ts`'s own "systems
+ * pc^-2, integrated through the slab") the preview itself paints from, at
+ * the SAME thickness the caller will actually display, so "R90" means
+ * exactly the quantity a viewer looking at the rendered slab would
+ * recognise - not an abstract full-3D-to-infinity integral this file has
+ * no reason to claim. Falls back to the search bound itself if 90% is never
+ * reached inside it (degrades gracefully rather than throwing - D3 still
+ * holds mechanically even in that edge case, since `R90_MARGIN > 1`).
+ */
+function computeR90Pc(model: GalaxyModel, thicknessPc: number, previewScale: number): number {
+  const halfWidth = r90SearchHalfWidthPc(previewScale);
+  const region: SlabRegionPc = { centre: GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc: halfWidth, halfDepthPc: halfWidth, thicknessPc };
+  const surface = projectSlab(fieldFromModel(model), region, R90_SEARCH_RES);
+  const { nx, ny } = R90_SEARCH_RES;
+  const cellPc = (2 * halfWidth) / nx;   // square cells (nx === ny)
+  const nBins = nx;
+  const rMax = halfWidth * Math.SQRT2;
+  const binWidth = rMax / nBins;
+  const massInBin = new Float64Array(nBins);
+  let total = 0;
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const cx = -halfWidth + (ix + 0.5) * cellPc, cy = -halfWidth + (iy + 0.5) * cellPc;
+      const r = Math.hypot(cx, cy);
+      const mass = surface.values[ix + nx * iy]! * cellPc * cellPc;
+      total += mass;
+      massInBin[Math.min(nBins - 1, Math.floor(r / binWidth))]! += mass;
+    }
+  }
+  if (!(total > 0)) return halfWidth;
+  let cum = 0;
+  for (let b = 0; b < nBins; b++) {
+    cum += massInBin[b]!;
+    if (cum / total >= R90_TARGET_FRACTION) return (b + 1) * binWidth;
+  }
+  return halfWidth;
 }
 
 /**
@@ -909,49 +979,72 @@ function renderDensityCanvas(
   paintDensityField(canvas, field, overlay ? { centrePc, radiusPc: overlay.radiusPc, shape: overlay.shape } : null);
 }
 
-/** The top-down view's own square runs `[-halfWidth, +halfWidth]` on a
- *  side; a ray from its centre reaches a CORNER at `halfWidth * sqrt(2)`
- *  - "as far as the far corners of the square" (16 Aug 2026, a direct user
- *  spec for the side-on view's new radial reach) is exactly that. BASE
- *  value at `scale === 1` - see `previewScaleFor`. */
-const EDGE_ON_MAX_RADIUS_BASE_PC = GALAXY_OVERVIEW_HALF_WIDTH_BASE_PC * Math.SQRT2;
+/** Reference ISM density at the solar radius/midplane (17 Aug 2026, Step 6,
+ *  Amendment A8's visual payoff) - `ismDensityAt`'s own return is "peak
+ *  order-unity... not tied to absolute" (see its header), so this
+ *  normalises it into a RELATIVE proxy for display. Computed once - pure,
+ *  never changes. */
+const ISM_REFERENCE_DENSITY = ismDensityAt(R0_PC, 0, 0);
 
 /**
- * The side-on view - a MAJOR redesign (16 Aug 2026, three direct user
- * follow-ups on the one complaint): the previous version sampled a tiny,
- * near-fixed patch centred on wherever the sector currently sat (a 2pc-
- * wide x-slice, y +/- `halfDepthPc` around the SECTOR's own y, z +/-
- * `halfHeightPc` around the SECTOR's own z) - density barely varies across
- * a window that size (a few hundred pc against a galaxy tens of thousands
- * of pc across), so the view looked the same everywhere and never showed
- * an arm or the bulge, exactly the "no idea what this is showing, there's
- * no difference left to right" the user reported. Two structural changes
- * fix that at the root instead of re-tuning the old view's constants:
+ * How strongly the side-on view's star-field dot density is suppressed by
+ * relative ISM density - `calibrated`, tuned (disposable diagnostic script,
+ * this session) so the solar-radius midplane reads as a genuinely visible,
+ * thin dark lane against the surrounding disc without ever fully erasing
+ * it: at `ISM_EXTINCTION_STRENGTH=6`, midplane extinction lands at ~0.36 (a
+ * real, visible thinning), recovers to ~0.73 by z=300pc (the stellar thin
+ * disc's OWN scale height, matching the sourced "the molecular layer is
+ * substantially thinner than the 300pc stellar thin disc" physics - the
+ * lane genuinely reads as THIN, not just dim), and is fully recovered
+ * (>0.999) by z=1000pc, well before the halo zone (~2000pc+, `EDGE_ON_HALF
+ * _HEIGHT_BASE_PC`'s own header) would dominate anyway. `ISM_EXTINCTION
+ * _FLOOR` is the same "never fully erase, extinction is real attenuation
+ * not literal opacity" discipline `EDGE_ON_MODULATION_FLOOR`/`ARM
+ * _MODULATION_FLOOR` already apply elsewhere in this file's own rendering.
+ */
+const ISM_EXTINCTION_STRENGTH = 6;
+const ISM_EXTINCTION_FLOOR = 0.25;
+
+function ismExtinctionAt(R_pc: number, theta_rad: number, z_pc: number): number {
+  const ratio = ismDensityAt(R_pc, theta_rad, z_pc, DEFAULT_ISM_PARAMS) / ISM_REFERENCE_DENSITY;
+  return ISM_EXTINCTION_FLOOR + (1 - ISM_EXTINCTION_FLOOR) / (1 + ISM_EXTINCTION_STRENGTH * ratio);
+}
+
+/**
+ * The side-on view - DIAMETRAL (17 Aug 2026, Amendment R4, morphology patch
+ * v3.0 Step 6, superseding the single-`theta`-half-plane redesign from the
+ * previous session in full): the galactic CENTRE now sits at the canvas's
+ * own horizontal centre, the RIGHT half sampled at `angleRad` (the same
+ * side the top-down view's own angle slider points at - the "near" side),
+ * the LEFT half at `angleRad + PI` (the "far" side, diametrically
+ * opposite) - one continuous slice straight through the disc, rather than
+ * a half-plane starting at the centre and reaching one direction only.
+ * `diametralEdgeOnDisplayField` (`densityMap.ts`) supplies both halves from
+ * ONE shared percentile-stretch pool, so a genuinely quieter far side reads
+ * as genuinely dimmer/flatter, not independently re-normalised to look
+ * equally busy (see that function's own header).
  *
- *  (1) FIXED z framing - the vertical window sampled here is now always
- *      `[-halfHeightPc, +halfHeightPc]` around the WORLD galactic plane
- *      (z=0), independent of `distanceFromPlanePc`. The plane sits
- *      dead-centre and never moves; the CURRENT z choice is drawn as the
- *      amber slab band at whatever pixel row that z actually maps to
- *      inside this fixed frame - "the bar moves, not the map".
- *  (2) The horizontal axis is RADIAL DISTANCE from the galactic centre
- *      (R=0 at the left edge) out to `EDGE_ON_MAX_RADIUS_BASE_PC` (right
- *      edge, scaled by the galaxy's own size - see `previewScaleFor`),
- *      swept along the SAME angle the top-down view's own angle slider
- *      selects - `angleRad` IS `model.densityAt`'s own `theta` parameter,
- *      so this calls it directly, one point at a time, rather than
- *      routing through `densityMap.ts`'s axis-aligned `sampleVolume` (that
- *      primitive samples an (x,y,z) BOX; this slice is a rotated ray
- *      through the disc, which a box sampler cannot express without
- *      resampling the whole galaxy and throwing most of it away). Whatever
- *      arm or the bulge that angle actually crosses now shows up as a
- *      real density gradient left-to-right, which the old local-patch view
- *      could never show regardless of how it was tuned.
+ * ISM EXTINCTION (Amendment A8's visual payoff, "R3 and R4 land together" -
+ * this is that landing): each star-field cell's own dot count is now
+ * multiplied by `ismExtinctionAt` at that cell's real (R, theta, z) - the
+ * genuinely thin (sub-300pc), arm-modulated molecular+atomic gas layer
+ * `ism.ts` computes suppresses star density most right at the midplane and
+ * recovers within a few hundred pc, which is what makes a visible dark
+ * LANE bisect the thicker stellar disc rather than merely dimming
+ * everything uniformly. `ism.ts` is consumed ONLY here (G5) - Law 1, this
+ * file never re-derives gas/dust structure of its own.
  *
- * A magenta vertical line marks the sector's own `distanceFromCentrePc`
- * on this new radial axis - the same colour `drawPositionGuides` uses for
- * the top-down view's own angle/radius crosshair, so "your current
- * position" reads as one consistent visual language across both canvases.
+ * VERTICAL EXAGGERATION (R1): the stated ratio of vertical to horizontal
+ * pixels-per-pc is rendered directly on the canvas as text - a silent
+ * stretch is not permitted, and at an honest 1:1 aspect the thin disc would
+ * be single-digit pixels tall (S2's own reasoning), so some exaggeration is
+ * unavoidable and stating it is what keeps it honest.
+ *
+ * The sector's own position marker (magenta) draws on the RIGHT (near,
+ * `angleRad`) half ONLY - the one place a sign error would be invisible
+ * until a user noticed their own sector mirrored across the galaxy (S5.4's
+ * own explicit warning); it never belongs on the far side, which shows a
+ * DIFFERENT angle the sector is not actually at.
  */
 function renderEdgeOnCanvas(
   canvas: HTMLCanvasElement, model: GalaxyModel, angleRad: number, distanceFromCentrePc: number, distanceFromPlanePc: number,
@@ -963,12 +1056,10 @@ function renderEdgeOnCanvas(
   ctx.fillStyle = '#05050a';
   ctx.fillRect(0, 0, w, h);
 
-  // edgeOnDisplayField (16 Aug 2026, a direct user follow-up: "I can't see
-  // where the extra density of stars where the arms are... side-on") -
-  // NOT a bare normaliseForDisplay(raw, {log:true}) any more: that global
-  // log-normalise was completely dominated by the ~9-orders-of-magnitude
-  // bulge-to-outskirts range, which crushed an arm's own local contrast to
-  // invisible - see that function's own header for the full fix.
+  // res unchanged from the prior single-side redesign (16 Aug 2026's own
+  // timing note below still applies per SIDE - diametralEdgeOnDisplayField
+  // does roughly 2x the single-angle work, still comfortable for a live
+  // slider-drag redraw at this resolution).
   //
   // nR/nz DOWN from 150/110 (16 Aug 2026, alongside that fix) - the real
   // `model.densityAt` call this now makes per cell is markedly more
@@ -983,29 +1074,44 @@ function renderEdgeOnCanvas(
   // while still resolving the thin disc (300pc scale height) across
   // several cells against the 12 000pc total vertical range shown.
   const res = { nR: 100, nz: 80 };
-  const norm = edgeOnDisplayField(model, angleRad, maxRadiusPc, halfHeightPc, res);
-  const pcToPxR = w / maxRadiusPc, pcToPxZ = h / (2 * halfHeightPc);
-  for (let iz = 0; iz < res.nz; iz++) {
-    for (let iR = 0; iR < res.nR; iR++) {
-      const v = norm[iR + res.nR * iz]!;
-      const R = ((iR + 0.5) / res.nR) * maxRadiusPc;
-      const zPc = -halfHeightPc + ((iz + 0.5) / res.nz) * 2 * halfHeightPc;
-      const px = R * pcToPxR, py = h - (zPc + halfHeightPc) * pcToPxZ;
-      const n = stochasticRound(v * v * 10);   // stochasticRound - see that function's own header
-      for (let p = 0; p < n; p++) {
-        const jx = px + (Math.random() - 0.5) * (w / res.nR);
-        const jy = py + (Math.random() - 0.5) * (h / res.nz);
-        ctx.fillStyle = `rgba(205,215,255,${(0.25 + 0.65 * Math.random()).toFixed(2)})`;
-        ctx.fillRect(jx, jy, 1, 1);
+  const { near, far } = diametralEdgeOnDisplayField(model, angleRad, maxRadiusPc, halfHeightPc, res);
+  const cx = w / 2;
+  const pcToPxR = (w / 2) / maxRadiusPc, pcToPxZ = h / (2 * halfHeightPc);
+
+  const paintHalf = (norm: Float64Array, sideSign: 1 | -1, theta: number): void => {
+    for (let iz = 0; iz < res.nz; iz++) {
+      for (let iR = 0; iR < res.nR; iR++) {
+        const v = norm[iR + res.nR * iz]!;
+        const R = ((iR + 0.5) / res.nR) * maxRadiusPc;
+        const zPc = -halfHeightPc + ((iz + 0.5) / res.nz) * 2 * halfHeightPc;
+        const px = cx + sideSign * R * pcToPxR, py = h - (zPc + halfHeightPc) * pcToPxZ;
+        const ext = ismExtinctionAt(R, theta, zPc);
+        const n = stochasticRound(v * v * 10 * ext);   // stochasticRound - see that function's own header
+        for (let p = 0; p < n; p++) {
+          const jx = px + (Math.random() - 0.5) * (w / res.nR);
+          const jy = py + (Math.random() - 0.5) * (h / res.nz);
+          ctx.fillStyle = `rgba(205,215,255,${(0.25 + 0.65 * Math.random()).toFixed(2)})`;
+          ctx.fillRect(jx, jy, 1, 1);
+        }
       }
     }
-  }
+  };
+  paintHalf(near, 1, angleRad);           // right half: theta (near)
+  paintHalf(far, -1, angleRad + Math.PI); // left half: theta+PI (far)
 
-  // The sys-density slab band, now positioned at wherever `distanceFrom
-  // PlanePc` actually falls inside the FIXED [-halfHeightPc,+halfHeightPc]
-  // frame - it used to always land at h/2 because the whole map recentred
-  // on the sector's own z instead; now the map never moves, so this is the
-  // one thing here that does.
+  // Galactic-centre guide - a faint vertical line at the shared centre
+  // both halves are sampled outward from, so "this is the middle" reads
+  // unambiguously on a view that is now symmetric-framed even when the
+  // model itself is not.
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx, 0); ctx.lineTo(cx, h);
+  ctx.stroke();
+
+  // The sys-density slab band, positioned at wherever `distanceFromPlanePc`
+  // actually falls inside the FIXED [-halfHeightPc,+halfHeightPc] frame -
+  // spans the FULL width now (both halves share the same z framing).
   if (slabThicknessPc !== null) {
     const bandCentrePx = h - (distanceFromPlanePc + halfHeightPc) * pcToPxZ;
     const bandPx = Math.max(3, slabThicknessPc * pcToPxZ);
@@ -1019,15 +1125,25 @@ function renderEdgeOnCanvas(
     ctx.stroke();
   }
 
-  // Radial position marker - where the sector's own `distanceFromCentrePc`
-  // falls on this view's new R axis, same magenta as the top-down guides.
-  const rPx = Math.min(distanceFromCentrePc, maxRadiusPc) * pcToPxR;
+  // Radial position marker (S5.4: "the sector marker draws on the theta
+  // half only") - the RIGHT half exclusively, at whatever pixel the
+  // sector's own distanceFromCentrePc maps to THERE; never drawn on the
+  // left (far, angleRad+PI) side, which is a different angle entirely.
+  const rPx = cx + Math.min(distanceFromCentrePc, maxRadiusPc) * pcToPxR;
   ctx.strokeStyle = 'rgba(255,64,190,0.95)';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(rPx, 0);
   ctx.lineTo(rPx, h);
   ctx.stroke();
+
+  // Vertical exaggeration factor (R1) - stated on-canvas, never silent.
+  const exaggeration = pcToPxZ / pcToPxR;
+  ctx.font = '11px sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`vertical scale ×${exaggeration.toFixed(1)}`, 6, 4);
 }
 
 function renderPositionOnlyCanvas(canvas: HTMLCanvasElement, centrePc: { x: number; y: number; z: number }, halfWidthPc: number, positions: readonly { x: number; y: number; z: number }[]): void {
@@ -1122,9 +1238,10 @@ export class GalaxyScreen1Modal extends Modal {
     this.busyOverlay = showBusyOverlay(this.contentEl, 'Rendering preview…');
     await nextPaint();
     const previewScale = previewScaleFor(model, params);
+    const thicknessPc = GALAXY_OVERVIEW_THICKNESS_BASE_PC * previewScale;
+    const halfWidthPc = R90_MARGIN * computeR90Pc(model, thicknessPc, previewScale);
     const field = computeDensityDisplayField(
-      model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_BASE_PC * previewScale,
-      GALAXY_OVERVIEW_THICKNESS_BASE_PC * previewScale, GALAXY_OVERVIEW_RES,
+      model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc, GALAXY_OVERVIEW_RES,
       { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
     );
     this.cachedField = field;
@@ -1348,9 +1465,10 @@ export class GalaxyScreen2Modal extends Modal {
   private async initAndRender(): Promise<void> {
     const overlay = showBusyOverlay(this.contentEl, 'Rendering preview…');
     await nextPaint();
+    const thicknessPc = GALAXY_OVERVIEW_THICKNESS_BASE_PC * this.previewScale;
+    const halfWidthPc = R90_MARGIN * computeR90Pc(this.model, thicknessPc, this.previewScale);
     this.galaxyOverview = computeDensityDisplayField(
-      this.model, GALAXY_OVERVIEW_CENTRE_PC, GALAXY_OVERVIEW_HALF_WIDTH_BASE_PC * this.previewScale,
-      GALAXY_OVERVIEW_THICKNESS_BASE_PC * this.previewScale, GALAXY_OVERVIEW_RES,
+      this.model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc, GALAXY_OVERVIEW_RES,
       { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },
     );
     hideBusyOverlay(overlay);
@@ -1387,7 +1505,11 @@ export class GalaxyScreen2Modal extends Modal {
     this.sideOnCanvas.style.margin = '4px auto 12px';
     renderEdgeOnCanvas(
       this.sideOnCanvas, this.model, this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc,
-      EDGE_ON_MAX_RADIUS_BASE_PC * this.previewScale, EDGE_ON_HALF_HEIGHT_BASE_PC * this.previewScale, thickness,
+      // Each side of the now-diametral view reaches as far as the top-down
+      // window's own real (R90-derived) half-width - both views share one
+      // real notion of "how big is this galaxy" now, not two independently
+      // -tuned constants (17 Aug 2026, Step 6).
+      this.galaxyOverview.halfWidthPc, EDGE_ON_HALF_HEIGHT_BASE_PC * this.previewScale, thickness,
     );
 
     renderSliderRow(

@@ -196,5 +196,11 @@ export function ismDensityAt(
  *     (R, z) for a model with live arm contrast (reuses `spiralArms
  *     .armFactor` directly - this is not a manufactured, independent arm
  *     signal, Law 1).
+ *  8. G5 (Step 6) - `ismDensityAt` is called from exactly ONE module,
+ *     `galaxyCreationModals.ts` (the render layer's diametral side-on
+ *     view) - grepped directly across the project root, not merely
+ *     asserted. Breaks loudly the day this is wired into `sky.ts` or any
+ *     other `SystemCore`-consumed path without reading this module's own
+ *     header first.
  */
-export const ISM_GATES = 7 as const;
+export const ISM_GATES = 8 as const;

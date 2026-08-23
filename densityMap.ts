@@ -462,6 +462,36 @@ const ARM_MODULATION_CONTRAST_GAMMA = 0.6;
 const ARM_MODULATION_FLOOR = 0.4;
 
 /**
+ * Minimum meaningful `rel`-percentile SPAN before `modulateArmsForDisplay`
+ * treats it as real azimuthal structure worth stretching to [0,1] - below
+ * this, the span is ring-binning discretisation noise, not signal, and
+ * stretching it would MANUFACTURE fake contrast (17 Aug 2026, found while
+ * writing gate D1, not assumed: a purely radially-symmetric synthetic field
+ * - genuinely ZERO azimuthal structure - was found to still swing several
+ * tenths of a unit non-monotonically through this function, traced to the
+ * ring-mean lookup's own small but real convexity bias, ~3-5% raw ratio,
+ * for ANY exponentially-varying field binned into discrete rings - Jensen's
+ * inequality guarantees a ring's arithmetic MEAN density sits slightly above
+ * `exp(-meanR/L)`. That few-percent bias, gamma-boosted (`dev^0.6`
+ * disproportionately inflates SMALL deviations), produced a `rel` span of
+ * only ~0.027 for the pure-noise fixture - and the percentile stretch,
+ * calibrated for a REAL arm field's much wider range, stretched that entire
+ * noise band to nearly fill [0,1], reading as fabricated arm-like ripple.
+ * Measured directly (disposable diagnostic script, this session) against
+ * every REAL shipped case for comparison: `flocculent` spans ~1.50,
+ * `multipleArm` ~1.62, `grandDesign` ~1.89, the barred Milky Way Analogue
+ * (weakest real case, `DRIMMEL_SPERGEL_K`, not `ARM_CLASS_CONTRAST_TARGET_K`)
+ * ~0.65 - all at least 24x the noise-only span. `0.15` sits with wide margin
+ * on both sides of that gap: `calibrated` to this measured separation, not a
+ * guess. Same "detect the degenerate case, hold modulation at exactly 1
+ * rather than stretch it" pattern `edgeOnDisplayField`'s own `hasStructure`
+ * already established correctly (see that function's header) - promoted
+ * here for the same reason A7's rewrite promoted the top-down view's shape
+ * -preservation from the side-on view in the first place.
+ */
+const ARM_MODULATION_MIN_SPAN = 0.15;
+
+/**
  * Display transform FOR SPIRAL/BARRED MORPHOLOGIES ONLY (rewritten 17 Aug
  * 2026, morphology patch v3.0, superseding the retired `emphasiseArmsFor
  * Display` in full - Amendment A7 pulled forward from this patch's own
@@ -571,11 +601,18 @@ export function modulateArmsForDisplay(
   const q = (p: number): number => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
   const LO = q(0.02);
   const HI = q(0.995);
-  const span = Math.max(1e-6, HI - LO);
+  const span = HI - LO;
+  // hasStructure - see ARM_MODULATION_MIN_SPAN's own header. Below this
+  // span, the field's azimuthal deviation is ring-binning noise, not real
+  // arm/bulge contrast - stretching it would manufacture fake structure, so
+  // modulation stays at exactly 1 (full shape brightness, undimmed, the
+  // same "does not invent structure that is not there" invariant gate 11
+  // already pins for the ordinary case).
+  const hasStructure = span > ARM_MODULATION_MIN_SPAN;
 
   const out = new Float64Array(values.length);
   for (let i = 0; i < values.length; i++) {
-    const stretched = Math.min(1, Math.max(0, (rel[i]! - LO) / span));
+    const stretched = hasStructure ? Math.min(1, Math.max(0, (rel[i]! - LO) / span)) : 1;
     const modulation = ARM_MODULATION_FLOOR + (1 - ARM_MODULATION_FLOOR) * stretched;
     out[i] = shape[i]! * modulation;
   }
@@ -666,15 +703,27 @@ const EDGE_ON_MODULATION_FLOOR = 0.35;
 const EDGE_ON_BASELINE_RES = { nR: 24, nz: 16 } as const;
 const EDGE_ON_BASELINE_ANGLES = 6;
 
-export function edgeOnDisplayField(
-  model: GalaxyModel, angleRad: number, maxRadiusPc: number, halfHeightPc: number,
+/**
+ * The azimuthal baseline + its log-normalised shape (17 Aug 2026, factored
+ * out of `edgeOnDisplayField` for Step 6's `diametralEdgeOnDisplayField` -
+ * both the baseline sampling AND the shape it produces are genuinely
+ * azimuth-INDEPENDENT by construction (`EDGE_ON_BASELINE_ANGLES` averages
+ * over several thetas), so a diametral caller needing BOTH the near (theta)
+ * and far (theta+pi) sides shares this computation once rather than paying
+ * for - and duplicating the code for - the identical baseline twice, Law 1's
+ * "one seam onto the model" applied to this file's own internal structure,
+ * not just to the model boundary). Bit-identical to what `edgeOnDisplayField`
+ * computed inline before this refactor - no behaviour change for existing
+ * callers.
+ */
+function edgeOnBaselineAndShape(
+  model: GalaxyModel, maxRadiusPc: number, halfHeightPc: number,
   res: { readonly nR: number; readonly nz: number },
-): Float64Array {
+): { readonly baseline: Float64Array; readonly shape: Float64Array } {
   const { nR, nz } = res;
   const Rat = (iR: number, n: number): number => ((iR + 0.5) / n) * maxRadiusPc;
   const Zat = (iz: number, n: number): number => -halfHeightPc + ((iz + 0.5) / n) * 2 * halfHeightPc;
 
-  // -- baseline: azimuthal mean, on a coarse (R,z) sub-grid --
   const { nR: bnR, nz: bnz } = EDGE_ON_BASELINE_RES;
   const baseCoarse = new Float64Array(bnR * bnz);
   for (let biz = 0; biz < bnz; biz++) {
@@ -686,7 +735,6 @@ export function edgeOnDisplayField(
       baseCoarse[biR + bnR * biz] = sum / EDGE_ON_BASELINE_ANGLES;
     }
   }
-  // Bilinear-interpolate the coarse baseline up to the display grid.
   const baseline = new Float64Array(nR * nz);
   for (let iz = 0; iz < nz; iz++) {
     const bz = Math.min(bnz - 1, Math.max(0, ((iz + 0.5) / nz) * bnz - 0.5));
@@ -700,25 +748,105 @@ export function edgeOnDisplayField(
       baseline[iR + nR * iz] = v0 * (1 - fz) + v1 * fz;
     }
   }
+  const shape = normaliseForDisplay(baseline, { log: true });
+  return { baseline, shape };
+}
 
-  // -- actual: the real field at the selected angle --
+/** The real field at ONE angle, on the display grid - factored out
+ *  alongside `edgeOnBaselineAndShape` for the same reason. */
+function edgeOnActualAt(
+  model: GalaxyModel, angleRad: number, maxRadiusPc: number, halfHeightPc: number,
+  res: { readonly nR: number; readonly nz: number },
+): Float64Array {
+  const { nR, nz } = res;
+  const Rat = (iR: number, n: number): number => ((iR + 0.5) / n) * maxRadiusPc;
+  const Zat = (iz: number, n: number): number => -halfHeightPc + ((iz + 0.5) / n) * 2 * halfHeightPc;
   const actual = new Float64Array(nR * nz);
   for (let iz = 0; iz < nz; iz++) {
     const z = Zat(iz, nz);
     for (let iR = 0; iR < nR; iR++) actual[iR + nR * iz] = model.densityAt(Rat(iR, nR), angleRad, z);
   }
+  return actual;
+}
 
-  // -- shape: the real (log-normalised) R/z silhouette, from baseline --
-  const shape = normaliseForDisplay(baseline, { log: true });
-
-  // -- deviation from baseline, gamma-boosted --
-  const boosted = new Float64Array(nR * nz);
-  const lit: number[] = [];
+/** Deviation-from-baseline, gamma-boosted - the shared math both
+ *  `edgeOnDisplayField` and `diametralEdgeOnDisplayField` apply to whichever
+ *  `actual` grid they were given, BEFORE either one's own percentile
+ *  stretch (which is where the two functions genuinely differ - see
+ *  `diametralEdgeOnDisplayField`'s own header for why). */
+function edgeOnBoost(baseline: Float64Array, actual: Float64Array): Float64Array {
+  const boosted = new Float64Array(baseline.length);
   for (let i = 0; i < boosted.length; i++) {
     const ratio = baseline[i]! > 0 ? actual[i]! / baseline[i]! : 1;
     const dev = ratio - 1;
     boosted[i] = dev === 0 ? 0 : Math.sign(dev) * Math.pow(Math.abs(dev), EDGE_ON_CONTRAST_GAMMA);
-    if (shape[i]! > 0.05) lit.push(boosted[i]!);
+  }
+  return boosted;
+}
+
+export function edgeOnDisplayField(
+  model: GalaxyModel, angleRad: number, maxRadiusPc: number, halfHeightPc: number,
+  res: { readonly nR: number; readonly nz: number },
+): Float64Array {
+  const { baseline, shape } = edgeOnBaselineAndShape(model, maxRadiusPc, halfHeightPc, res);
+  const actual = edgeOnActualAt(model, angleRad, maxRadiusPc, halfHeightPc, res);
+  const boosted = edgeOnBoost(baseline, actual);
+
+  const lit: number[] = [];
+  for (let i = 0; i < boosted.length; i++) if (shape[i]! > 0.05) lit.push(boosted[i]!);
+  lit.sort((a, b) => a - b);
+  const q = (p: number): number => (lit.length ? lit[Math.min(lit.length - 1, Math.floor(p * lit.length))]! : 0);
+  const LO = lit.length ? q(0.02) : 0;
+  const HI = lit.length ? q(0.98) : 0;
+  const span = HI - LO;
+  const hasStructure = span > 1e-9;
+
+  const out = new Float64Array(boosted.length);
+  for (let i = 0; i < out.length; i++) {
+    const modulation = hasStructure ? Math.min(1, Math.max(0, (boosted[i]! - LO) / span)) : 1;
+    out[i] = shape[i]! * (EDGE_ON_MODULATION_FLOOR + (1 - EDGE_ON_MODULATION_FLOOR) * modulation);
+  }
+  return out;
+}
+
+/**
+ * The DIAMETRAL side-on field (Amendment R4, morphology patch v3.0, Step
+ * 6): the galactic centre sampled outward along BOTH `angleRad` (`near`,
+ * the same side `edgeOnDisplayField` alone would show) and `angleRad + PI`
+ * (`far`, the mirrored opposite side) - one continuous slice through the
+ * disc, centre at centre, rather than the half-plane a single-angle call
+ * shows.
+ *
+ * Shares ONE `edgeOnBaselineAndShape` call (genuinely azimuth-independent,
+ * computed once - Law 1) and, critically, ONE percentile-stretch pool
+ * across BOTH sides' `boosted` values. Stretching each side independently
+ * would let two genuinely different real contrast levels - an arm crossing
+ * one side, none on the other - each re-normalise to its OWN [2nd,98th]
+ * percentile range and so both read as "full contrast" regardless of which
+ * side is actually busier. That would erase exactly the asymmetry this view
+ * exists to show and make gate D4 ("the two halves differ for an armed
+ * model") pass for the wrong reason even when it held. Sharing the pool
+ * means a side with genuinely less structure reads as genuinely dimmer/
+ * flatter than the other, honestly.
+ *
+ * On an AXISYMMETRIC model `actual` at `angleRad` and `angleRad + PI` are
+ * identical (`model.densityAt` ignores theta), so `near` and `far` come out
+ * bit-identical too - not merely visually similar, `===` - which is exactly
+ * gate D4's other half ("...and are identical for an axisymmetric one").
+ */
+export function diametralEdgeOnDisplayField(
+  model: GalaxyModel, angleRad: number, maxRadiusPc: number, halfHeightPc: number,
+  res: { readonly nR: number; readonly nz: number },
+): { readonly near: Float64Array; readonly far: Float64Array } {
+  const { baseline, shape } = edgeOnBaselineAndShape(model, maxRadiusPc, halfHeightPc, res);
+  const actualNear = edgeOnActualAt(model, angleRad, maxRadiusPc, halfHeightPc, res);
+  const actualFar = edgeOnActualAt(model, angleRad + Math.PI, maxRadiusPc, halfHeightPc, res);
+  const boostedNear = edgeOnBoost(baseline, actualNear);
+  const boostedFar = edgeOnBoost(baseline, actualFar);
+
+  const lit: number[] = [];
+  for (let i = 0; i < boostedNear.length; i++) {
+    if (shape[i]! > 0.05) { lit.push(boostedNear[i]!); lit.push(boostedFar[i]!); }
   }
   lit.sort((a, b) => a - b);
   const q = (p: number): number => (lit.length ? lit[Math.min(lit.length - 1, Math.floor(p * lit.length))]! : 0);
@@ -727,12 +855,15 @@ export function edgeOnDisplayField(
   const span = HI - LO;
   const hasStructure = span > 1e-9;
 
-  const out = new Float64Array(nR * nz);
-  for (let i = 0; i < out.length; i++) {
-    const modulation = hasStructure ? Math.min(1, Math.max(0, (boosted[i]! - LO) / span)) : 1;
-    out[i] = shape[i]! * (EDGE_ON_MODULATION_FLOOR + (1 - EDGE_ON_MODULATION_FLOOR) * modulation);
-  }
-  return out;
+  const finish = (boosted: Float64Array): Float64Array => {
+    const out = new Float64Array(boosted.length);
+    for (let i = 0; i < out.length; i++) {
+      const modulation = hasStructure ? Math.min(1, Math.max(0, (boosted[i]! - LO) / span)) : 1;
+      out[i] = shape[i]! * (EDGE_ON_MODULATION_FLOOR + (1 - EDGE_ON_MODULATION_FLOOR) * modulation);
+    }
+    return out;
+  };
+  return { near: finish(boostedNear), far: finish(boostedFar) };
 }
 
 /* --------------------------------- gates ---------------------------------- */

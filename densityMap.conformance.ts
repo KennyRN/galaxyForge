@@ -1,5 +1,6 @@
 import {
   sampleVolume, projectSlab, expectedSystemCount, normaliseForDisplay, modulateArmsForDisplay, edgeOnDisplayField,
+  diametralEdgeOnDisplayField,
   SLAB_THICKNESSES_PC, isSlabThickness, Z_SAMPLES,
   type DensityField, type PointPc, type SlabRegionPc,
 } from './densityMap';
@@ -237,6 +238,53 @@ check('13 the interarm floor does NOT erase the arm-vs-interarm contrast gate 8 
   return out[onArmIdx]! > out[offArmIdx]! + 0.1;
 })());
 
+check('D1 (Amendment A7, patch v3.0) on an armless, unbarred, bulgeless field - a plain ' +
+  'radial exponential with NO azimuthal structure at all - modulateArmsForDisplay ' +
+  'renders brightness that is MONOTONICALLY NON-INCREASING with radius, radial-bin over ' +
+  'radial-bin, AT THE SAME RESOLUTION the real top-down view actually renders at ' +
+  '(GALAXY_OVERVIEW_RES, 200x200 - ported as D1_RES below since this file has no other ' +
+  'reason to import that render-layer constant). Binned rather than cell-by-cell, and at ' +
+  'this specific resolution rather than the file\'s own coarser 64x64 fixtures used ' +
+  'elsewhere: `modulateArmsForDisplay`\'s ring-mean lookup carries a genuine, ' +
+  'resolution-dependent discretisation bias (found and fixed alongside this gate - see ' +
+  'ARM_MODULATION_MIN_SPAN\'s own header in densityMap.ts - a coarser grid concentrates ' +
+  'more of that bias into fewer, wider-effective rings, which is exactly why this gate ' +
+  'pins the resolution the real preview actually uses rather than reusing NX/NY=64). A ' +
+  'reintroduced radial DETREND (A7\'s own defect, the one `emphasiseArmsForDisplay` ' +
+  'caused) would show up as a bin genuinely BRIGHTER than its inner neighbour by tens of ' +
+  'percent (the real regression measured centre 0.58 vs a ~1750pc point at 0.94, +0.36), ' +
+  'far past this gate\'s 0.02 tolerance for ordinary ring-discretisation noise.',
+  (() => {
+    const D1_RES = 200, D1_HALF_PC = 20000;
+    const values = new Float64Array(D1_RES * D1_RES);
+    for (let iy = 0; iy < D1_RES; iy++) {
+      for (let ix = 0; ix < D1_RES; ix++) {
+        const x = -D1_HALF_PC + (ix + 0.5) * (2 * D1_HALF_PC / D1_RES), y = -D1_HALF_PC + (iy + 0.5) * (2 * D1_HALF_PC / D1_RES);
+        values[ix + D1_RES * iy] = Math.exp(-Math.hypot(x, y) / DISC_SCALE_PC);
+      }
+    }
+    const out = modulateArmsForDisplay(values, D1_RES, D1_RES, D1_HALF_PC);
+    const nBins = 12;
+    const rMax = Math.SQRT2 * D1_HALF_PC;
+    const sum = new Float64Array(nBins), cnt = new Float64Array(nBins);
+    for (let iy = 0; iy < D1_RES; iy++) {
+      for (let ix = 0; ix < D1_RES; ix++) {
+        const x = -D1_HALF_PC + (ix + 0.5) * (2 * D1_HALF_PC / D1_RES), y = -D1_HALF_PC + (iy + 0.5) * (2 * D1_HALF_PC / D1_RES);
+        const R = Math.hypot(x, y);
+        const b = Math.min(nBins - 1, Math.floor((R / rMax) * nBins));
+        sum[b]! += out[ix + D1_RES * iy]!; cnt[b]! += 1;
+      }
+    }
+    let prev: number | null = null;
+    for (let b = 0; b < nBins; b++) {
+      if (cnt[b]! === 0) continue;
+      const mean = sum[b]! / cnt[b]!;
+      if (prev !== null && mean > prev + 0.02) return false;
+      prev = mean;
+    }
+    return true;
+  })());
+
 /* -- edgeOnDisplayField (16 Aug 2026) ---------------------------------------------- */
 
 // Two synthetic GalaxyModel fixtures - NOT the real spiral model (keeps this
@@ -269,6 +317,26 @@ const spiralLikeModel: GalaxyModel = {
 };
 const EDGE_ON_RES = { nR: 40, nz: 30 };
 
+// A THIRD fixture, for the diametral gates below (17 Aug 2026, Amendment
+// R4): `spiralLikeModel`'s own `cos(2*theta)` is an m=2 mode - period PI in
+// theta - so it is IDENTICAL at any angle and its own +PI opposite by
+// construction (cos(2*(t+PI)) = cos(2t+2PI) = cos(2t)), which makes it
+// unable to exercise a genuine near-vs-far difference at all. A real m=1
+// lopsided enhancement (`cos(theta)`, period 2*PI) is odd under theta -> theta+PI
+// (cos(t+PI) = -cos(t)) and stands in for any real asymmetric feature -
+// most concretely here, ISM/dust or a warp, not modelled by this file, but
+// the PROPERTY under test (near/far genuinely differ when the model is not
+// symmetric under the swap) does not depend on which real mechanism causes it.
+const lopsidedModel: GalaxyModel = {
+  morphology: 'spiral', populations: [],
+  densityAt: (R, theta, z) => {
+    const base = N0 * Math.exp(-R / 2500) * Math.exp(-Math.abs(z) / H);
+    const amp = 0.4 * Math.max(0, 1 - Math.abs(R - 8000) / 6000);
+    return base * (1 + amp * Math.cos(theta));
+  },
+  densityByPopulation: () => ({}),
+};
+
 check('14 edgeOnDisplayField always returns values in [0, 1]', (() => {
   const out = edgeOnDisplayField(spiralLikeModel, 0, 20000, 6000, EDGE_ON_RES);
   return out.every((v) => v >= 0 && v <= 1);
@@ -293,6 +361,45 @@ check('17 on a model WITH real theta-dependence, edgeOnDisplayField DOES vary wi
   const onArm = edgeOnDisplayField(spiralLikeModel, 0, 20000, 6000, EDGE_ON_RES);          // cos(0) peak
   const offArm = edgeOnDisplayField(spiralLikeModel, Math.PI / 2, 20000, 6000, EDGE_ON_RES); // cos(pi) trough
   return onArm.some((v, i) => Math.abs(v - offArm[i]!) > 0.05);
+})());
+
+/* -- diametralEdgeOnDisplayField (17 Aug 2026, Amendment R4, Step 6) --------------- */
+
+check('18 diametralEdgeOnDisplayField always returns near/far values in [0, 1]', (() => {
+  const { near, far } = diametralEdgeOnDisplayField(spiralLikeModel, 0, 20000, 6000, EDGE_ON_RES);
+  return near.every((v) => v >= 0 && v <= 1) && far.every((v) => v >= 0 && v <= 1);
+})());
+
+check('19 diametralEdgeOnDisplayField is deterministic - bit-identical, no tolerance', (() => {
+  const a = diametralEdgeOnDisplayField(spiralLikeModel, 0.7, 20000, 6000, EDGE_ON_RES);
+  const b = diametralEdgeOnDisplayField(spiralLikeModel, 0.7, 20000, 6000, EDGE_ON_RES);
+  return a.near.every((v, i) => v === b.near[i]) && a.far.every((v, i) => v === b.far[i]);
+})());
+
+check('D4a on an AXISYMMETRIC model, diametralEdgeOnDisplayField\'s near and far sides ' +
+  'are IDENTICAL (===, not merely close) - densityAt genuinely ignores theta, so the ' +
+  'shared percentile stretch sees bit-identical inputs on both sides', (() => {
+  const { near, far } = diametralEdgeOnDisplayField(axisymmetricModel, 1.1, 20000, 6000, EDGE_ON_RES);
+  return near.every((v, i) => v === far[i]);
+})());
+
+check('D4b on a model with a genuine LOPSIDED (m=1) enhancement, diametralEdgeOnDisplay' +
+  'Field\'s near and far sides DIFFER - angleRad=0 (cos(0)=1, enhanced) vs its own +PI ' +
+  'opposite (cos(PI)=-1, suppressed) - the asymmetry the plain single-angle ' +
+  '`edgeOnDisplayField` never had a second side to compare against at all', (() => {
+  const { near, far } = diametralEdgeOnDisplayField(lopsidedModel, 0, 20000, 6000, EDGE_ON_RES);
+  return near.some((v, i) => Math.abs(v - far[i]!) > 0.05);
+})());
+
+check('D4c a genuinely axisymmetric field never spuriously differs, AND a genuinely ' +
+  'lopsided field\'s own diametral pair really can be told apart end-to-end - combined ' +
+  'regression confirming D4 as ONE property (both halves), not two independently ' +
+  'plausible-looking checks', (() => {
+  const sym = diametralEdgeOnDisplayField(axisymmetricModel, 0.3, 20000, 6000, EDGE_ON_RES);
+  const lopsided = diametralEdgeOnDisplayField(lopsidedModel, 0, 20000, 6000, EDGE_ON_RES);
+  const symIdentical = sym.near.every((v, i) => v === sym.far[i]);
+  const lopsidedDiffers = lopsided.near.some((v, i) => Math.abs(v - lopsided.far[i]!) > 0.05);
+  return symIdentical && lopsidedDiffers;
 })());
 
 if (failures > 0) throw new Error(`${failures} densityMap conformance failure(s)`);

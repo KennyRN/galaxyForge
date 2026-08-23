@@ -3,7 +3,7 @@ import {
   R0_PC, hernquistK, ELLIPTICAL_POPULATIONS, LENTICULAR_POPULATIONS, JURIC,
   type Population, type DensityByPopulation, type GalaxyModel,
 } from './galaxyModel';
-import { makeDefaultGalaxyParameters } from './galaxyParameters';
+import { makeDefaultGalaxyParameters, DEFAULT_GALAXY_PARAMETERS, DEFAULT_BULGE } from './galaxyParameters';
 import { ARMS, rollArmClass, type ArmClass } from './spiralArms';
 
 let failures = 0;
@@ -140,6 +140,32 @@ check('G4c: toggling barEnabled changes the bulge\'s SHAPE but not its TOTAL MAS
     const triaxialMass = integrateMass(barredForMass, lim, N);
     const axiMass = integrateMass(spiralForMass, lim, N);
     return Math.abs(triaxialMass - axiMass) / axiMass < 0.02;
+  })());
+
+// -- D2 (patch v3.0 S7, model-side half - see densityMap.conformance.ts's own
+//    gate 10 for the render-side half, which pins the SAME property surviving
+//    through the display pipeline) - a bulge in the field genuinely reaches
+//    the canvas ------------------------------------------------------------
+
+check('D2: the bulge reaches the centre, and its OWN central enhancement scales ' +
+  'LINEARLY with the declared bulge.strength parameter - the most concrete, testable ' +
+  'reading of "exceeds the disc\'s own extrapolated central value by the bulge\'s ' +
+  'declared factor" this codebase actually exposes (bulge.strength is a real, wired ' +
+  'Tier G field - GATE 19 already proves it changes output - not an invented ratio)',
+  (() => {
+    const centralExcess = (strength: number): number => {
+      const params = { ...DEFAULT_GALAXY_PARAMETERS, bulge: { ...DEFAULT_BULGE, strength } };
+      const model = createSpiralModel(true, params, () => CONST_UPSILON);
+      const split = model.densityByPopulation(0, 0, 0);
+      let discOnly = 0, total = 0;
+      for (const [k, v] of Object.entries(split)) {
+        total += v ?? 0;
+        if (k !== 'spiralBoxyPeanutBulge') discOnly += v ?? 0;
+      }
+      return total - discOnly;
+    };
+    const e1 = centralExcess(1.0), e2 = centralExcess(2.0);
+    return e1 > 0 && Math.abs(e2 / e1 - 2) < 1e-9;
   })());
 
 // -- elliptical (S4.5) --------------------------------------------------------------

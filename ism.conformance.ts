@@ -6,6 +6,8 @@
 import { ismDensityAt, DEFAULT_ISM_PARAMS, ISM_GATES } from './ism';
 import { CHANNELS } from './types';
 import { ARMS, generateSeededArms, rollArmClass, DEFAULT_ARM_WIDTH } from './spiralArms';
+import * as fs from 'fs';
+import * as path from 'path';
 
 let failures = 0;
 function check(name: string, cond: boolean) {
@@ -107,6 +109,26 @@ check('7b the SAME arm table reused, not a manufactured independent signal - pas
     const withSeededArms = ismDensityAt(R, theta, z, DEFAULT_ISM_PARAMS, seeded, DEFAULT_ARM_WIDTH);
     return withRealArms !== withSeededArms;
   })());
+
+/* 8. G5 - consumed by render, and ONLY render, at v1 ------------------------- */
+
+// Reach OUT of the ephemeral .gate-tmp/build staging area into the real
+// project root (same pattern moduleTiers.conformance.ts/goldenMaster
+// .conformance.ts already use), so this checks the ACTUAL shipped files.
+const PROJECT_ROOT = path.join(__dirname, '..', '..');
+
+check('8 / G5 (Amendment A8): ismDensityAt is called from exactly ONE module - ' +
+  'galaxyCreationModals.ts (the render layer, Step 6\'s diametral side-on view) - and ' +
+  'nowhere else in the project root. Breaks loudly the day someone wires this into ' +
+  '`sky.ts` (or any SystemCore-consumed path) without reading A8 first - see sky.ts\'s ' +
+  'own header for the deliberate scope boundary this enforces mechanically rather than ' +
+  'by discipline alone.', (() => {
+  const CALL_RE = /\bismDensityAt\s*\(/;
+  const files = fs.readdirSync(PROJECT_ROOT)
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.conformance.ts') && f !== 'ism.ts');
+  const callers = files.filter((f) => CALL_RE.test(fs.readFileSync(path.join(PROJECT_ROOT, f), 'utf8')));
+  return callers.length === 1 && callers[0] === 'galaxyCreationModals.ts';
+})());
 
 if (failures > 0) {
   console.error(`\nism.conformance: ${failures} failure(s).`);
