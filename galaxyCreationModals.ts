@@ -47,7 +47,7 @@
  */
 
 import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App } from 'obsidian';
-import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, type GalaxyModel } from './galaxyModel';
+import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, type GalaxyModel, type PopulationKey } from './galaxyModel';
 import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
 import { fieldFromModel, projectSlab, normaliseForDisplay, modulateArmsForDisplay, edgeOnDisplayField, type SlabRegionPc } from './densityMap';
 import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
@@ -610,10 +610,73 @@ const EDGE_ON_HALF_HEIGHT_BASE_PC = 6000;
  *  waste rather than remove it. */
 interface DensityDisplayField {
   readonly norm: Float64Array;
+  /** Per-cell population-age warmth, in [0,1], 0 = as young as
+   *  `COLOUR_YOUNG_AGE_REF_GYR`, 1 = as old as `COLOUR_OLD_AGE_REF_GYR` -
+   *  same index convention as `norm` (Amendment A8's own patch, Section 5.4,
+   *  "colour by population"; see `paintDensityField`). */
+  readonly warmth: Float64Array;
   readonly res: { nx: number; ny: number };
   readonly centrePc: { x: number; y: number; z: number };
   readonly halfWidthPc: number;
   readonly complexCentres: readonly ComplexCentre[];
+}
+
+/** Reference age span for the population-colour warmth mapping (17 Aug 2026,
+ *  morphology patch v3.0, Step 5) - `calibrated`, a display choice, not a
+ *  physical constant. Chosen to cover the shipped population set's own
+ *  `ageMeanGyr` range with a little headroom either side (`spiralYoungThin`
+ *  at 1.5 Gyr is the youngest population in the codebase, `ellipticalAccreted`
+ *  at 12.2 Gyr the oldest) so no shipped population saturates fully at either
+ *  end of the interpolation. */
+const COLOUR_YOUNG_AGE_REF_GYR = 1;
+const COLOUR_OLD_AGE_REF_GYR = 13;
+
+/** Blue-white (young) / warm amber (old) endpoints for the population-colour
+ *  interpolation - `calibrated`, chosen for legibility against this canvas's
+ *  own `#05050a` ground, not measured off a blackbody curve. The DIRECTION
+ *  is real stellar-colour-temperature physics (hot young O/B stars read
+ *  blue-white, cool old K/M giants read amber/red) - only these specific RGB
+ *  values are a display choice. Per the patch document's own Section 5.4:
+ *  "old populations warm, young populations blue-white". */
+const COLOUR_YOUNG_RGB: readonly [number, number, number] = [190, 210, 255];
+const COLOUR_OLD_RGB: readonly [number, number, number] = [255, 195, 130];
+
+/**
+ * Per-cell population-age warmth (17 Aug 2026, morphology patch v3.0, Step
+ * 5). Weighted-mean `ageMeanGyr` across whichever populations contribute
+ * density at that cell, weighted by their own column-density share there -
+ * NOT a winner-take-all "which population dominates" classification, so a
+ * cell where two populations of different age genuinely overlap (routine
+ * near the bulge/disc boundary) reads as a genuine blend, not a hard edge
+ * that isn't really there in the field.
+ *
+ * Reuses `Population.ageMeanGyr` directly (Law 1) - no new age concept is
+ * invented for display, and no per-key colour table needs maintaining as
+ * populations are added: a new population's age alone places it correctly
+ * on the warm/cool axis.
+ */
+function computeAgeWarmth(
+  model: GalaxyModel, byPopulation: Readonly<Partial<Record<PopulationKey, Float64Array>>> | undefined, n: number,
+): Float64Array {
+  const warmth = new Float64Array(n);
+  if (!byPopulation) { warmth.fill(0.5); return warmth; }   // no split data - neutral, not misleading
+  const ageByKey = new Map<PopulationKey, number>();
+  for (const pop of model.populations) ageByKey.set(pop.key, pop.ageMeanGyr);
+  const entries = Object.entries(byPopulation) as [PopulationKey, Float64Array][];
+  const span = COLOUR_OLD_AGE_REF_GYR - COLOUR_YOUNG_AGE_REF_GYR;
+  for (let i = 0; i < n; i++) {
+    let weighted = 0, total = 0;
+    for (const [key, arr] of entries) {
+      const v = arr[i]!;
+      if (v <= 0) continue;
+      const age = ageByKey.get(key);
+      if (age === undefined) continue;
+      weighted += v * age;
+      total += v;
+    }
+    warmth[i] = total > 0 ? Math.min(1, Math.max(0, (weighted / total - COLOUR_YOUNG_AGE_REF_GYR) / span)) : 0.5;
+  }
+  return warmth;
 }
 
 /** Samples and display-scales a model's density field over a square region
@@ -631,7 +694,11 @@ function computeDensityDisplayField(
   complexOverlay?: { readonly worldSeed: string; readonly complexTier: ComplexTierParams },
 ): DensityDisplayField {
   const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
-  const surface = projectSlab(fieldFromModel(model), region, res);
+  // byPopulation:true (17 Aug 2026, Step 5) - needed for computeAgeWarmth
+  // below; `projectSlab` already supports and gates this split for every
+  // morphology (densityMap.ts's own gate 5), this is the first call site
+  // that actually asks for it.
+  const surface = projectSlab(fieldFromModel(model), region, res, { byPopulation: true });
   // modulateArmsForDisplay (17 Aug 2026, rewritten - see densityMap.ts's own
   // header) for spiral/barred - plain log normalisation alone still makes
   // arm structure invisible on a galaxy-wide view (the radial falloff,
@@ -651,7 +718,8 @@ function computeDensityDisplayField(
   const complexCentres = complexOverlay
     ? complexCentresForOverview(model, complexOverlay.worldSeed, complexOverlay.complexTier, centrePc, halfWidthPc)
     : [];
-  return { norm, res, centrePc, halfWidthPc, complexCentres };
+  const warmth = computeAgeWarmth(model, surface.byPopulation, res.nx * res.ny);
+  return { norm, warmth, res, centrePc, halfWidthPc, complexCentres };
 }
 
 /** Renders a precomputed field as a textured scatter (importance-sampled
@@ -675,14 +743,21 @@ function paintDensityField(
   ctx.fillStyle = '#05050a';
   ctx.fillRect(0, 0, w, h);
 
-  const { norm, res, centrePc, halfWidthPc, complexCentres } = field;
+  const { norm, warmth, res, centrePc, halfWidthPc, complexCentres } = field;
   const pcToPx = w / (2 * halfWidthPc);
   for (let iy = 0; iy < res.ny; iy++) {
     for (let ix = 0; ix < res.nx; ix++) {
-      const v = norm[ix + res.nx * iy]!;
+      const i = ix + res.nx * iy;
+      const v = norm[i]!;
       const cxPc = -halfWidthPc + ((ix + 0.5) / res.nx) * 2 * halfWidthPc;
       const cyPc = -halfWidthPc + ((iy + 0.5) / res.ny) * 2 * halfWidthPc;
       const px = w / 2 + cxPc * pcToPx, py = h / 2 - cyPc * pcToPx;
+      // Population-age colour (17 Aug 2026, Step 5) - lerped once per CELL,
+      // not per dot, and reused across every dot the cell draws below.
+      const wm = warmth[i]!;
+      const r = Math.round(COLOUR_YOUNG_RGB[0] + (COLOUR_OLD_RGB[0] - COLOUR_YOUNG_RGB[0]) * wm);
+      const g = Math.round(COLOUR_YOUNG_RGB[1] + (COLOUR_OLD_RGB[1] - COLOUR_YOUNG_RGB[1]) * wm);
+      const b = Math.round(COLOUR_YOUNG_RGB[2] + (COLOUR_OLD_RGB[2] - COLOUR_YOUNG_RGB[2]) * wm);
       // v^1.5 (softened from a straight square, 16 Aug 2026, alongside
       // densityMap.ts's own INTERARM_FLOOR raise) - still pushes contrast
       // toward a clumpy, high-dynamic-range starfield look rather than a
@@ -700,7 +775,7 @@ function paintDensityField(
         const jx = px + (Math.random() - 0.5) * (w / res.nx);
         const jy = py + (Math.random() - 0.5) * (h / res.ny);
         const alpha = 0.25 + 0.65 * Math.random();
-        ctx.fillStyle = `rgba(205,215,255,${alpha.toFixed(2)})`;
+        ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
         ctx.fillRect(jx, jy, 1, 1);
       }
     }
