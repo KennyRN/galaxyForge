@@ -173,7 +173,7 @@ const SECTOR_ROWS: SectorListRow[] = [
 ];
 
 check('9e buildSectorListContent SORTS rows by distancePc ASCENDING - closest to ' +
-  'the galactic origin first, regardless of input order', (() => {
+  'the sector origin first, regardless of input order', (() => {
   const content = buildSectorListContent(SECTOR_META, SECTOR_ROWS);
   return content.indexOf('sys-near') < content.indexOf('sys-mid') &&
     content.indexOf('sys-mid') < content.indexOf('sys-far');

@@ -59,7 +59,7 @@ import { searchNearestSystem } from './sectorSearch';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
 import { CURRENT_GEN_VERSION } from './genVersion';
 import { writeSectorList, SECTOR_FOLDER } from './vault';
-import { buildSectorListContent, formatPlanetTypesCell, formatBeltsCell, type SectorListRow, type SectorListMeta } from './render';
+import { buildSectorListContent, formatPlanetTypesCell, formatBeltsCell, trueDistance3dPc, type SectorListRow, type SectorListMeta } from './render';
 import type { HabTier } from './humanHabitability';
 import type { SystemCore } from './types';
 import {
@@ -1769,11 +1769,11 @@ export class GalaxyScreen3Modal extends Modal {
       const core = generateSystemCore(inputs);
       rows.push({
         sysid: s.sysid,
-        // TRUE distance from the GALACTIC origin (0,0,0) - deliberately NOT
-        // relative to centrePc (the sector's own centre, a different
-        // quantity `RenderSystemInput.distanceFromSectorOriginPc` names) -
-        // the owner's own explicit spec for this list's sort order.
-        distancePc: Math.hypot(s.positionPc.x, s.positionPc.y, s.positionPc.z),
+        // TRUE distance from the SECTOR's own origin (centrePc) - the
+        // owner's own explicit spec for this list's sort order (17 Aug
+        // 2026, corrected - an earlier draft measured from the galactic
+        // origin (0,0,0) instead, a real misreading of the spec).
+        distancePc: trueDistance3dPc(s.positionPc, centrePc),
         multiplicity: core.stars.length,
         primaryType: core.stars[0]!.class,
         bestHabTier: this.bestHabTierOf(core),
@@ -1788,7 +1788,7 @@ export class GalaxyScreen3Modal extends Modal {
     for (const r of assembled.remnants) {
       rows.push({
         sysid: r.sysid,
-        distancePc: Math.hypot(r.positionPc.x, r.positionPc.y, r.positionPc.z),
+        distancePc: trueDistance3dPc(r.positionPc, centrePc),
         multiplicity: 1,
         primaryType: r.kind,
         bestHabTier: null,

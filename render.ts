@@ -258,10 +258,12 @@ export function mergeWithExisting(
  * reaches into `SystemCore` internals beyond what a single row needs to
  * show (Law 1 - `render.ts` presents, it does not re-derive).
  *
- * `distancePc` is the TRUE 3D distance from the GALACTIC origin (0,0,0) -
- * deliberately NOT `distanceFromSectorOriginPc` (`RenderSystemInput`'s own
- * field, distance from the SECTOR's own centre, a different quantity a
- * user could easily confuse this with).
+ * `distancePc` is the TRUE 3D distance from the SECTOR's own origin (its
+ * `centrePc`) - the same quantity `RenderSystemInput.distanceFromSector
+ * OriginPc` already names, NOT the galactic origin (0,0,0), which is a
+ * different point almost always far outside the sector entirely (17 Aug
+ * 2026, corrected - an earlier draft of this row measured from the
+ * galactic origin instead, a real misreading of the owner's own spec).
  */
 export interface SectorListRow {
   readonly sysid: string;
@@ -335,10 +337,10 @@ export interface SectorListMeta {
 
 /**
  * The whole sector-list document - ONE markdown table, sorted by
- * `distancePc` ASCENDING (closest to the galactic origin first, per the
- * owner's own explicit spec) - sorting happens HERE, not left to the
- * caller, so "sorted" is this function's own testable contract rather than
- * an assumption about call-site discipline.
+ * `distancePc` ASCENDING (closest to the SECTOR's own origin, `meta
+ * .centrePc`, first - the owner's own explicit spec) - sorting happens
+ * HERE, not left to the caller, so "sorted" is this function's own
+ * testable contract rather than an assumption about call-site discipline.
  *
  * `sysid` renders as a plain code span, NOT a `[[wikilink]]` - unlike a
  * canonical system note (which this document replaces at sector-creation
@@ -359,7 +361,7 @@ export function buildSectorListContent(meta: SectorListMeta, rows: readonly Sect
   lines.push(`- **Systems**: ${meta.stellarCount + meta.remnantCount} (${meta.remnantCount} remnant${meta.remnantCount === 1 ? '' : 's'})`);
   lines.push(`- **Generated**: ${meta.generatedIso}`);
   lines.push('');
-  lines.push('Sorted by distance from the galactic origin (0, 0, 0), closest first.');
+  lines.push('Sorted by distance from the sector origin (the Centre above), closest first.');
   lines.push('');
   lines.push('| sysid | multiplicity | primary star type | habitability | planet types | belts |');
   lines.push('|---|---|---|---|---|---|');
