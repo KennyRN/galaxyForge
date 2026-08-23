@@ -1,6 +1,7 @@
 import {
   buildNoteContent, mergeWithExisting, trueDistance3dPc, buildAuthoredStub, GENERATED_START, GENERATED_END,
-  type RenderSystemInput,
+  buildSectorListContent, formatHabitabilityCell, formatPlanetTypesCell, formatBeltsCell,
+  type RenderSystemInput, type SectorListRow, type SectorListMeta,
 } from './render';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
 import { SPIRAL_POPULATIONS } from './galaxyModel';
@@ -134,6 +135,61 @@ check('+ a note with no recognisable fence is left completely unchanged, marked 
     const merge = mergeWithExisting(SYSTEM, handAuthored, null);
     return merge.content === handAuthored && merge.edited === true;
   })());
+
+// 9. sector list (17 Aug 2026)
+
+check('9 formatHabitabilityCell renders the tier number plus a SHORT label (not the ' +
+  'full parenthetical), and "—" for null (nothing to grade)', (() => {
+  return formatHabitabilityCell(4) === 'T4 Earth-like' &&
+    formatHabitabilityCell(0) === 'T0 Uninhabitable' &&
+    formatHabitabilityCell(null) === '—';
+})());
+
+check('9b formatPlanetTypesCell groups by (class, subclass), counts occurrences, and ' +
+  'preserves FIRST-APPEARANCE order (formation order), not alphabetical', (() => {
+  const planets = [
+    { class: 'earth-like', subclass: 'temperate' },
+    { class: 'giant', subclass: 'jovian' },
+    { class: 'earth-like', subclass: 'temperate' },
+  ];
+  return formatPlanetTypesCell(planets) === '2 earth-like (temperate), 1 giant (jovian)';
+})());
+check('9c formatPlanetTypesCell renders "—" for an empty planet list, never a blank cell',
+  formatPlanetTypesCell([]) === '—');
+
+check('9d formatBeltsCell groups by kind, counts, and renders "—" for none', (() => {
+  return formatBeltsCell([{ kind: 'main' }, { kind: 'kuiper' }, { kind: 'main' }]) === '2 main, 1 kuiper' &&
+    formatBeltsCell([]) === '—';
+})());
+
+const SECTOR_META: SectorListMeta = {
+  worldSeed: 'render-gate-sector', centrePc: { x: 8178, y: 0, z: 0 }, radiusPc: 500, thicknessPc: 10,
+  footprintShape: 'circle', stellarCount: 3, remnantCount: 1, generatedIso: '2026-08-17T00:00:00.000Z',
+};
+const SECTOR_ROWS: SectorListRow[] = [
+  { sysid: 'sys-far', distancePc: 9000, multiplicity: 1, primaryType: 'M4V', bestHabTier: null, planetTypes: '—', belts: '—' },
+  { sysid: 'sys-near', distancePc: 500, multiplicity: 2, primaryType: 'G2V', bestHabTier: 3, planetTypes: '1 earth-like (temperate)', belts: '1 main' },
+  { sysid: 'sys-mid', distancePc: 4000, multiplicity: 1, primaryType: 'white-dwarf', bestHabTier: null, planetTypes: '—', belts: '—' },
+];
+
+check('9e buildSectorListContent SORTS rows by distancePc ASCENDING - closest to ' +
+  'the galactic origin first, regardless of input order', (() => {
+  const content = buildSectorListContent(SECTOR_META, SECTOR_ROWS);
+  return content.indexOf('sys-near') < content.indexOf('sys-mid') &&
+    content.indexOf('sys-mid') < content.indexOf('sys-far');
+})());
+check('9f buildSectorListContent renders sysid as a plain code span, never a ' +
+  '[[wikilink]] - no per-system note exists for this document to link to',
+  buildSectorListContent(SECTOR_META, SECTOR_ROWS).includes('`sys-near`') &&
+  !buildSectorListContent(SECTOR_META, SECTOR_ROWS).includes('[[sys-near]]'));
+check('9g buildSectorListContent has exactly one markdown table header row and ' +
+  'exactly one row per input system', (() => {
+  const content = buildSectorListContent(SECTOR_META, SECTOR_ROWS);
+  const dataLines = content.split('\n').filter((l) => l.startsWith('| `sys-'));
+  return dataLines.length === SECTOR_ROWS.length;
+})());
+check('9h buildSectorListContent is deterministic for the same inputs',
+  buildSectorListContent(SECTOR_META, SECTOR_ROWS) === buildSectorListContent(SECTOR_META, SECTOR_ROWS));
 
 if (failures > 0) throw new Error(`${failures} render conformance failure(s)`);
 console.log('\nall render conformance checks passed');

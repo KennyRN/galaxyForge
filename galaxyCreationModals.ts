@@ -58,8 +58,10 @@ import { generateSector, assembleSector } from './sectorFootprint';
 import { searchNearestSystem } from './sectorSearch';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
 import { CURRENT_GEN_VERSION } from './genVersion';
-import { writeSystemNote } from './vault';
-import type { RenderSystemInput } from './render';
+import { writeSectorList, SECTOR_FOLDER } from './vault';
+import { buildSectorListContent, formatPlanetTypesCell, formatBeltsCell, type SectorListRow, type SectorListMeta } from './render';
+import type { HabTier } from './humanHabitability';
+import type { SystemCore } from './types';
 import {
   type MorphologyChoice, type Screen1Draft, type Screen2Draft, type SysDensityChoice,
   defaultScreen1Draft, defaultScreen2Draft, resolveModelName, resolveBarEnabled,
@@ -99,9 +101,12 @@ const SPINNER_DELAY_MS = 200;
  * feedback in between.
  *
  * `nextPaint` is the part Screen 3's OWN commit flow never needed: that
- * flow's real work is a sequence of `await`ed I/O calls (`writeSystemNote`
- * per system), so the event loop gets real chances to run a pending
- * `setTimeout` between them and the delayed-show race just works. The
+ * flow's real work is a per-system CPU loop (`generateSystemCore`) with a
+ * periodic macrotask yield of its own (`commitInner`'s own `YIELD_EVERY`,
+ * 17 Aug 2026 - the single `writeSectorList` at the end no longer gives the
+ * many per-system yield points a `writeSystemNote`-per-system loop used to
+ * provide "for free"), so the event loop still gets real chances to run a
+ * pending `setTimeout` and the delayed-show race just works. The
  * density-field recompute here is ONE long SYNCHRONOUS call with no
  * `await` inside it at all - a `setTimeout(..., SPINNER_DELAY_MS)` raced
  * against it would never fire: by the time the synchronous work returns
@@ -512,6 +517,25 @@ function complexCentresForOverview(
 function stochasticRound(expected: number): number {
   const whole = Math.floor(expected);
   return whole + (Math.random() < expected - whole ? 1 : 0);
+}
+
+/** Strips characters Obsidian/most filesystems reject in a filename (a
+ *  world seed is free-text the user typed - `Screen1Draft`'s own seed field
+ *  has no character restriction) - collapses each run of disallowed
+ *  characters to a single hyphen rather than deleting them outright, so
+ *  two different seeds that only differ in punctuation don't collide into
+ *  the same sanitised name. */
+function sanitiseFilenamePart(raw: string): string {
+  return raw.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'seed';
+}
+
+/** `YYYY-MM-DD HHmmss`, local time - colon-free (Obsidian rejects `:` in a
+ *  filename) but still human-sortable and human-readable, unlike a bare
+ *  epoch/ISO string. */
+function filenameTimestamp(): string {
+  const d = new Date();
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
 function boundaryPointsPc(radiusPc: number, shape: FootprintShape): { x: number; y: number }[] {
@@ -1688,14 +1712,51 @@ export class GalaxyScreen3Modal extends Modal {
     }
   }
 
+  /**
+   * Best `HabTier` across a system's own planets - `null` when there is
+   * nothing to grade (no planets, or no planet carries a habitability
+   * verdict) - same convention `types.ts`'s own `SystemSummary.bestHabTier`
+   * already establishes; this is that convention's first real consumer.
+   */
+  private bestHabTierOf(core: SystemCore): HabTier | null {
+    let best: HabTier | null = null;
+    for (const h of core.humanHabitability) {
+      if (h && (best === null || h.tier > best)) best = h.tier;
+    }
+    return best;
+  }
+
   private async commitInner(centrePc: { x: number; y: number; z: number }): Promise<void> {
     const thickness = thicknessPcFor(this.screen2.sysDensity);
     const assembled = assembleSector(this.screen1.worldSeed, this.model, centrePc, this.screen2.sizeInPc, thickness, this.screen2.footprintShape);
     const total = assembled.stellar.length + assembled.remnants.length;
     new Notice(`Generating ${total} systems (${assembled.remnants.length} remnants) - this may take a moment...`);
-    let written = 0;
 
-    for (const m of assembled.stellar) {
+    // Sector creation (17 Aug 2026) now writes ONLY the sector-list document
+    // - see vault.ts's own header for why the per-system canonical/authored
+    // writes below were removed from THIS flow specifically (they remain
+    // real, gated infrastructure for a future lazy on-click detail note,
+    // not deleted). `generateSystemCore` still runs for real, for every
+    // stellar system - that is where the list's own rich columns
+    // (habitability, planet types, belts) come from; only the WRITTEN
+    // artifact changed, not the computation.
+    const rows: SectorListRow[] = [];
+
+    // Yields the event loop every YIELD_EVERY systems (17 Aug 2026) - the
+    // old loop's own per-system `await writeSystemNote` gave the busy
+    // overlay's `setTimeout` (`commit`'s own SPINNER_DELAY_MS race) real
+    // chances to run between iterations; a single list write at the very
+    // end removes those chances entirely, so a large sector's generation
+    // (still real CPU work, `generateSystemCore` unchanged) would freeze
+    // the UI with no spinner for its whole duration. A macrotask yield
+    // (`setTimeout(0)`, not `nextPaint`'s costlier double-rAF) restores
+    // that without materially slowing generation for a typical sector.
+    const YIELD_EVERY = 25;
+    const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    for (let mi = 0; mi < assembled.stellar.length; mi++) {
+      if (mi > 0 && mi % YIELD_EVERY === 0) await yieldToEventLoop();
+      const m = assembled.stellar[mi]!;
       const s = m.placed;
       const populationMeta = this.model.populations.find((p) => p.key === s.population);
       if (!populationMeta) continue;
@@ -1705,36 +1766,47 @@ export class GalaxyScreen3Modal extends Modal {
         terraformScale: this.screen1.terraformScale, terraformIntensity: this.screen1.terraformIntensity,
         conatal: m.conatal,
       };
-      // Full conductor runs here (screen 3's own preview deliberately never
-      // calls it) so every system is REALLY generated, not merely placed.
-      // The result now REACHES the note (16 Aug 2026 - previously computed
-      // and thrown away, `void core;` - an audit found the science ran for
-      // real on every commit but the note body stayed thin regardless).
       const core = generateSystemCore(inputs);
-      const d = { x: s.positionPc.x - centrePc.x, y: s.positionPc.y - centrePc.y, z: s.positionPc.z - centrePc.z };
-      const input: RenderSystemInput = {
-        sysid: s.sysid, name: null, population: s.population, positionPc: s.positionPc,
-        distanceFromSectorOriginPc: Math.hypot(d.x, d.y, d.z), core,
-      };
-      await writeSystemNote(this.app.vault, input, null);
-      written++;
+      rows.push({
+        sysid: s.sysid,
+        // TRUE distance from the GALACTIC origin (0,0,0) - deliberately NOT
+        // relative to centrePc (the sector's own centre, a different
+        // quantity `RenderSystemInput.distanceFromSectorOriginPc` names) -
+        // the owner's own explicit spec for this list's sort order.
+        distancePc: Math.hypot(s.positionPc.x, s.positionPc.y, s.positionPc.z),
+        multiplicity: core.stars.length,
+        primaryType: core.stars[0]!.class,
+        bestHabTier: this.bestHabTierOf(core),
+        planetTypes: formatPlanetTypesCell(core.planets),
+        belts: formatBeltsCell(core.belts),
+      });
     }
 
-    // Remnants get a note too - position/kind only for now, same honest
-    // scoping as the stellar layer above (full remnant detail - mass,
-    // radius, temperature, a surviving planet - is the same follow-up work
-    // as full stellar SystemCore rendering, not done here).
+    // Remnants get a row too - position/kind only, same honest scoping the
+    // per-system note used to carry for them (full remnant detail is a
+    // separately-scoped remaining gap, unaffected by this change).
     for (const r of assembled.remnants) {
-      const d = { x: r.positionPc.x - centrePc.x, y: r.positionPc.y - centrePc.y, z: r.positionPc.z - centrePc.z };
-      const input: RenderSystemInput = {
-        sysid: r.sysid, name: null, population: r.kind, positionPc: r.positionPc,
-        distanceFromSectorOriginPc: Math.hypot(d.x, d.y, d.z),
-      };
-      await writeSystemNote(this.app.vault, input, null);
-      written++;
+      rows.push({
+        sysid: r.sysid,
+        distancePc: Math.hypot(r.positionPc.x, r.positionPc.y, r.positionPc.z),
+        multiplicity: 1,
+        primaryType: r.kind,
+        bestHabTier: null,
+        planetTypes: formatPlanetTypesCell([]),
+        belts: formatBeltsCell([]),
+      });
     }
 
-    new Notice(`StarForge: wrote ${written} system note(s) to StarForge/Systems/`);
+    const meta: SectorListMeta = {
+      worldSeed: this.screen1.worldSeed, centrePc, radiusPc: this.screen2.sizeInPc, thicknessPc: thickness,
+      footprintShape: this.screen2.footprintShape, stellarCount: assembled.stellar.length,
+      remnantCount: assembled.remnants.length, generatedIso: new Date().toISOString(),
+    };
+    const content = buildSectorListContent(meta, rows);
+    const filename = `Sector - ${sanitiseFilenamePart(this.screen1.worldSeed)} - ${filenameTimestamp()}`;
+    await writeSectorList(this.app.vault, filename, content);
+
+    new Notice(`StarForge: wrote a ${rows.length}-system sector list to ${SECTOR_FOLDER}/${filename}.md`);
     this.close();
   }
 }

@@ -9,10 +9,14 @@
  * harness kept for direct pipeline exercise. The three-screen GUI
  * (`galaxyCreationModals.ts`) drives the full built pipeline: morphology ->
  * `galaxyModel` -> `sectorSearch`/`sectorFootprint` -> `systemConductor` ->
- * `vault`, writing real system notes. Still deliberately NOT the full
- * product the brief describes - there is still no settings tab and no
- * standalone sector-map view (S4.8's second view; the GUI's screen-3
- * position-only preview covers the same ground for this workflow).
+ * `vault`, writing ONE real sector-list document per generated sector (17
+ * Aug 2026 - previously one canonical + one authored note per system; see
+ * `vault.ts`'s own header for the full story and why that machinery
+ * remains real, just no longer called from this flow). Still deliberately
+ * NOT the full product the brief describes - there is still no settings
+ * tab and no standalone sector-map view (S4.8's second view; the GUI's
+ * screen-3 position-only preview covers the same ground for this
+ * workflow).
  *
  * UPDATED 15 Aug 2026: previously walked a fixed, unfiltered 3x3 cell block
  * - this module's own header named that as a placeholder standing in for
@@ -47,7 +51,7 @@ import { createSpiralModel } from './galaxyModel';
 import { assembleSector } from './sectorFootprint';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
 import { CURRENT_GEN_VERSION } from './genVersion';
-import { writeSystemNote } from './vault';
+import { writeSystemNote, CANONICAL_FOLDER } from './vault';
 import type { RenderSystemInput } from './render';
 import { GalaxyScreen1Modal } from './galaxyCreationModals';
 import type { MorphologyChoice, LenticularBulgeType, Screen2Draft } from './galaxyCreationState';
@@ -141,9 +145,14 @@ export default class StarForgePlugin extends Plugin {
       const s = m.placed;
       const populationMeta = model.populations.find((p) => p.key === s.population);
       const dx = s.positionPc.x - TEST_CENTRE_PC.x, dy = s.positionPc.y - TEST_CENTRE_PC.y, dz = s.positionPc.z - TEST_CENTRE_PC.z;
-      // Full conductor, same as the GUI's own commit path (16 Aug 2026) -
-      // this test command exercises the identical pipeline a real "Generate
-      // Sector" commit does, not a thinner stand-in.
+      // Full conductor, same as the GUI's own commit path (16 Aug 2026).
+      // UPDATED 17 Aug 2026: the GUI's real "Generate Sector" commit no
+      // longer writes per-system notes at all (it writes ONE sector-list
+      // document instead - see vault.ts's own header) - this test command
+      // now deliberately DIVERGES from it to remain the one place
+      // `writeSystemNote`/render.ts's fence machinery still gets exercised
+      // directly, real infrastructure for a future lazy on-click detail
+      // note, not dead code.
       const core = populationMeta ? generateSystemCore({
         sysid: s.sysid, genVersion: CURRENT_GEN_VERSION, worldSeed: TEST_WORLD_SEED, positionPc: s.positionPc,
         population: s.population, populationMeta, formationRank: s.formationRank, terraformScale: 3, terraformIntensity: 3,
@@ -165,7 +174,7 @@ export default class StarForgePlugin extends Plugin {
       await writeSystemNote(this.app.vault, input, null);
       written++;
     }
-    new Notice(`StarForge: wrote ${written} system note(s) (${assembled.remnants.length} remnants) to StarForge/Systems/`);
+    new Notice(`StarForge: wrote ${written} system note(s) (${assembled.remnants.length} remnants) to ${CANONICAL_FOLDER}/`);
   }
 
   onunload(): void {

@@ -37,6 +37,7 @@
 import { xmur3 } from './rng';
 import { pcToLy } from './units';
 import type { SystemCore } from './types';
+import { HAB_TIER_LABELS, type HabTier } from './humanHabitability';
 
 export const GENERATED_START = '%% STARFORGE:GENERATED:START - do not edit below this line, your changes will be overwritten %%';
 export const GENERATED_END = '%% STARFORGE:GENERATED:END - your own notes go BELOW this line and are never touched %%';
@@ -247,6 +248,128 @@ export function mergeWithExisting(
   return { content: rebuilt, edited: false, sha: freshSha };
 }
 
+/* ----------------------------- sector list (17 Aug 2026) --------------------- */
+
+/**
+ * One row's worth of pre-reduced data for the sector-list document -
+ * assembled by the caller (`galaxyCreationModals.ts`'s `commitInner`, which
+ * already has both `SystemCore` for every stellar system and the thinner
+ * remnant records) rather than derived here, so this module still never
+ * reaches into `SystemCore` internals beyond what a single row needs to
+ * show (Law 1 - `render.ts` presents, it does not re-derive).
+ *
+ * `distancePc` is the TRUE 3D distance from the GALACTIC origin (0,0,0) -
+ * deliberately NOT `distanceFromSectorOriginPc` (`RenderSystemInput`'s own
+ * field, distance from the SECTOR's own centre, a different quantity a
+ * user could easily confuse this with).
+ */
+export interface SectorListRow {
+  readonly sysid: string;
+  readonly distancePc: number;
+  readonly multiplicity: number;
+  readonly primaryType: string;
+  /** Best `HabTier` across the system's own planets; `null` when there are
+   *  no planets to judge (a remnant, or a stellar system with none) - same
+   *  "best tier, null if nothing to grade" convention `types.ts`'s own
+   *  `SystemSummary.bestHabTier` already establishes. */
+  readonly bestHabTier: HabTier | null;
+  readonly planetTypes: string;
+  readonly belts: string;
+}
+
+/** Short form of a `HAB_TIER_LABELS` entry - the full label ("Hostile (full
+ *  life support required)") is right for a detail note's own prose, too
+ *  wide for a table cell; this keeps just the headline word. `—` when
+ *  there is nothing to grade (see `SectorListRow.bestHabTier`'s own doc). */
+export function formatHabitabilityCell(tier: HabTier | null): string {
+  if (tier === null) return '—';
+  return `T${tier} ${HAB_TIER_LABELS[tier].split(' (')[0]}`;
+}
+
+/** Groups a system's own planets by (class, subclass) - both, per the
+ *  owner's own choice, since neither alone is what "planet types" meant
+ *  ("ice giant" is a subclass; "gas giant" isn't any single label at all,
+ *  see `planets.ts`'s own `PlanetSubclass` union - `sub-giant`/`giant`
+ *  both resolve to `jovian` or `hot-jupiter` depending on migration, never
+ *  a bare "gas giant"). Counted and ORDER-OF-FIRST-APPEARANCE, not
+ *  alphabetised - matches formation order, the same convention
+ *  `renderFullSystemBody`'s own planet list already uses. `—` for an
+ *  empty system, never a blank cell a reader could mistake for missing
+ *  data. */
+export function formatPlanetTypesCell(planets: readonly { class: string; subclass: string }[]): string {
+  if (planets.length === 0) return '—';
+  const order: string[] = [];
+  const counts = new Map<string, number>();
+  for (const p of planets) {
+    const key = `${p.class} (${p.subclass})`;
+    if (!counts.has(key)) order.push(key);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return order.map((key) => `${counts.get(key)} ${key}`).join(', ');
+}
+
+/** Same grouped-count convention as `formatPlanetTypesCell`, over
+ *  `Belt.kind` (`main`/`kuiper` - `belts.ts`'s own `BeltKind`). `—` when
+ *  the system has none. */
+export function formatBeltsCell(belts: readonly { kind: string }[]): string {
+  if (belts.length === 0) return '—';
+  const order: string[] = [];
+  const counts = new Map<string, number>();
+  for (const b of belts) {
+    if (!counts.has(b.kind)) order.push(b.kind);
+    counts.set(b.kind, (counts.get(b.kind) ?? 0) + 1);
+  }
+  return order.map((kind) => `${counts.get(kind)} ${kind}`).join(', ');
+}
+
+export interface SectorListMeta {
+  readonly worldSeed: string;
+  readonly centrePc: { readonly x: number; readonly y: number; readonly z: number };
+  readonly radiusPc: number;
+  readonly thicknessPc: number;
+  readonly footprintShape: string;
+  readonly stellarCount: number;
+  readonly remnantCount: number;
+  readonly generatedIso: string;
+}
+
+/**
+ * The whole sector-list document - ONE markdown table, sorted by
+ * `distancePc` ASCENDING (closest to the galactic origin first, per the
+ * owner's own explicit spec) - sorting happens HERE, not left to the
+ * caller, so "sorted" is this function's own testable contract rather than
+ * an assumption about call-site discipline.
+ *
+ * `sysid` renders as a plain code span, NOT a `[[wikilink]]` - unlike a
+ * canonical system note (which this document replaces at sector-creation
+ * time, see `vault.ts`'s own header), no per-system note exists to link
+ * to, and a wikilink to a note that does not exist is exactly the
+ * "graph view fills with stubs" problem `SystemSummary.hasNote`'s own doc
+ * comment already names for this exact situation.
+ */
+export function buildSectorListContent(meta: SectorListMeta, rows: readonly SectorListRow[]): string {
+  const sorted = [...rows].sort((a, b) => a.distancePc - b.distancePc);
+  const lines: string[] = [];
+  lines.push(`# Sector — ${meta.worldSeed}`);
+  lines.push('');
+  lines.push(`- **Centre**: ${meta.centrePc.x.toFixed(3)}, ${meta.centrePc.y.toFixed(3)}, ${meta.centrePc.z.toFixed(3)} pc`);
+  lines.push(`- **Radius**: ${meta.radiusPc.toFixed(3)} pc`);
+  lines.push(`- **Thickness**: ${meta.thicknessPc.toFixed(3)} pc`);
+  lines.push(`- **Footprint**: ${meta.footprintShape}`);
+  lines.push(`- **Systems**: ${meta.stellarCount + meta.remnantCount} (${meta.remnantCount} remnant${meta.remnantCount === 1 ? '' : 's'})`);
+  lines.push(`- **Generated**: ${meta.generatedIso}`);
+  lines.push('');
+  lines.push('Sorted by distance from the galactic origin (0, 0, 0), closest first.');
+  lines.push('');
+  lines.push('| sysid | multiplicity | primary star type | habitability | planet types | belts |');
+  lines.push('|---|---|---|---|---|---|');
+  for (const r of sorted) {
+    lines.push(`| \`${r.sysid}\` | ${r.multiplicity} | ${r.primaryType} | ${formatHabitabilityCell(r.bestHabTier)} | ${r.planetTypes} | ${r.belts} |`);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
 /* --------------------------------- gates ------------------------------------ */
 
 /**
@@ -276,5 +399,14 @@ export function mergeWithExisting(
  *     the same input always produces the same stub, so `vault.ts`'s own
  *     "create once, never touch again" promise is checking a stable
  *     target, not a moving one.
+ *  9. SECTOR LIST (17 Aug 2026) - `buildSectorListContent` SORTS its own
+ *     output by `distancePc` ascending regardless of input order;
+ *     `formatHabitabilityCell`/`formatPlanetTypesCell`/`formatBeltsCell`
+ *     each render "—" for "nothing to show" rather than a blank cell, and
+ *     the planet/belt formatters group-and-count by first-appearance
+ *     order, not alphabetically; `sysid` renders as a plain code span,
+ *     never a `[[wikilink]]` (no per-system note exists for this document
+ *     to link to); the whole function is deterministic and produces
+ *     exactly one table row per input system.
  */
-export const RENDER_GATES = 8 as const;
+export const RENDER_GATES = 9 as const;
