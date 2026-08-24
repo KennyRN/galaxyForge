@@ -1201,6 +1201,11 @@ export class GalaxyScreen1Modal extends Modal {
    *  have made noticeably more expensive). */
   private cachedFieldKey: string | null = null;
   private cachedField: DensityDisplayField | null = null;
+  /** Wraps just the canvas (24 Aug 2026, "the whole modal opens first, then
+   *  the map pane") - `showBusyOverlay` scopes to this instead of the whole
+   *  `contentEl`, so the busy spinner covers only the density-preview area
+   *  while every control around it stays visible and interactive. */
+  private mapPane!: HTMLElement;
   /** Debounce handle for the seed TEXT field's own preview refresh - see
    *  the `addText` handler below for why this does NOT call `this.render()`
    *  directly. */
@@ -1259,7 +1264,7 @@ export class GalaxyScreen1Modal extends Modal {
    * work for a synchronous computation), THEN runs the real work.
    */
   private async computeAndCacheField(model: GalaxyModel, params: GalaxyParameters, key: string): Promise<DensityDisplayField> {
-    this.busyOverlay = showBusyOverlay(this.contentEl, 'Rendering preview…');
+    this.busyOverlay = showBusyOverlay(this.mapPane, 'Rendering preview…');
     await nextPaint();
     const previewScale = previewScaleFor(model, params);
     const thicknessPc = GALAXY_OVERVIEW_THICKNESS_BASE_PC * previewScale;
@@ -1282,24 +1287,30 @@ export class GalaxyScreen1Modal extends Modal {
   }
 
   onOpen(): void {
-    this.titleEl.setText('Create a Galaxy - Morphology, Size, Seed');
-    void this.render();
+    this.render();
   }
 
   /**
-   * ASYNC (16 Aug 2026) so the field recompute above can genuinely show its
-   * spinner before blocking - `buildDom` below still does the synchronous
-   * `contentEl.empty()` + rebuild, but only AFTER the (possibly slow) field
-   * is already in hand, so the DOM never sits half-built while a spinner is
-   * up.
+   * SYNC (24 Aug 2026, "the whole modal opens first, then the pane for
+   * viewing the galaxy map") - `buildDom` below runs to completion (every
+   * button/slider/field, plus a blank canvas) before this function returns,
+   * so the modal is fully present and interactive the instant it opens.
+   * `paintCanvas` then fills in the (possibly slow) density preview a
+   * moment later, fired off but not awaited - it used to be the other way
+   * around, with NOTHING on screen at all until the field was ready.
    */
-  private async render(): Promise<void> {
+  private render(): void {
     const { model, params } = modelFromDraft(this.draft);
-    const field = await this.fieldForCurrentDraft(model, params);
-    this.buildDom(field);
+    this.buildDom();
+    void this.paintCanvas(model, params);
   }
 
-  private buildDom(field: DensityDisplayField): void {
+  private async paintCanvas(model: GalaxyModel, params: GalaxyParameters): Promise<void> {
+    const field = await this.fieldForCurrentDraft(model, params);
+    paintDensityField(this.canvas, field, null);
+  }
+
+  private buildDom(): void {
     const { contentEl } = this;
     contentEl.empty();
 
@@ -1367,10 +1378,12 @@ export class GalaxyScreen1Modal extends Modal {
       (v) => { this.draft = { ...this.draft, terraformIntensity: Math.round(v) }; void this.render(); },
     );
 
-    this.canvas = contentEl.createEl('canvas', { attr: { width: '360', height: '360' } });
+    const mapPane = contentEl.createDiv();
+    mapPane.style.cssText = 'position:relative;';
+    this.mapPane = mapPane;
+    this.canvas = mapPane.createEl('canvas', { attr: { width: '360', height: '360' } });
     this.canvas.style.display = 'block';
     this.canvas.style.margin = '12px auto';
-    paintDensityField(this.canvas, field, null);
 
     const nav = contentEl.createDiv();
     nav.createEl('span');
@@ -1397,6 +1410,11 @@ export class GalaxyScreen2Modal extends Modal {
   private model: GalaxyModel;
   private topDownCanvas!: HTMLCanvasElement;
   private sideOnCanvas!: HTMLCanvasElement;
+  /** Wraps both canvases (24 Aug 2026, "the whole modal opens first, then
+   *  the map pane") - `initGalaxyOverview`'s own busy overlay scopes to
+   *  this, not the whole modal, so the sliders/controls around it are
+   *  built and usable immediately, before `galaxyOverview` resolves. */
+  private mapPane!: HTMLElement;
 
   /** Debounce timer for the Total systems / Size (pc) text fields - see
    *  their own `onChange` handlers below for why this exists. */
@@ -1410,7 +1428,11 @@ export class GalaxyScreen2Modal extends Modal {
    *  OVERLAY sits on this same fixed picture (the fix for "the top-down
    *  view doesn't look anything like screen 1's" - it should be, and now
    *  is, the identical galaxy-wide view, with the sector marked on it). */
-  private galaxyOverview!: DensityDisplayField;
+  /** `undefined` until `initGalaxyOverview` resolves (24 Aug 2026) - `render`
+   *  below now runs once, synchronously, before this is ever set (the
+   *  modal-opens-first split), so it can no longer assume the field is
+   *  already in hand the way the definite-assignment version used to. */
+  private galaxyOverview: DensityDisplayField | undefined;
 
   /** `settings`/`onSettingsChange` carried through purely so the "← Back"
    *  button can reconstruct `GalaxyScreen1Modal` faithfully - this screen
@@ -1464,8 +1486,8 @@ export class GalaxyScreen2Modal extends Modal {
   }
 
   onOpen(): void {
-    this.titleEl.setText('Create a Galaxy - Sector Centre');
-    void this.initAndRender();
+    this.render();
+    void this.initGalaxyOverview();
   }
 
   /** Persistence checkpoint - see `GalaxyScreen1Modal.onClose`'s own doc
@@ -1485,9 +1507,16 @@ export class GalaxyScreen2Modal extends Modal {
    * spinner instead of freezing the transition from Screen 1. See
    * `showBusyOverlay`'s own header for why this yields via `nextPaint`
    * rather than racing a delayed `setTimeout` against synchronous work.
+   *
+   * RENAMED from `initAndRender` (24 Aug 2026) - `onOpen` now calls
+   * `render()` itself, synchronously, before this even starts (the modal
+   * -opens-first split), so this function's own job shrank to just "compute
+   * `galaxyOverview`, then trigger a repaint" - the overlay it shows scopes
+   * to `this.mapPane` (set by that first synchronous `render()` call), not
+   * the whole modal, since every slider/control is already live by then.
    */
-  private async initAndRender(): Promise<void> {
-    const overlay = showBusyOverlay(this.contentEl, 'Rendering preview…');
+  private async initGalaxyOverview(): Promise<void> {
+    const overlay = showBusyOverlay(this.mapPane, 'Rendering preview…');
     await nextPaint();
     const thicknessPc = GALAXY_OVERVIEW_THICKNESS_BASE_PC * this.previewScale;
     const halfWidthPc = R90_MARGIN * computeR90Pc(this.model, thicknessPc, this.previewScale);
@@ -1511,30 +1540,44 @@ export class GalaxyScreen2Modal extends Modal {
     const centre = centrePcFromPolar(this.draft);
     const thickness = thicknessPcFor(this.draft.sysDensity);
 
-    this.topDownCanvas = contentEl.createEl('canvas', { attr: { width: '400', height: '400' } });
+    // mapPane (24 Aug 2026, "the whole modal opens first, then the map
+    // pane") - wraps BOTH canvases so `initGalaxyOverview`'s own busy
+    // overlay can scope to just this pane. `render()` itself now runs
+    // before `galaxyOverview` necessarily exists (the very first call, from
+    // `onOpen`), so the two canvases are always CREATED here but only
+    // PAINTED below when the field is actually in hand - they start blank
+    // rather than blocking the rest of this screen's own controls.
+    const mapPane = contentEl.createDiv();
+    mapPane.style.cssText = 'position:relative;';
+    this.mapPane = mapPane;
+
+    this.topDownCanvas = mapPane.createEl('canvas', { attr: { width: '400', height: '400' } });
     this.topDownCanvas.style.display = 'block';
     this.topDownCanvas.style.margin = '8px auto';
-    // The cached whole-galaxy field, repainted (cheap - no resampling) with
-    // the sector overlay at its ACTUAL world position every time the draft
-    // changes - see `galaxyOverview`'s own doc comment.
-    paintDensityField(this.topDownCanvas, this.galaxyOverview, { centrePc: centre, radiusPc: this.draft.sizeInPc, shape: this.draft.footprintShape });
-    drawPositionGuides(this.topDownCanvas, this.galaxyOverview, this.draft.angleRad, this.draft.distanceFromCentrePc);
 
     // height 80 -> 220 (16 Aug 2026, alongside EDGE_ON_HALF_HEIGHT_BASE_PC's
     // own widening) - a 12 000 pc total vertical range read at 80px was ~150 pc
     // per pixel, too coarse to show the thin disc as anything but a hairline
     // even before the halo fix; 220px brings that down to a legible ~55 pc/px.
-    this.sideOnCanvas = contentEl.createEl('canvas', { attr: { width: '400', height: '220' } });
+    this.sideOnCanvas = mapPane.createEl('canvas', { attr: { width: '400', height: '220' } });
     this.sideOnCanvas.style.display = 'block';
     this.sideOnCanvas.style.margin = '4px auto 12px';
-    renderEdgeOnCanvas(
-      this.sideOnCanvas, this.model, this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc,
-      // Each side of the now-diametral view reaches as far as the top-down
-      // window's own real (R90-derived) half-width - both views share one
-      // real notion of "how big is this galaxy" now, not two independently
-      // -tuned constants (17 Aug 2026, Step 6).
-      this.galaxyOverview.halfWidthPc, EDGE_ON_HALF_HEIGHT_BASE_PC * this.previewScale, thickness,
-    );
+
+    if (this.galaxyOverview) {
+      // The cached whole-galaxy field, repainted (cheap - no resampling) with
+      // the sector overlay at its ACTUAL world position every time the draft
+      // changes - see `galaxyOverview`'s own doc comment.
+      paintDensityField(this.topDownCanvas, this.galaxyOverview, { centrePc: centre, radiusPc: this.draft.sizeInPc, shape: this.draft.footprintShape });
+      drawPositionGuides(this.topDownCanvas, this.galaxyOverview, this.draft.angleRad, this.draft.distanceFromCentrePc);
+      renderEdgeOnCanvas(
+        this.sideOnCanvas, this.model, this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc,
+        // Each side of the now-diametral view reaches as far as the top-down
+        // window's own real (R90-derived) half-width - both views share one
+        // real notion of "how big is this galaxy" now, not two independently
+        // -tuned constants (17 Aug 2026, Step 6).
+        this.galaxyOverview.halfWidthPc, EDGE_ON_HALF_HEIGHT_BASE_PC * this.previewScale, thickness,
+      );
+    }
 
     renderSliderRow(
       contentEl, { icon: ANGLE_ICON, title: `Angle (θ) - ${this.draft.angleRad * 180 / Math.PI}°` },
@@ -1645,6 +1688,12 @@ export class GalaxyScreen2Modal extends Modal {
 export class GalaxyScreen3Modal extends Modal {
   private generating = false;
   private busyOverlay: HTMLElement | null = null;
+  private countEl!: HTMLElement;
+  private canvas!: HTMLCanvasElement;
+  /** Wraps the canvas (24 Aug 2026, "the whole modal opens first, then the
+   *  map pane") - `paintSector`'s own busy overlay scopes to this, not the
+   *  whole modal, so the Back/Generate buttons are live immediately. */
+  private mapPane!: HTMLElement;
 
   /** `settings`/`onSettingsChange` carried through purely for the "← Back"
    *  chain back to Screen 1 - this screen never reads or changes them. */
@@ -1654,22 +1703,30 @@ export class GalaxyScreen3Modal extends Modal {
   ) { super(app); }
 
   onOpen(): void {
-    this.titleEl.setText('Create a Galaxy - Preview');
     this.render();
   }
 
+  /**
+   * SYNC (24 Aug 2026, "the whole modal opens first, then the pane for
+   * viewing the galaxy map") - builds the count placeholder, the (blank)
+   * canvas and the Back/Generate buttons immediately; `paintSector` below
+   * then runs the real `generateSector` call and paints the scatter a
+   * moment later. Previously this whole screen waited on `generateSector`
+   * before anything at all appeared.
+   */
   private render(): void {
     const { contentEl } = this;
     contentEl.empty();
     const centre = centrePcFromPolar(this.screen2);
-    const thickness = thicknessPcFor(this.screen2.sysDensity);
-    const sector = generateSector(this.screen1.worldSeed, this.model, centre, this.screen2.sizeInPc, thickness, this.screen2.footprintShape);
 
-    contentEl.createEl('p', { text: `${sector.length} systems in this sector - position only, nothing generated yet.` });
-    const canvas = contentEl.createEl('canvas', { attr: { width: '420', height: '420' } });
-    canvas.style.display = 'block';
-    canvas.style.margin = '8px auto';
-    renderPositionOnlyCanvas(canvas, centre, this.screen2.sizeInPc * 1.15, sector.map((s) => s.positionPc));
+    this.countEl = contentEl.createEl('p', { text: 'Placing systems…' });
+
+    const mapPane = contentEl.createDiv();
+    mapPane.style.cssText = 'position:relative;';
+    this.mapPane = mapPane;
+    this.canvas = mapPane.createEl('canvas', { attr: { width: '420', height: '420' } });
+    this.canvas.style.display = 'block';
+    this.canvas.style.margin = '8px auto';
 
     const nav = contentEl.createDiv();
     nav.createEl('button', { text: '← Back' }).onclick = () => {
@@ -1677,6 +1734,18 @@ export class GalaxyScreen3Modal extends Modal {
       new GalaxyScreen2Modal(this.app, this.screen1, this.settings, this.onSettingsChange).open();
     };
     nav.createEl('button', { text: 'Generate Sector', cls: 'mod-cta' }).onclick = () => { void this.commit(centre); };
+
+    void this.paintSector(centre);
+  }
+
+  private async paintSector(centre: { x: number; y: number; z: number }): Promise<void> {
+    const overlay = showBusyOverlay(this.mapPane, 'Rendering preview…');
+    await nextPaint();
+    const thickness = thicknessPcFor(this.screen2.sysDensity);
+    const sector = generateSector(this.screen1.worldSeed, this.model, centre, this.screen2.sizeInPc, thickness, this.screen2.footprintShape);
+    this.countEl.setText(`${sector.length} systems in this sector - position only, nothing generated yet.`);
+    renderPositionOnlyCanvas(this.canvas, centre, this.screen2.sizeInPc * 1.15, sector.map((s) => s.positionPc));
+    hideBusyOverlay(overlay);
   }
 
   /**
