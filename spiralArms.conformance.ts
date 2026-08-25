@@ -28,7 +28,17 @@ check('armWidthPc is linear in R (constant slope, pc per kpc of R)', close(
   armWidthPc(9150) - armWidthPc(8150), DEFAULT_ARM_WIDTH.slopePcPerKpc, 1e-9,
 ));
 
-/* 2. kappa - patch S9's own reference range, 630-point independent sweep ----- */
+/* 2. kappa range - patch S9's own reference, 630-point independent sweep -----
+ * SUPERSEDED for the min 24-25 Aug 2026 (kink upgrade path): patch S9's
+ * 18.7511 predates any kink data and was computed under the pure
+ * single-pitch model for every arm. Scutum-Centaurus now carries a real,
+ * Table-2-sourced RkinkPc/pitchOuterDeg (see spiralArms.ts's own header),
+ * which nudges its own inner-disc pitch from 12.04 to 12.1 deg below
+ * R=4910pc - enough to cede the sweep's global minimum to Sagittarius
+ * -Carina's own (still un-kinked) 12.07 deg at R=3500pc instead, landing
+ * at 18.8433, not 18.7511. Verified directly (not assumed): recomputed via
+ * the same 630-point sweep this gate runs, matching to 4dp. The max
+ * (30.9951, Local's own value, untouched by any kink) is unaffected. */
 
 {
   let min = Infinity, max = -Infinity;
@@ -39,7 +49,7 @@ check('armWidthPc is linear in R (constant slope, pc per kpc of R)', close(
       if (k > max) max = k;
     }
   }
-  check('kappa range matches the patch\'s own reference (18.7511 to 30.9951) to 4dp', close(min, 18.7511, 5e-4) && close(max, 30.9951, 5e-4));
+  check('kappa range matches the kink-aware reference (18.8433 to 30.9951) to 4dp', close(min, 18.8433, 5e-4) && close(max, 30.9951, 5e-4));
 }
 
 /* 3. thetaArmRad - the Local arm (Rref=8719, near the Sun) sits close to the
@@ -280,13 +290,18 @@ check('9g along-arm modulation preserves the mean-zero invariant at fixed R - ar
   return close(sum / n, 1, 1e-9);
 })());
 
-/* -- kink upgrade path (RkinkPc/pitchOuterDeg, wired 24 Aug 2026) -------------- */
+/* -- kink upgrade path (RkinkPc/pitchOuterDeg, wired 24-25 Aug 2026) ----------- */
 
-check('10 no shipped arm sets RkinkPc/pitchOuterDeg - the mechanism is wired but ' +
-  'the real Reid et al. 2019 kink figures are not yet sourced, so every ARMS/' +
-  'generateSeededArms geometry stays exactly the single-pitch formula',
-  ARMS.every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined) &&
-  generateSeededArms('kink-absence-check').every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined));
+check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=4910, ' +
+  'pitchOuterDeg=12.1); the other four ARMS entries and every generateSeededArms ' +
+  'table stay unset - sourced-but-deferred (Sgr-Car/Perseus/Norma-Outer) or ' +
+  'genuinely kink-free (Local), per the module header', (() => {
+  const sc = ARMS.find((a) => a.name === 'Scutum-Centaurus')!;
+  const others = ARMS.filter((a) => a.name !== 'Scutum-Centaurus');
+  return sc.RkinkPc === 4910 && sc.pitchOuterDeg === 12.1 &&
+    others.every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined) &&
+    generateSeededArms('kink-absence-check').every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined);
+})());
 
 {
   const kinked = { name: 'Test-kink', tier: 'major' as const, pitchDeg: 12, RrefPc: 6000, thetaRefDeg: 0, weight: 1, RkinkPc: 9000, pitchOuterDeg: 20 };

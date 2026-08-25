@@ -193,5 +193,35 @@
  * `verification/golden/gen9.json` is the fixture cut against THIS version.
  *
  * NOT bumped again by anything built in this same pass.
+ *
+ * BUMP 10, 24-25 Aug 2026 (arm kink upgrade path, Scutum-Centaurus only):
+ * `spiralArms.ts`'s named-arm model always used ONE averaged pitch angle
+ * per arm; Reid et al. 2019's own Table 2 fits each arm as two segments
+ * meeting at a kink, and the patch schema had always reserved (but never
+ * wired) `RkinkPc`/`pitchOuterDeg` for this. `ArmDefinition` now carries
+ * both as optional fields, and `thetaArmRad`/`kappaOf` genuinely switch
+ * pitch at the kink when set (continuous at the seam) - see
+ * `spiralArms.ts`'s own header, "KINK UPGRADE PATH", for the full
+ * verification (Table 2 extracted and quoted directly from the paper's
+ * own PDF this session) and for why only Scutum-Centaurus (`RkinkPc:
+ * 4910`, `pitchOuterDeg: 12.1`, both Table 2's own values for that arm) is
+ * wired - Sagittarius-Carina/Perseus/Norma-Outer are sourced but each
+ * deferred for a specific, documented reason (a near-tangential outer
+ * pitch, or a kink radius that lands on the R=8200pc solar-circle
+ * calibration anchor `deriveArmContrasts` is built on).
+ *
+ * Scutum-Centaurus's own inner-disc pitch (R<4910pc) moves from 12.04 to
+ * 12.1 deg - real, but tiny, and `deriveArmContrasts(8200)` still
+ * reproduces the patch's stated 0.3096/0.4335/0.6193 exactly (R=8200 sits
+ * on this arm's UNCHANGED `pitchDeg` side of the kink) - the contrast
+ * calibration is untouched. `gen9.json` (still committed, unmodified)
+ * happens to match this change byte-for-byte at its own reference cells -
+ * confirmed by actually re-running the suite against it before this bump,
+ * not assumed - the same kind of Poisson-rounding coincidence bumps 6 and
+ * 9 already document; per their own precedent, that coincidence is not
+ * grounds to skip the bump, since the underlying continuous density field
+ * genuinely changed for `spiral`/`barredSpiral` wherever any placed system
+ * falls below R=4910pc. `verification/golden/gen10.json` is the fixture
+ * cut against THIS version.
  */
-export const CURRENT_GEN_VERSION = 9;
+export const CURRENT_GEN_VERSION = 10;

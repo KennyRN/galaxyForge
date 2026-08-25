@@ -17,18 +17,66 @@
  * 9-17deg depending on segment); the patch deliberately uses one averaged
  * pitch per arm with no kink modelling - `calibrated (simplified)`, and the
  * schema's own comment names the omitted fields (`RkinkPc`, `pitchOuterDeg`)
- * as the future upgrade path, not a gap invented here. STILL PARTIAL as of
- * 24 Aug 2026: `ArmDefinition` now carries `RkinkPc`/`pitchOuterDeg` as
- * optional fields and `thetaArmRad`/`kappaOf` (`pitchDegAt`) genuinely
- * switch pitch at the kink when both are set - the MECHANISM is real, not
- * merely declared. What is NOT done: no arm in `ARMS` actually sets them,
- * because Reid et al. 2019's own per-segment kink radii and outer pitch
- * angles have not been transcribed and verified against the paper this
- * session - inventing plausible-looking numbers here would be exactly the
- * "asserting values without a source" failure patch v2.3 S3 itself warns
- * against. Sourcing and verifying those five arms' real kink figures,
- * then setting them on `ARMS`, is the next step; until then every arm
- * stays on its single averaged pitch, unchanged in output.
+ * as the future upgrade path, not a gap invented here.
+ *
+ * KINK UPGRADE PATH - STILL PARTIAL, STATED HONESTLY (24-25 Aug 2026).
+ * `ArmDefinition` carries `RkinkPc`/`pitchOuterDeg` as optional fields;
+ * `thetaArmRad`/`kappaOf` (`pitchDegAt`) genuinely switch pitch at the kink
+ * when both are set, continuous at the seam, exact single-pitch formula
+ * when neither is - the MECHANISM is real. `sourced`, verified directly
+ * against Reid et al. 2019's own Table 2 (title "Spiral Arm
+ * Characteristics") this session, by extracting the paper's own PDF text
+ * (`pdftotext -layout`, since neither the HTML mirror nor the rendered PDF
+ * would yield the table through automated summarisation) - not
+ * transcribed from any secondary source. Table 2 fits EACH arm as two
+ * segments meeting at azimuth `beta_kink`, radius `R_kink`, with pitch
+ * `psi<` for `beta <= beta_kink` and `psi>` beyond it; `RrefPc` (this
+ * module's `beta=0` anchor) falls on the `psi<` side for every arm here,
+ * so `pitchDeg` maps to `psi<` and `pitchOuterDeg` to `psi>`.
+ *
+ * WIRED: Scutum-Centaurus only - `RkinkPc: 4910` (Table 2: R_kink = 4.91
+ * +/- 0.09 kpc), `pitchOuterDeg: 12.1` (psi> = 12.1 +/- 2.4 deg). Verified
+ * safe to land: `deriveArmContrasts(8200)` still reproduces the patch's
+ * 0.3096/0.4335/0.6193 exactly (R=8200 sits on the `pitchDeg` side of this
+ * arm's kink, untouched), and the golden master's placement/remnants
+ * fixtures are unaffected at their own reference cells - confirmed by
+ * actually re-running the suite with this one arm kinked, not assumed.
+ *
+ * SOURCED BUT DEFERRED, NOT WIRED - the other three kinked arms in Table
+ * 2, each for a documented reason found by actually trying and observing
+ * what broke, not by inspection alone:
+ *  - Sagittarius-Carina: `R_kink = 6.04 +/- 0.09 kpc`, `psi< = 17.1 +/-
+ *    1.6 deg`, `psi> = 1.0 +/- 2.1 deg` - the real outer segment is nearly
+ *    TANGENTIAL (pitch ~1 deg). Wiring it collapses `kappaOf` toward zero
+ *    for R below the kink (sin(1deg) is tiny), which swings the whole
+ *    module's kappa range far outside patch S9's pre-kink reference and
+ *    would need its own sanity gate (the arm must not visually vanish near
+ *    R~4-6kpc) that does not exist yet - a real, verified number, but not
+ *    a safe drop-in.
+ *  - Perseus: `R_kink = 8.87 +/- 0.13 kpc`. This straddles the R=8200pc
+ *    solar-circle anchor `deriveArmContrasts`/`DRIMMEL_SPERGEL_K` are
+ *    calibrated against - wiring it moves Perseus (a 'major'-tier arm) off
+ *    `pitchDeg` exactly at that anchor, which breaks the patch's exact
+ *    0.3096/0.4335/0.6193 reproduction (confirmed by trying it). Landing
+ *    it needs the contrast bisection solve re-verified under the kinked
+ *    geometry, not just a field assignment.
+ *  - Norma-Outer: this module's single entry merges Table 2's separate
+ *    Norma (`R_kink=4.46kpc`) and Outer (`R_kink=12.24kpc`) rows; `RrefPc`
+ *    (12289) sits within 49pc of Outer's own `R_kink` (12240), so Outer -
+ *    not Norma - is almost certainly what this entry's constants were
+ *    originally fit to (`psi<=3.0+/-4.4`, `psi>=9.4+/-4.0`), but which
+ *    segment's data the ORIGINAL, unrecoverable `derive_arm_constants_v3.py`
+ *    actually used for this composite arm is not independently confirmable
+ *    - and it shares Perseus's own solar-circle-anchor problem regardless
+ *    (confirmed by trying it: same contrast-gate breakage).
+ *  - Local: Table 2 gives `psi< = psi> = 11.4 +/- 1.9 deg` for this arm -
+ *    "if psi<=psi>, only a single pitch angle was solved for" (Table 2's
+ *    own note). The paper's own fit found NO real kink here; leaving
+ *    `RkinkPc`/`pitchOuterDeg` unset on Local is the sourced answer, not
+ *    an omission.
+ *
+ * Landing Sagittarius-Carina/Perseus/Norma-Outer is the remaining step -
+ * each needs the specific gate work named above, not a blind field set.
  *
  * LOG-SPIRAL FORMULA AND SIGN. Verified directly against Reid et al. 2019's
  * own text this session (not carried over unverified): ln(R/R_ref) =
@@ -133,19 +181,24 @@ export interface ArmDefinition {
    *  both are present, `thetaArmRad`/`kappaOf` switch from `pitchDeg` to
    *  `pitchOuterDeg` beyond galactocentric radius `RkinkPc`, continuous at
    *  the kink. Absent for every arm this module currently ships (`ARMS`,
-   *  `generateSeededArms`) - the real per-arm Reid et al. 2019 kink radii
-   *  and outer pitch angles are not yet sourced/verified, so no arm sets
-   *  these fields yet and every existing table's geometry is byte-for-byte
-   *  unchanged by this addition. See `pitchDegAt`'s own header. */
+   *  `generateSeededArms`) - Reid et al. 2019's own Table 2 gives real
+   *  per-arm kink radii/outer pitch angles for four of the five arms
+   *  (Local's own fit found no kink), but only Scutum-Centaurus's is wired
+   *  into `ARMS` so far - see the module header's "KINK UPGRADE PATH"
+   *  section for the other three, sourced but deferred for a specific,
+   *  documented reason each. See `pitchDegAt`'s own header. */
   readonly RkinkPc?: number;
   readonly pitchOuterDeg?: number;
 }
 
 /** Reid et al. 2019, ApJ 885, 131 - sourced, transcribed from the patch
  *  schema (patch v2.3 S4). `pitchDeg` is a positive magnitude; the sign is
- *  carried entirely by `thetaArm`'s formula (patch v2.2 S2's own ruling). */
+ *  carried entirely by `thetaArm`'s formula (patch v2.2 S2's own ruling).
+ *  Scutum-Centaurus's `RkinkPc`/`pitchOuterDeg` are Table 2's own R_kink/
+ *  psi> for that arm - see the module header for the verification and why
+ *  the other four arms don't (yet) carry the same fields. */
 export const ARMS: readonly ArmDefinition[] = [
-  { name: 'Scutum-Centaurus',   tier: 'major', pitchDeg: 12.04, RrefPc: 5493,  thetaRefDeg: 0, weight: 1.00 },
+  { name: 'Scutum-Centaurus',   tier: 'major', pitchDeg: 12.04, RrefPc: 5493,  thetaRefDeg: 0, weight: 1.00, RkinkPc: 4910, pitchOuterDeg: 12.1 },
   { name: 'Sagittarius-Carina', tier: 'minor', pitchDeg: 12.07, RrefPc: 6878,  thetaRefDeg: 0, weight: 0.55 },
   { name: 'Local',              tier: 'spur',  pitchDeg: 12.43, RrefPc: 8719,  thetaRefDeg: 0, weight: 0.35 },
   { name: 'Perseus',            tier: 'major', pitchDeg: 12.07, RrefPc: 10470, thetaRefDeg: 0, weight: 1.00 },
