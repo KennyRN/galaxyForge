@@ -735,6 +735,24 @@ const COLOUR_OLD_AGE_REF_GYR = 13;
 const COLOUR_YOUNG_RGB: readonly [number, number, number] = [190, 210, 255];
 const COLOUR_OLD_RGB: readonly [number, number, number] = [255, 195, 130];
 
+/** Contrast-boosts a warmth value's DEVIATION from the neutral midpoint
+ *  (0.5), same `dev^gamma` shape `densityMap.ARM_MODULATION_CONTRAST_GAMMA`
+ *  already establishes for arm contrast (Law 1 - one contrast-boost
+ *  primitive, not two) - added 25 Aug 2026, a direct user report ("the
+ *  colour of the display is pure black and white"). Root cause, confirmed
+ *  by hand-computing a typical mixed-disc cell's own weighted mean age: the
+ *  shipped spiral population set's own mass-weighted average (youngThin
+ *  1.5 Gyr @10%, midThin 4.5 @30%, oldThin 7.0 @30%, thick 10.0 @25%, halo
+ *  12.0 @5%) lands around 6.7 Gyr - warmth = (6.7-1)/12 ~ 0.475, almost
+ *  exactly the neutral midpoint between the two RGB endpoints - so an
+ *  ordinary disc pixel away from any strong arm/bulge feature blends to a
+ *  colour barely distinguishable from grey, and only the real extremes
+ *  (deep in an arm, or right at the bulge) pull far enough from 0.475 to
+ *  read as genuinely blue or amber. This pushes an ordinary blended cell's
+ *  own moderate deviation outward toward a colour that actually reads,
+ *  without moving a cell that is GENUINELY neutral (dev=0 stays 0). */
+const AGE_WARMTH_CONTRAST_GAMMA = 0.6;
+
 /**
  * Per-cell population-age warmth (17 Aug 2026, morphology patch v3.0, Step
  * 5). Weighted-mean `ageMeanGyr` across whichever populations contribute
@@ -768,7 +786,10 @@ function computeAgeWarmth(
       weighted += v * age;
       total += v;
     }
-    warmth[i] = total > 0 ? Math.min(1, Math.max(0, (weighted / total - COLOUR_YOUNG_AGE_REF_GYR) / span)) : 0.5;
+    const raw = total > 0 ? Math.min(1, Math.max(0, (weighted / total - COLOUR_YOUNG_AGE_REF_GYR) / span)) : 0.5;
+    const dev = raw - 0.5;
+    const boosted = dev === 0 ? 0 : Math.sign(dev) * Math.pow(Math.abs(dev) / 0.5, AGE_WARMTH_CONTRAST_GAMMA) * 0.5;
+    warmth[i] = Math.min(1, Math.max(0, 0.5 + boosted));
   }
   return warmth;
 }
@@ -1657,8 +1678,11 @@ export class GalaxyScreen2Modal extends Modal {
     // height 80 -> 220 (16 Aug 2026, alongside EDGE_ON_HALF_HEIGHT_BASE_PC's
     // own widening) - a 12 000 pc total vertical range read at 80px was ~150 pc
     // per pixel, too coarse to show the thin disc as anything but a hairline
-    // even before the halo fix; 220px brings that down to a legible ~55 pc/px.
-    this.sideOnCanvas = mapPane.createEl('canvas', { attr: { width: '400', height: '220' } });
+    // even before the halo fix; 220px brought that down to a legible ~55 pc/px.
+    // 220 -> 110 (25 Aug 2026, direct user request: "make the side-on view
+    // half the height it is now") - a pure display-size choice, the
+    // underlying field/resolution this paints from is untouched.
+    this.sideOnCanvas = mapPane.createEl('canvas', { attr: { width: '400', height: '110' } });
     this.sideOnCanvas.style.display = 'block';
     this.sideOnCanvas.style.margin = '4px auto 12px';
 

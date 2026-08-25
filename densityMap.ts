@@ -679,14 +679,31 @@ export function modulateArmsForDisplay(
   const taperStartPc = taperOuterFraction * halfPc;
   const taperEndPc = ARM_TAPER_OUTER_EDGE_FRACTION * Rmax;
 
+  // FULL-brightness fade (25 Aug 2026, item 3's own follow-up: spirals were
+  // still reported "going off the map... even if it was just the shadow of
+  // the spiral fading away" AFTER `taper` above already landed. Root cause:
+  // `taper` only ever pulls CONTRAST down to `ARM_MODULATION_FLOOR` (0.4) -
+  // by design, so interarm gaps inside the disc stay dimly lit rather than
+  // pure black - but that same floor left a real, nonzero glow riding all
+  // the way to the frame's own corners, because `shape` (the real log
+  // -normalised density) also never reaches exactly 0 short of the frame's
+  // GLOBAL minimum-density cell. `fade` multiplies the FINAL brightness
+  // (shape*modulation), genuinely reaching 0 - not merely 0.4x-dimmed - by
+  // `halfPc` itself (the square canvas's own edge along each axis, tighter
+  // than `taper`'s own Rmax=sqrt2*halfPc corner-inclusive window, since
+  // nothing touching the visible edge is the actual ask). Same no-op guard
+  // at taperOuterFraction>=1 as `taper`, so every existing caller/gate
+  // (which never passes a margin) is bit-for-bit unaffected.
   const out = new Float64Array(values.length);
   for (let iy = 0; iy < ny; iy++) {
     for (let ix = 0; ix < nx; ix++) {
       const i = ix + nx * iy;
-      const taper = taperOuterFraction >= 1 ? 1 : 1 - smootherstep(taperStartPc, taperEndPc, Rof(ix, iy));
+      const R = Rof(ix, iy);
+      const taper = taperOuterFraction >= 1 ? 1 : 1 - smootherstep(taperStartPc, taperEndPc, R);
+      const fade = taperOuterFraction >= 1 ? 1 : 1 - smootherstep(taperStartPc, halfPc, R);
       const stretched = (hasStructure ? Math.min(1, Math.max(0, (rel[i]! - LO) / span)) : 1) * taper;
       const modulation = ARM_MODULATION_FLOOR + (1 - ARM_MODULATION_FLOOR) * stretched;
-      out[i] = shape[i]! * modulation;
+      out[i] = shape[i]! * modulation * fade;
     }
   }
   return out;

@@ -389,12 +389,18 @@ export function generateSeededArms(worldSeed: string, armClass: ArmClass = 'mult
  */
 const KINK_CHANCE = 0.6;
 /** Degrees the outer pitch is allowed to differ from the inner one before
- *  `KINK_PITCH_FLOOR_DEG` clamps it - `calibrated`, sized to land visibly
- *  between Reid's own wired case (12.04 -> 12.1 deg, barely a kink) and a
- *  deferred one (17.1 -> 1.0 deg, a near-total unwinding) rather than at
- *  either extreme. */
-const KINK_PITCH_DELTA_MIN_DEG = 3;
-const KINK_PITCH_DELTA_MAX_DEG = 8;
+ *  `KINK_PITCH_FLOOR_DEG` clamps it - `calibrated`. RAISED 3-8 -> 8-16deg,
+ *  genVersion BUMP 12 (25 Aug 2026, item 3's own follow-up: a direct user
+ *  report that a landed kink "might be there... not as obvious as I thought
+ *  it could be" at the original range) - a 3-8deg bend, viewed at whole
+ *  -galaxy zoom in a small preview canvas, was too close to Reid's own
+ *  barely-there wired case (12.04 -> 12.1 deg) to read as a visible bend at
+ *  all; the new range sits closer to the deferred cases' own larger swings
+ *  (Perseus's segment: comparable order; short of Sagittarius-Carina's
+ *  near-total 17.1 -> 1.0 deg unwinding) while `KINK_PITCH_FLOOR_DEG` still
+ *  keeps every roll clear of that case's own kappaOf-collapse risk. */
+const KINK_PITCH_DELTA_MIN_DEG = 8;
+const KINK_PITCH_DELTA_MAX_DEG = 16;
 /** Never let a rolled outer pitch approach the near-tangential regime the
  *  deferred Sagittarius-Carina case (psi> = 1.0 deg) demonstrated collapses
  *  `kappaOf` toward zero (module header, "KINK UPGRADE PATH", SOURCED BUT
@@ -630,14 +636,40 @@ export function armRidge(a: ArmDefinition, R_pc: number, theta_rad: number, w: A
  * exactly as `armRidge`'s own header requires - a modulated arm is a
  * FRAGMENTED arm, not a net density change.
  *
- * PER-ARM PHASE, not a stored field: derived from `a.RrefPc` (already
- * distinct per arm in every table this project builds) via a cheap
- * deterministic hash-like fold, rather than extending `ArmDefinition` with
- * a new field - keeps every existing `ArmDefinition` literal (`ARMS`,
- * every `generateSeededArms` push) untouched, and keeps this module's own
- * stated invariant that arm EVALUATION (`armRidge`/`armFactor`/this
- * function) consumes no PRNG channel - "a shape not a draw" (this file's
- * own header) - the phase is derived, not rolled.
+ * PER-ARM PHASE, not a stored field: derived from a fold of `a.RrefPc` AND
+ * `a.thetaRefDeg` via a cheap deterministic hash-like fold, rather than
+ * extending `ArmDefinition` with a new field - keeps every existing
+ * `ArmDefinition` literal (`ARMS`, every `generateSeededArms` push)
+ * untouched, and keeps this module's own stated invariant that arm
+ * EVALUATION (`armRidge`/`armFactor`/this function) consumes no PRNG
+ * channel - "a shape not a draw" (this file's own header) - the phase is
+ * derived, not rolled.
+ *
+ * BOTH fields folded in, genVersion BUMP 12 (25 Aug 2026, item 4's own
+ * follow-up: a direct user report that patchiness only actually SHOWED for
+ * roughly 1 in 4 tested galaxies, after bump 11's depth increase had
+ * already landed). Root-caused, not guessed: this comment originally
+ * claimed `RrefPc` was "already distinct per arm in every table this
+ * project builds" - true for `ARMS` (five different RrefPc values, one
+ * shared thetaRefDeg=0), but FALSE for `generateSeededArms`, which gives
+ * EVERY arm the identical `R0_SEEDED_REF_PC` and instead varies
+ * `thetaRefDeg` per arm - the exact opposite pairing, never checked against
+ * this function's own assumption. Every seeded arm was therefore getting
+ * the IDENTICAL phase, so all of a galaxy's arms brightened and dimmed IN
+ * SYNC at any given R - and `modulateArmsForDisplay`'s own ring-mean ratio
+ * (values[i]/ringMean(R)) largely CANCELS a change that scales every arm in
+ * a ring together, since the ring mean (dominated by the arm peaks) rises
+ * and falls by roughly the same factor. Only a seed whose arms happened to
+ * differ enough in weight or kink geometry leaked enough asymmetry through
+ * for the ring-mean cancellation to be incomplete - matching the reported
+ * "1 in 4" rate far better than a uniformly-too-weak effect would. Folding
+ * `thetaRefDeg` in (always genuinely distinct per seeded arm, by
+ * construction - `evenSpacingDeg` alone already separates every arm before
+ * jitter) decorrelates every seeded arm's own phase from every other arm's,
+ * independent of whether the table's `RrefPc` values happen to vary. `ARMS`
+ * itself is UNCHANGED by this - `thetaRefDeg` is 0 for all five of its
+ * entries, contributing nothing to the fold, so its own already-working
+ * RrefPc-driven phase spread is reproduced bit-for-bit.
  */
 export interface ArmModulationParams {
   /** pc, along-arm (approximated as radial) wavelength of the envelope -
@@ -652,7 +684,13 @@ export interface ArmModulationParams {
 
 function alongArmModulation(a: ArmDefinition, R_pc: number, m: ArmModulationParams): number {
   if (m.depth <= 0) return 1;
-  const phase = ((a.RrefPc % 997) / 997) * 2 * Math.PI;
+  // Folds BOTH RrefPc and thetaRefDeg (genVersion BUMP 12) - see this
+  // function's own header, "BOTH fields folded in", for why relying on
+  // RrefPc alone silently gave every generateSeededArms table one shared
+  // phase. The `* 37` spreads thetaRefDeg's own [0,360) range widely across
+  // the `% 997` fold rather than clustering near-identical angles into
+  // near-identical phases.
+  const phase = (((a.RrefPc + a.thetaRefDeg * 37) % 997 + 997) % 997 / 997) * 2 * Math.PI;
   const wave = Math.cos((2 * Math.PI * R_pc) / m.wavelengthPc + phase);   // in [-1, 1]
   return 1 - m.depth * (0.5 - 0.5 * wave);   // in [1-depth, 1] - never boosts an arm beyond its own unmodulated ridge
 }

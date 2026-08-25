@@ -254,5 +254,36 @@
  * the bump even though it is untouched by the first half.
  *
  * `verification/golden/gen11.json` is the fixture cut against THIS version.
+ *
+ * BUMP 12, 25 Aug 2026 - a direct same-day follow-up user report after
+ * testing bump 11's own build: "only 1 out of 4 shows patchiness" and a
+ * landed kink "not as obvious as I thought it could be". Two changes, one
+ * bump:
+ *
+ * (1) `alongArmModulation`'s per-arm phase (Amendment A6, genVersion 9)
+ * folded ONLY `RrefPc` into its hash, on the stated assumption that RrefPc
+ * is "already distinct per arm in every table this project builds" - true
+ * for `ARMS`, FALSE for `generateSeededArms`, which gives every arm the
+ * IDENTICAL `RrefPc` and instead varies `thetaRefDeg` per arm. Every seeded
+ * galaxy's arms were therefore all modulating IN PHASE, and `modulateArms
+ * ForDisplay`'s own ring-mean ratio largely cancels a change that scales
+ * every arm in a ring together (the ring mean, dominated by the arm peaks,
+ * rises and falls by roughly the same factor) - matching the reported "1 in
+ * 4" rate (only a seed with enough inter-arm weight/kink asymmetry leaked a
+ * visible residual) far better than uniform weakness would. Fixed:
+ * `thetaRefDeg` now folds into the same phase hash alongside `RrefPc` - see
+ * `alongArmModulation`'s own header. `ARMS` is bit-for-bit unaffected
+ * (thetaRefDeg=0 for all five of its entries, contributing nothing); every
+ * `generateSeededArms` table's exact along-arm brightness pattern changes.
+ *
+ * (2) `KINK_PITCH_DELTA_MIN_DEG`/`_MAX_DEG` (item 3, bump 11) raised 3-8 ->
+ * 8-16deg - the original range was too close to Reid's own barely-there
+ * wired case (12.04 -> 12.1 deg) to read as a visible bend at whole-galaxy
+ * preview zoom; every KINKED seeded arm's outer pitch (and therefore its
+ * outer-segment geometry) now differs from before. `KINK_PITCH_FLOOR_DEG`
+ * (6deg) is unchanged and still bounds every roll clear of the near
+ * -tangential kappaOf-collapse risk.
+ *
+ * `verification/golden/gen12.json` is the fixture cut against THIS version.
  */
-export const CURRENT_GEN_VERSION = 11;
+export const CURRENT_GEN_VERSION = 12;
