@@ -326,7 +326,39 @@ const ARM_CLASS_SPUR: Readonly<Record<ArmClass, { readonly maxSpurs: number; rea
   flocculent: { maxSpurs: 3, chancePerSpur: 0.7 },
 };
 
+/**
+ * Memoised by (worldSeed, armClass) - a found perf bug, 25 Aug 2026, root
+ * -caused by direct profiling (a single `densityAt` call was timed at
+ * 557ms). This function is pure - same inputs, same output - but every
+ * call built a FRESH array, and `filteredArmsFor`/`deriveArmContrasts`'s
+ * own downstream caches are `WeakMap`s keyed on the arms array's
+ * REFERENCE, not its content. The GUI's own `modelFromDraft` calls this
+ * fresh on every single render (every slider tick, every "Randomise"
+ * click, even re-selecting the SAME seed), so two structurally-identical
+ * tables for the same seed were never `===`, and the "one-time" contrast
+ * -calibration cost documented elsewhere in this file was actually being
+ * paid on EVERY render, not once. Caching the returned reference here is
+ * what makes "one-time" true for the first time.
+ *
+ * A plain `Map`, not a `WeakMap`: the key is a derived string, not an
+ * object, so there is nothing for a `WeakMap` to hold weakly. Unbounded is
+ * fine - the whole seed+armClass space a session realistically explores
+ * while a creation modal is open is a few dozen entries at most, each a
+ * handful of small objects.
+ */
+const seededArmsCache = new Map<string, readonly ArmDefinition[]>();
+
 export function generateSeededArms(worldSeed: string, armClass: ArmClass = 'multipleArm'): readonly ArmDefinition[] {
+  const cacheKey = `${worldSeed}:${armClass}`;
+  const cached = seededArmsCache.get(cacheKey);
+  if (cached) return cached;
+
+  const arms = generateSeededArmsUncached(worldSeed, armClass);
+  seededArmsCache.set(cacheKey, arms);
+  return arms;
+}
+
+function generateSeededArmsUncached(worldSeed: string, armClass: ArmClass): readonly ArmDefinition[] {
   const rng = channelRng(worldSeed, CHANNELS.seededArms);
   const armCount = 2 + Math.floor(rng() * 3);   // 2, 3 or 4
   const pitchDeg = 10 + rng() * 12;             // [10, 22)
