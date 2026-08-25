@@ -1035,6 +1035,55 @@ function ismExtinctionAt(R_pc: number, theta_rad: number, z_pc: number): number 
 }
 
 /**
+ * Coarse-grid + bilinear upsample for `ismExtinctionAt` (25 Aug 2026, a
+ * found perf regression, timed directly - a disposable diagnostic script
+ * this session measured 16 000 direct `ismDensityAt` calls (100x80 grid x
+ * near+far, `renderEdgeOnCanvas`'s own per-redraw count) at ~630ms, on top
+ * of the ~29ms the surrounding density sampling itself costs - PER REDRAW,
+ * and this fires on every slider `input` tick (see `renderEdgeOnCanvas`'s
+ * own header). That is the "extremely long" preview render: Step 6 wired
+ * `ismExtinctionAt` straight into the innermost per-cell loop and was never
+ * re-timed after.
+ *
+ * `ismDensityAt` is smooth at this scale - sech^2 vertical profiles and a
+ * broad arm-contrast modulation, no sharp small-scale features - so this
+ * mirrors `densityMap.ts`'s own `edgeOnBaselineAndShape` pattern exactly:
+ * evaluate once on a coarse grid, bilinear-interpolate the rest. Cuts the
+ * call count from 8 000 to 384 per side (~21x), landing comfortably under
+ * the same live-slider-drag budget the surrounding density grid already
+ * meets. NOT shared between near/far like `edgeOnBaselineAndShape`'s own
+ * baseline is - extinction genuinely depends on theta, which differs
+ * completely between the two sides, so each gets its own coarse grid.
+ */
+const ISM_EXTINCTION_COARSE_RES = { nR: 24, nz: 16 } as const;
+
+function ismExtinctionCoarseGrid(theta_rad: number, maxRadiusPc: number, halfHeightPc: number): Float64Array {
+  const { nR, nz } = ISM_EXTINCTION_COARSE_RES;
+  const grid = new Float64Array(nR * nz);
+  for (let iz = 0; iz < nz; iz++) {
+    const zPc = -halfHeightPc + ((iz + 0.5) / nz) * 2 * halfHeightPc;
+    for (let iR = 0; iR < nR; iR++) {
+      const R = ((iR + 0.5) / nR) * maxRadiusPc;
+      grid[iR + nR * iz] = ismExtinctionAt(R, theta_rad, zPc);
+    }
+  }
+  return grid;
+}
+
+/** Bilinear sample of a coarse grid at a fractional (0..1, 0..1) position -
+ *  same clamped-edge convention `edgeOnBaselineAndShape` already uses. */
+function sampleBilinear(grid: Float64Array, nR: number, nz: number, fracR: number, fracZ: number): number {
+  const bR = Math.min(nR - 1, Math.max(0, fracR * nR - 0.5));
+  const bR0 = Math.floor(bR), bR1 = Math.min(nR - 1, bR0 + 1), fR = bR - bR0;
+  const bZ = Math.min(nz - 1, Math.max(0, fracZ * nz - 0.5));
+  const bZ0 = Math.floor(bZ), bZ1 = Math.min(nz - 1, bZ0 + 1), fZ = bZ - bZ0;
+  const v00 = grid[bR0 + nR * bZ0]!, v10 = grid[bR1 + nR * bZ0]!;
+  const v01 = grid[bR0 + nR * bZ1]!, v11 = grid[bR1 + nR * bZ1]!;
+  const v0 = v00 * (1 - fR) + v10 * fR, v1 = v01 * (1 - fR) + v11 * fR;
+  return v0 * (1 - fZ) + v1 * fZ;
+}
+
+/**
  * The side-on view - DIAMETRAL (17 Aug 2026, Amendment R4, morphology patch
  * v3.0 Step 6, superseding the single-`theta`-half-plane redesign from the
  * previous session in full): the galactic CENTRE now sits at the canvas's
@@ -1103,13 +1152,17 @@ function renderEdgeOnCanvas(
   const pcToPxR = (w / 2) / maxRadiusPc, pcToPxZ = h / (2 * halfHeightPc);
 
   const paintHalf = (norm: Float64Array, sideSign: 1 | -1, theta: number): void => {
+    // Coarse ISM grid, once per half - see `ismExtinctionCoarseGrid`'s own
+    // header for why this replaced a direct per-cell `ismExtinctionAt` call.
+    const ismGrid = ismExtinctionCoarseGrid(theta, maxRadiusPc, halfHeightPc);
+    const { nR: ismNR, nz: ismNz } = ISM_EXTINCTION_COARSE_RES;
     for (let iz = 0; iz < res.nz; iz++) {
       for (let iR = 0; iR < res.nR; iR++) {
         const v = norm[iR + res.nR * iz]!;
         const R = ((iR + 0.5) / res.nR) * maxRadiusPc;
         const zPc = -halfHeightPc + ((iz + 0.5) / res.nz) * 2 * halfHeightPc;
         const px = cx + sideSign * R * pcToPxR, py = h - (zPc + halfHeightPc) * pcToPxZ;
-        const ext = ismExtinctionAt(R, theta, zPc);
+        const ext = sampleBilinear(ismGrid, ismNR, ismNz, (iR + 0.5) / res.nR, (iz + 0.5) / res.nz);
         const n = stochasticRound(v * v * 10 * ext);   // stochasticRound - see that function's own header
         for (let p = 0; p < n; p++) {
           const jx = px + (Math.random() - 0.5) * (w / res.nR);
