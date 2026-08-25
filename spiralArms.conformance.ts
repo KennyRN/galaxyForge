@@ -280,6 +280,32 @@ check('9g along-arm modulation preserves the mean-zero invariant at fixed R - ar
   return close(sum / n, 1, 1e-9);
 })());
 
+/* -- kink upgrade path (RkinkPc/pitchOuterDeg, wired 24 Aug 2026) -------------- */
+
+check('10 no shipped arm sets RkinkPc/pitchOuterDeg - the mechanism is wired but ' +
+  'the real Reid et al. 2019 kink figures are not yet sourced, so every ARMS/' +
+  'generateSeededArms geometry stays exactly the single-pitch formula',
+  ARMS.every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined) &&
+  generateSeededArms('kink-absence-check').every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined));
+
+{
+  const kinked = { name: 'Test-kink', tier: 'major' as const, pitchDeg: 12, RrefPc: 6000, thetaRefDeg: 0, weight: 1, RkinkPc: 9000, pitchOuterDeg: 20 };
+  const unkinked = { ...kinked, RkinkPc: undefined, pitchOuterDeg: undefined };
+
+  check('10a a kinked arm matches the single-pitch formula strictly inside the kink radius',
+    close(thetaArmRad(kinked, 7000), thetaArmRad(unkinked, 7000), 1e-12));
+
+  check('10b a kinked arm DIVERGES from the single-pitch formula beyond the kink radius ' +
+    '(pitchOuterDeg=20 is not pitchDeg=12, so the ridge genuinely bends there)',
+    Math.abs(thetaArmRad(kinked, 12000) - thetaArmRad(unkinked, 12000)) > 1e-6);
+
+  check('10c theta is continuous AT the kink radius - both segments agree there, no seam',
+    close(thetaArmRad(kinked, 9000 - 1e-6), thetaArmRad(kinked, 9000 + 1e-6), 1e-6));
+
+  check('10d kappaOf also switches pitch at the kink (consistent with thetaArmRad\'s own ridge)',
+    kappaOf(kinked, 12000) !== kappaOf(unkinked, 12000) && kappaOf(kinked, 7000) === kappaOf(unkinked, 7000));
+}
+
 /* --------------------------------- result ------------------------------------ */
 
 if (failures > 0) {

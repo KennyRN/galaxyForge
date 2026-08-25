@@ -17,7 +17,18 @@
  * 9-17deg depending on segment); the patch deliberately uses one averaged
  * pitch per arm with no kink modelling - `calibrated (simplified)`, and the
  * schema's own comment names the omitted fields (`RkinkPc`, `pitchOuterDeg`)
- * as the future upgrade path, not a gap invented here.
+ * as the future upgrade path, not a gap invented here. STILL PARTIAL as of
+ * 24 Aug 2026: `ArmDefinition` now carries `RkinkPc`/`pitchOuterDeg` as
+ * optional fields and `thetaArmRad`/`kappaOf` (`pitchDegAt`) genuinely
+ * switch pitch at the kink when both are set - the MECHANISM is real, not
+ * merely declared. What is NOT done: no arm in `ARMS` actually sets them,
+ * because Reid et al. 2019's own per-segment kink radii and outer pitch
+ * angles have not been transcribed and verified against the paper this
+ * session - inventing plausible-looking numbers here would be exactly the
+ * "asserting values without a source" failure patch v2.3 S3 itself warns
+ * against. Sourcing and verifying those five arms' real kink figures,
+ * then setting them on `ARMS`, is the next step; until then every arm
+ * stays on its single averaged pitch, unchanged in output.
  *
  * LOG-SPIRAL FORMULA AND SIGN. Verified directly against Reid et al. 2019's
  * own text this session (not carried over unverified): ln(R/R_ref) =
@@ -118,6 +129,16 @@ export interface ArmDefinition {
   readonly RrefPc: number;
   readonly thetaRefDeg: number;
   readonly weight: number;
+  /** Kink upgrade path (patch v2.3 S4, wired 24 Aug 2026) - OPTIONAL. When
+   *  both are present, `thetaArmRad`/`kappaOf` switch from `pitchDeg` to
+   *  `pitchOuterDeg` beyond galactocentric radius `RkinkPc`, continuous at
+   *  the kink. Absent for every arm this module currently ships (`ARMS`,
+   *  `generateSeededArms`) - the real per-arm Reid et al. 2019 kink radii
+   *  and outer pitch angles are not yet sourced/verified, so no arm sets
+   *  these fields yet and every existing table's geometry is byte-for-byte
+   *  unchanged by this addition. See `pitchDegAt`'s own header. */
+  readonly RkinkPc?: number;
+  readonly pitchOuterDeg?: number;
 }
 
 /** Reid et al. 2019, ApJ 885, 131 - sourced, transcribed from the patch
@@ -326,22 +347,47 @@ const degToRad = (d: number) => (d * Math.PI) / 180;
  *  "finite and non-negative everywhere, including R->0" gate). */
 const MIN_ARM_R_PC = 1;
 
+/** Which pitch angle (degrees) governs arm `a`'s geometry at radius R -
+ *  the kink upgrade path (see `ArmDefinition`'s own header). `pitchDeg` on
+ *  `RrefPc`'s own side of `RkinkPc`, `pitchOuterDeg` on the far side,
+ *  matching Reid et al. 2019's own two-segment picture (one pitch angle
+ *  inward of a named kink radius, a second beyond it). An arm with no
+ *  `RkinkPc`/`pitchOuterDeg` set (every arm this module currently ships)
+ *  always returns `pitchDeg` - the single-pitch formula both callers
+ *  already used, unchanged. */
+function pitchDegAt(a: ArmDefinition, R_pc: number): number {
+  if (a.RkinkPc === undefined || a.pitchOuterDeg === undefined) return a.pitchDeg;
+  const sameSideAsRef = (R_pc - a.RkinkPc) * (a.RrefPc - a.RkinkPc) >= 0;
+  return sameSideAsRef ? a.pitchDeg : a.pitchOuterDeg;
+}
+
 /** Galactocentric azimuth (radians) of arm `a`'s ridge at radius R - the
  *  log-spiral relation, sign verified against Reid et al. 2019's own text
- *  this session (see header). */
+ *  this session (see header). Kinked (`RkinkPc`/`pitchOuterDeg` both set):
+ *  integrates the two-segment pitch from `RrefPc` out to R, continuous at
+ *  the kink by construction (both branches evaluate to the same theta AT
+ *  `RkinkPc`, so there is no seam) - reduces exactly to the single-pitch
+ *  formula when neither is set. */
 export function thetaArmRad(a: ArmDefinition, R_pc: number): number {
-  const pitchRad = degToRad(a.pitchDeg);
-  const thetaRefRad = degToRad(a.thetaRefDeg);
   const R = Math.max(R_pc, MIN_ARM_R_PC);
-  return thetaRefRad - (1 / Math.tan(pitchRad)) * Math.log(R / a.RrefPc);
+  const thetaRefRad = degToRad(a.thetaRefDeg);
+  const innerPitchRad = degToRad(a.pitchDeg);
+  const thetaFromRef = (r: number) => thetaRefRad - (1 / Math.tan(innerPitchRad)) * Math.log(r / a.RrefPc);
+
+  if (pitchDegAt(a, R) === a.pitchDeg) return thetaFromRef(R);
+
+  const outerPitchRad = degToRad(a.pitchOuterDeg!);
+  return thetaFromRef(a.RkinkPc!) - (1 / Math.tan(outerPitchRad)) * Math.log(R / a.RkinkPc!);
 }
 
 /** Von Mises concentration for arm `a` at radius R - derived, see header.
  *  Verified to reproduce the patch's own kappa reference table exactly
- *  (18.7511 to 30.9951 over 3.5-16 kpc, all arms, 25 pc steps). */
+ *  (18.7511 to 30.9951 over 3.5-16 kpc, all arms, 25 pc steps). Uses
+ *  `pitchDegAt` so a kinked arm's angular width also switches pitch at the
+ *  kink, consistent with `thetaArmRad`'s own ridge. */
 export function kappaOf(a: ArmDefinition, R_pc: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH): number {
-  const pitchRad = degToRad(a.pitchDeg);
   const R = Math.max(R_pc, MIN_ARM_R_PC);
+  const pitchRad = degToRad(pitchDegAt(a, R));
   const sw = Math.max(armWidthPc(R, w), 1);   // guards a hypothetically negative/zero width at extreme R
   return (R * Math.sin(pitchRad)) ** 2 / (sw * sw);
 }
