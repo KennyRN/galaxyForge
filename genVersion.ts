@@ -223,5 +223,36 @@
  * genuinely changed for `spiral`/`barredSpiral` wherever any placed system
  * falls below R=4910pc. `verification/golden/gen10.json` is the fixture
  * cut against THIS version.
+ *
+ * BUMP 11, 25 Aug 2026 (items 3 and 4 of a direct hands-on user bug report:
+ * "in normal spiral galaxy the arms are still perfect, there's no kinks or
+ * brokenness"; "no patchiness in the arms either they're just simple
+ * spirals"), two changes, one bump, same "coordinate, do not trickle"
+ * reasoning as every prior bump:
+ *
+ * (1) `generateSeededArms` (item 3) now rolls a genuine two-segment kink
+ * (`RkinkPc`/`pitchOuterDeg`) for each MAJOR seeded arm, ~60% of the time
+ * (`spiralArms.KINK_CHANCE`) - see `spiralArms.ts`'s own header, "SEEDED
+ * ARMS NOW KINK TOO". Confirmed this was a real, total gap, not merely
+ * weak: no seeded arm literal ever set either field before this bump, for
+ * ANY worldSeed. This inserts new `rng()` draws into `CHANNELS.seededArms`
+ * BEFORE the existing spur roll, so every seeded (Spiral/Barred) galaxy's
+ * entire arm table - kinked or not, since even an unkinked arm's later
+ * fields are drawn from a shifted stream position - changes for the same
+ * worldSeed; 'Milky Way Analogue' (`armSource: 'observed-mw'`, `ARMS`) is
+ * untouched, it never calls this function.
+ *
+ * (2) `ARM_CLASS_MODULATION` (item 4) depths raised - `grandDesign` 0.08 ->
+ * 0.18, `multipleArm` 0.30 -> 0.50, `flocculent` unchanged at 0.80 - see
+ * that constant's own header for why: the along-arm envelope was real and
+ * wired (genVersion 9 already covers its existence), but confirmed too weak
+ * (disposable diagnostic scripts, this session) to survive `modulateArmsFor
+ * Display`'s own contrast pipeline once actually looked at hands-on. This
+ * changes `densityAt`/`densityByPopulation` for EVERY spiral/barredSpiral
+ * galaxy regardless of `armSource`, same as bump 9's own default-carries-
+ * modulation reasoning - 'Milky Way Analogue' is affected by this half of
+ * the bump even though it is untouched by the first half.
+ *
+ * `verification/golden/gen11.json` is the fixture cut against THIS version.
  */
-export const CURRENT_GEN_VERSION = 10;
+export const CURRENT_GEN_VERSION = 11;

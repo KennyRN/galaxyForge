@@ -293,15 +293,59 @@ check('9g along-arm modulation preserves the mean-zero invariant at fixed R - ar
 /* -- kink upgrade path (RkinkPc/pitchOuterDeg, wired 24-25 Aug 2026) ----------- */
 
 check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=4910, ' +
-  'pitchOuterDeg=12.1); the other four ARMS entries and every generateSeededArms ' +
-  'table stay unset - sourced-but-deferred (Sgr-Car/Perseus/Norma-Outer) or ' +
-  'genuinely kink-free (Local), per the module header', (() => {
+  'pitchOuterDeg=12.1); the other four ARMS entries stay unset - sourced-but-deferred ' +
+  '(Sgr-Car/Perseus/Norma-Outer) or genuinely kink-free (Local), per the module header', (() => {
   const sc = ARMS.find((a) => a.name === 'Scutum-Centaurus')!;
   const others = ARMS.filter((a) => a.name !== 'Scutum-Centaurus');
   return sc.RkinkPc === 4910 && sc.pitchOuterDeg === 12.1 &&
-    others.every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined) &&
-    generateSeededArms('kink-absence-check').every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined);
+    others.every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined);
 })());
+
+/* -- seeded-arm kink roll (item 3's own fix, genVersion BUMP 11, 25 Aug 2026) - */
+
+{
+  // Sweep enough seeds that both "kinked" and "not kinked" are certain to
+  // occur at KINK_CHANCE=0.6 (P(all 60 seeds land the same way) < 1e-12).
+  const seeds = Array.from({ length: 60 }, (_, i) => `kink-sweep-${i}`);
+  const tables = seeds.map((s) => generateSeededArms(s, 'multipleArm'));
+  const majors = tables.flatMap((t) => t.filter((a) => a.tier === 'major'));
+  const nonMajors = tables.flatMap((t) => t.filter((a) => a.tier !== 'major'));
+  const kinkedMajors = majors.filter((a) => a.RkinkPc !== undefined);
+
+  check('10b seeded MAJOR arms genuinely roll a kink SOMETIMES and NOT-always across a seed sweep ' +
+    '(both a kinked and an unkinked major arm occur - a real roll, not stuck at either extreme)',
+    kinkedMajors.length > 0 && kinkedMajors.length < majors.length);
+
+  check('10c minor/spur seeded arms NEVER carry a kink (major tier only, per KINK_CHANCE\'s own header)',
+    nonMajors.every((a) => a.RkinkPc === undefined && a.pitchOuterDeg === undefined));
+
+  check('10d every rolled pitchOuterDeg stays at/above the 6deg floor (never approaches the ' +
+    'near-tangential kappaOf-collapse regime the deferred Sagittarius-Carina case demonstrated)',
+    kinkedMajors.every((a) => a.pitchOuterDeg! >= 6));
+
+  check('10e every rolled RkinkPc avoids the R=8200pc calibration-anchor band (falls in ' +
+    '[5500,6700) or [9700,15500), never [6700,9700])',
+    kinkedMajors.every((a) => (a.RkinkPc! >= 5500 && a.RkinkPc! < 6700) || (a.RkinkPc! >= 9700 && a.RkinkPc! < 15500)));
+
+  check('10f a kinked seeded arm is geometrically continuous (not merely small-gapped) at its own ' +
+    'kink seam - the two-sided finite-difference gap shrinks LINEARLY with eps (a genuine pitch-only ' +
+    'kink, not differentiable but continuous), rather than settling on a fixed nonzero jump the way ' +
+    'a real discontinuity would', kinkedMajors.every((a) => {
+    const gapAt = (eps: number) => Math.abs(thetaArmRad(a, a.RkinkPc! - eps) - thetaArmRad(a, a.RkinkPc! + eps));
+    const gap1 = gapAt(1), gapTiny = gapAt(0.001);
+    // A jump discontinuity would keep gapTiny ~ gap1 regardless of eps; a
+    // continuous kink shrinks gap proportionally (eps 1000x smaller here).
+    return gap1 > 0 && gapTiny < gap1 / 100;
+  }));
+
+  check('10g the same seed + a DIFFERENT armClass (which reads a fresh, uncached table - ' +
+    'generateSeededArms\'s own cache key is worldSeed+armClass) still rolls a kink deterministically ' +
+    'from the same worldSeed - two calls for the same (seed, class) agree exactly', (() => {
+    const a = generateSeededArms('kink-determinism-check', 'grandDesign');
+    const b = generateSeededArms('kink-determinism-check', 'grandDesign');
+    return JSON.stringify(a) === JSON.stringify(b);
+  })());
+}
 
 {
   const kinked = { name: 'Test-kink', tier: 'major' as const, pitchDeg: 12, RrefPc: 6000, thetaRefDeg: 0, weight: 1, RkinkPc: 9000, pitchOuterDeg: 20 };

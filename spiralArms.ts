@@ -78,6 +78,20 @@
  * Landing Sagittarius-Carina/Perseus/Norma-Outer is the remaining step -
  * each needs the specific gate work named above, not a blind field set.
  *
+ * SEEDED ARMS NOW KINK TOO (25 Aug 2026, genVersion BUMP 11, item 3's own
+ * fix - a direct user report: "in normal spiral galaxy the arms are still
+ * perfect, there's no kinks or brokenness"). Everything above this note is
+ * about `ARMS`, the one FIXED, real Milky Way table - `generateSeededArms`
+ * built its own tables with NO kink at all, for every seeded (Spiral/
+ * Barred) galaxy ever created, which is what most testing actually
+ * exercises ('Milky Way Analogue' is the one morphology that keeps `ARMS`).
+ * Confirmed directly, not assumed: no seeded arm literal set `RkinkPc`/
+ * `pitchOuterDeg` prior to this bump. `generateSeededArmsUncached`'s own
+ * `KINK_CHANCE`/`KINK_PITCH_DELTA_*`/`KINK_R_*` constants (below) roll a
+ * genuine two-segment kink for MAJOR seeded arms - `calibrated`, since
+ * there is no "real" data for a procedural arm to source, unlike `ARMS`'s
+ * own case above.
+ *
  * LOG-SPIRAL FORMULA AND SIGN. Verified directly against Reid et al. 2019's
  * own text this session (not carried over unverified): ln(R/R_ref) =
  * -(beta - beta_ref) * tan(psi), with beta defined as 0 toward the Sun and
@@ -358,6 +372,47 @@ export function generateSeededArms(worldSeed: string, armClass: ArmClass = 'mult
   return arms;
 }
 
+/**
+ * Whether a seeded MAJOR arm gets a kink (item 3's own fix, 25 Aug 2026,
+ * genVersion BUMP 11 - a direct user report: "in normal spiral galaxy the
+ * arms are still perfect, there's no kinks or brokenness"). `calibrated`,
+ * not sourced: real per-arm kink data (Reid et al. 2019 Table 2) exists
+ * only for the five NAMED Milky Way arms (`ARMS`'s own "KINK UPGRADE PATH"
+ * section) - it has nothing to say about a procedurally seeded arm's own
+ * geometry. Reid's own table DID find a genuine kink in 4 of its 5 real
+ * arms (only Local's own fit found none), so "most arms kink" is the
+ * population-level finding this reflects, without pretending to source a
+ * specific probability from it. MAJOR tier only: `ARMS`'s own wired case
+ * (Scutum-Centaurus) is 'major', and a minor/spur arm kinking too would
+ * compete visually with the primary pattern most classes are meant to read
+ * as, rather than reading as one arm's own real structure.
+ */
+const KINK_CHANCE = 0.6;
+/** Degrees the outer pitch is allowed to differ from the inner one before
+ *  `KINK_PITCH_FLOOR_DEG` clamps it - `calibrated`, sized to land visibly
+ *  between Reid's own wired case (12.04 -> 12.1 deg, barely a kink) and a
+ *  deferred one (17.1 -> 1.0 deg, a near-total unwinding) rather than at
+ *  either extreme. */
+const KINK_PITCH_DELTA_MIN_DEG = 3;
+const KINK_PITCH_DELTA_MAX_DEG = 8;
+/** Never let a rolled outer pitch approach the near-tangential regime the
+ *  deferred Sagittarius-Carina case (psi> = 1.0 deg) demonstrated collapses
+ *  `kappaOf` toward zero (module header, "KINK UPGRADE PATH", SOURCED BUT
+ *  DEFERRED) - `calibrated` safety margin, not a sourced bound. */
+const KINK_PITCH_FLOOR_DEG = 6;
+/** Where a rolled kink radius can land - excludes the band around the
+ *  R=8200pc contrast-calibration anchor (`referenceRPc`, `galaxyParameters
+ *  .ts`) that `anchorArmCorrectionFor` evaluates every arm at: every seeded
+ *  arm's own `RrefPc` (`R0_SEEDED_REF_PC` = 8178) already sits almost
+ *  exactly there, so a kink seam landing on top of it would put the
+ *  correction's reference point right on a geometry discontinuity - still
+ *  self-consistent either way (the correction recomputes from whatever
+ *  geometry exists, unlike `ARMS`'s own fixed, gated reproduction target),
+ *  but avoided anyway for a cleaner, seam-free look exactly where every
+ *  population's density is anchored. `calibrated`. */
+const KINK_R_INNER_LO_PC = 5500, KINK_R_INNER_HI_PC = 6700;
+const KINK_R_OUTER_LO_PC = 9700, KINK_R_OUTER_HI_PC = 15500;
+
 function generateSeededArmsUncached(worldSeed: string, armClass: ArmClass): readonly ArmDefinition[] {
   const rng = channelRng(worldSeed, CHANNELS.seededArms);
   const armCount = 2 + Math.floor(rng() * 3);   // 2, 3 or 4
@@ -371,9 +426,25 @@ function generateSeededArmsUncached(worldSeed: string, armClass: ArmClass): read
     const thetaRefDeg = basePhaseDeg + evenSpacingDeg + jitterDeg;
     const isMajor = i < 2;
     const weight = isMajor ? 1.00 : 0.45 + rng() * 0.2;
+    // Kink roll (item 3) - see KINK_CHANCE's own header. Drawn from the
+    // SAME rng stream, same "one channel, one draw sequence per galaxy"
+    // discipline every other seeded field here already follows; a minor
+    // arm consumes zero draws for this (short-circuited), matching the
+    // existing spur-roll's own conditional-draw pattern below.
+    let kink: { RkinkPc: number; pitchOuterDeg: number } | undefined;
+    if (isMajor && rng() < KINK_CHANCE) {
+      const innerSide = rng() < 0.5;
+      const RkinkPc = innerSide
+        ? KINK_R_INNER_LO_PC + rng() * (KINK_R_INNER_HI_PC - KINK_R_INNER_LO_PC)
+        : KINK_R_OUTER_LO_PC + rng() * (KINK_R_OUTER_HI_PC - KINK_R_OUTER_LO_PC);
+      const deltaDeg = (rng() < 0.5 ? -1 : 1) *
+        (KINK_PITCH_DELTA_MIN_DEG + rng() * (KINK_PITCH_DELTA_MAX_DEG - KINK_PITCH_DELTA_MIN_DEG));
+      kink = { RkinkPc, pitchOuterDeg: Math.max(KINK_PITCH_FLOOR_DEG, pitchDeg + deltaDeg) };
+    }
     arms.push({
       name: `Seeded-${i + 1}`, tier: isMajor ? 'major' : 'minor',
       pitchDeg, RrefPc: R0_SEEDED_REF_PC, thetaRefDeg, weight,
+      ...(kink ?? {}),
     });
   }
 
@@ -587,18 +658,32 @@ function alongArmModulation(a: ArmDefinition, R_pc: number, m: ArmModulationPara
 }
 
 /**
- * Per-armClass along-arm modulation (Amendment A6) - `calibrated` starting
- * values, not TBD-that-fails-loudly (this session's own pacing decision):
- * `grandDesign` stays nearly smooth (low depth, matching "2 arms, low
- * modulation" in the patch's own Section 4 table); `flocculent` fractures
- * heavily (high depth, "many short segments, heavy along-arm modulation");
- * `multipleArm` sits between the two, matching its own "3-4 arms, inner
- * two-arm symmetry" description (visible structure, not yet fragmented
- * into segments).
+ * Per-armClass along-arm modulation (Amendment A6) - `calibrated` values.
+ * `grandDesign` stays comparatively smooth (low depth, matching "2 arms,
+ * low modulation" in the patch's own Section 4 table); `flocculent`
+ * fractures heavily (high depth, "many short segments, heavy along-arm
+ * modulation"); `multipleArm` sits between the two, matching its own "3-4
+ * arms, inner two-arm symmetry" description (visible structure, not yet
+ * fragmented into segments).
+ *
+ * RAISED, 25 Aug 2026 (item 4's own fix, genVersion BUMP 11 - a direct user
+ * report after landing at the original 0.08/0.30/0.80: "no patchiness in
+ * the arms either they're just simple spirals"). The original values were
+ * real (gate 19 confirms perturbing `depth` genuinely changes `densityAt`)
+ * but too weak to survive `modulateArmsForDisplay`'s own ring-mean-ratio
+ * pipeline against the arm/interarm contrast it shares that pipeline with -
+ * confirmed directly (disposable diagnostic scripts, this session): at the
+ * original `multipleArm` depth (0.30), a walk along a seeded ridge showed a
+ * genuine ~22% raw swing but the DISPLAYED value only echoed a faint,
+ * easily-missed ripple once run through the same contrast-boost/percentile
+ * -stretch every arm/interarm pixel goes through. `grandDesign`/
+ * `multipleArm` raised (0.08->0.18, 0.30->0.50); `flocculent` unchanged -
+ * already the strongest tier and not implicated by the report (a flocculent
+ * roll is a 25% draw, not what most testing lands on by default).
  */
 export const ARM_CLASS_MODULATION: Readonly<Record<ArmClass, ArmModulationParams>> = {
-  grandDesign: { wavelengthPc: 5000, depth: 0.08 },
-  multipleArm: { wavelengthPc: 3500, depth: 0.30 },
+  grandDesign: { wavelengthPc: 5000, depth: 0.18 },
+  multipleArm: { wavelengthPc: 3500, depth: 0.50 },
   flocculent: { wavelengthPc: 2200, depth: 0.80 },
 };
 
