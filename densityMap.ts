@@ -41,6 +41,7 @@
  */
 
 import type { GalaxyModel, PopulationKey } from './galaxyModel';
+import { smootherstep } from './mathStats';
 
 /* ----------------------------- coordinates ------------------------------ */
 
@@ -492,6 +493,32 @@ const ARM_MODULATION_FLOOR = 0.4;
 const ARM_MODULATION_MIN_SPAN = 0.15;
 
 /**
+ * Outer contrast taper (25 Aug 2026, a found framing gap, not assumed):
+ * `kappaOf` (`spiralArms.ts`) does not decay with R - checked directly,
+ * this session - it climbs and then PLATEAUS (~22 at 5000pc, ~33 at
+ * 150000pc), so an arm ridge's RELATIVE contrast against its own ring
+ * never fades with radius in this model, even far beyond where the disc
+ * carries any real mass. The auto-zoom frame (`R90_MARGIN * R90`, the
+ * caller's own derived-framing constant) sizes the window by MASS
+ * containment, a different question - nothing ties the two together, so
+ * the visible ridge does not naturally taper off before the frame edge;
+ * it reads as "the spiral runs off the map" regardless of how generous
+ * the margin is.
+ *
+ * Fixed at the DISPLAY layer, not the model: `modulateArmsForDisplay`'s
+ * own `taperOuterFraction` (below) fades the CONTRAST term - never the
+ * real, already-correctly-fading `shape` brightness - toward the floor
+ * beyond that fraction of the frame's half-width, so the visible arm/
+ * interarm distinction is contained well inside the frame even though
+ * the underlying field's relative contrast is not. The model
+ * (`spiralArms.ts`, `kappaOf`) is untouched - this is a rendering choice
+ * about what the picture emphasises, not a claim about the galaxy.
+ */
+const ARM_TAPER_OUTER_EDGE_FRACTION = 1.0;   // fraction of Rmax (the frame's
+                                              // own diagonal reach) at which
+                                              // the taper reaches zero
+
+/**
  * Display transform FOR SPIRAL/BARRED MORPHOLOGIES ONLY (rewritten 17 Aug
  * 2026, morphology patch v3.0, superseding the retired `emphasiseArmsFor
  * Display` in full - Amendment A7 pulled forward from this patch's own
@@ -542,10 +569,20 @@ const ARM_MODULATION_MIN_SPAN = 0.15;
  * erasing real model structure in the meantime, not to be the last word on
  * arm rendering.
  *
+ * `taperOuterFraction` (25 Aug 2026) - OPTIONAL, defaults to 1 (no taper,
+ * bit-for-bit the pre-taper behaviour, so every existing caller/gate is
+ * unaffected). A caller who knows their frame is wider than "the
+ * interesting part" - the derived-framing case, `halfPc = R90_MARGIN *
+ * R90Pc` - passes `1 / R90_MARGIN` so the ridge/interarm CONTRAST (never
+ * the real, already-fading `shape` brightness) fades to the floor beyond
+ * that fraction of the frame, rather than riding out at full relative
+ * strength to the edge - see `ARM_TAPER_OUTER_EDGE_FRACTION`'s own header.
+ *
  * Returns values already in [0, 1].
  */
 export function modulateArmsForDisplay(
   values: Float64Array, nx: number, ny: number, halfPc: number,
+  taperOuterFraction = 1,
 ): Float64Array {
   const shape = normaliseForDisplay(values, { log: true });
 
@@ -610,11 +647,26 @@ export function modulateArmsForDisplay(
   // already pins for the ordinary case).
   const hasStructure = span > ARM_MODULATION_MIN_SPAN;
 
+  // Outer taper (see ARM_TAPER_OUTER_EDGE_FRACTION's own header) - 1 inside
+  // taperOuterFraction*halfPc, smoothly down to 0 by ARM_TAPER_OUTER_EDGE
+  // _FRACTION*Rmax. EXPLICITLY guarded at taperOuterFraction>=1 (the
+  // default), not merely arranged to be a no-op numerically - the taper
+  // window at the default would otherwise still clip the frame's own
+  // corner cells (Rmax = sqrt2*halfPc > halfPc), silently changing every
+  // OTHER existing caller/gate's output. The guard makes "defaults to 1,
+  // bit-for-bit the pre-taper behaviour" true by construction.
+  const taperStartPc = taperOuterFraction * halfPc;
+  const taperEndPc = ARM_TAPER_OUTER_EDGE_FRACTION * Rmax;
+
   const out = new Float64Array(values.length);
-  for (let i = 0; i < values.length; i++) {
-    const stretched = hasStructure ? Math.min(1, Math.max(0, (rel[i]! - LO) / span)) : 1;
-    const modulation = ARM_MODULATION_FLOOR + (1 - ARM_MODULATION_FLOOR) * stretched;
-    out[i] = shape[i]! * modulation;
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const i = ix + nx * iy;
+      const taper = taperOuterFraction >= 1 ? 1 : 1 - smootherstep(taperStartPc, taperEndPc, Rof(ix, iy));
+      const stretched = (hasStructure ? Math.min(1, Math.max(0, (rel[i]! - LO) / span)) : 1) * taper;
+      const modulation = ARM_MODULATION_FLOOR + (1 - ARM_MODULATION_FLOOR) * stretched;
+      out[i] = shape[i]! * modulation;
+    }
   }
   return out;
 }

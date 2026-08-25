@@ -786,6 +786,12 @@ function computeDensityDisplayField(
   model: GalaxyModel, centrePc: { x: number; y: number; z: number },
   halfWidthPc: number, thicknessPc: number, res: { nx: number; ny: number } = { nx: 80, ny: 80 },
   complexOverlay?: { readonly worldSeed: string; readonly complexTier: ComplexTierParams },
+  // taperOuterFraction (25 Aug 2026) - OPTIONAL, defaults to 1 (no taper).
+  // Pass `1 / R90_MARGIN` when `halfWidthPc` was itself derived as
+  // `R90_MARGIN * computeR90Pc(...)` - see `modulateArmsForDisplay`'s own
+  // header (densityMap.ts) for why the frame's margin band needs this at
+  // all: arm contrast does not naturally fade with radius in this model.
+  taperOuterFraction = 1,
 ): DensityDisplayField {
   const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
   // byPopulation:true (17 Aug 2026, Step 5) - needed for computeAgeWarmth
@@ -807,7 +813,7 @@ function computeDensityDisplayField(
   // simpler plain-log path.
   const isSpiralLike = model.morphology === 'spiral' || model.morphology === 'barredSpiral';
   const norm = isSpiralLike
-    ? modulateArmsForDisplay(surface.values, res.nx, res.ny, halfWidthPc)
+    ? modulateArmsForDisplay(surface.values, res.nx, res.ny, halfWidthPc, taperOuterFraction)
     : normaliseForDisplay(surface.values, { log: true });
   const complexCentres = complexOverlay
     ? complexCentresForOverview(model, complexOverlay.worldSeed, complexOverlay.complexTier, centrePc, halfWidthPc)
@@ -1325,6 +1331,7 @@ export class GalaxyScreen1Modal extends Modal {
     const field = computeDensityDisplayField(
       model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc, GALAXY_OVERVIEW_RES,
       { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
+      1 / R90_MARGIN,
     );
     this.cachedField = field;
     this.cachedFieldKey = key;
@@ -1576,6 +1583,7 @@ export class GalaxyScreen2Modal extends Modal {
     this.galaxyOverview = computeDensityDisplayField(
       this.model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc, GALAXY_OVERVIEW_RES,
       { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },
+      1 / R90_MARGIN,
     );
     hideBusyOverlay(overlay);
     this.draft = reconcileSizeFields(this.model, this.draft);
