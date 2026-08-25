@@ -289,12 +289,25 @@ export function sampleVolume(
       for (let ix = 0; ix < nx; ix++) {
         const p: PointPc = { x: xs[ix]!, y: ys[iy]!, z: zs[iz]! };
         const i = ix + nx * (iy + ny * iz);
-        values[i] = field.at(p);
+        // wantPops (25 Aug 2026, perf fix): every shipped model defines
+        // `densityAt` as the sum of its own `densityByPopulation` (Law 1 -
+        // see galaxyModel.ts's three model constructors, all identical in
+        // this respect). Calling both here recomputed the full per-
+        // population field TWICE per point for no different answer - once
+        // for `values[i]`, once more (thrown away except for the split) for
+        // `pops`. Deriving the total from the split instead is the exact
+        // same number, for half the work, whenever a caller wants both.
         if (wantPops) {
           const split = field.byPopulation!(p);
+          let total = 0;
           for (const key of Object.keys(split)) {
-            (pops[key] ??= new Float64Array(nx * ny * nz))[i] = split[key as PopulationKey] ?? 0;
+            const v = split[key as PopulationKey] ?? 0;
+            (pops[key] ??= new Float64Array(nx * ny * nz))[i] = v;
+            total += v;
           }
+          values[i] = total;
+        } else {
+          values[i] = field.at(p);
         }
       }
     }
@@ -339,13 +352,21 @@ export function projectSlab(
         // NODES, not cell centres, in z: Simpson is defined on endpoints, and one
         // node must land on z = centre.z to catch an exp(-|z|/h) cusp.
         const p: PointPc = { x: xs[ix]!, y: ys[iy]!, z: region.centre.z - halfT + h * k };
-        acc += w[k]! * field.at(p);
+        // wantPops (25 Aug 2026, perf fix) - see the matching comment in
+        // `sampleVolume` above: derive the total from the split rather than
+        // computing both, they are defined to be the same number.
         if (wantPops) {
           const split = field.byPopulation!(p);
+          let total = 0;
           for (const key of Object.keys(split)) {
+            const v = split[key as PopulationKey] ?? 0;
             const arr = (pops[key] ??= new Float64Array(nx * ny));
-            arr[i] += w[k]! * (split[key as PopulationKey] ?? 0) * scale;
+            arr[i] += w[k]! * v * scale;
+            total += v;
           }
+          acc += w[k]! * total;
+        } else {
+          acc += w[k]! * field.at(p);
         }
       }
       values[i] = acc * scale;
