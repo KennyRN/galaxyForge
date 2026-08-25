@@ -52,7 +52,7 @@ import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
 import { fieldFromModel, projectSlab, normaliseForDisplay, modulateArmsForDisplay, diametralEdgeOnDisplayField, type SlabRegionPc } from './densityMap';
 import { ismDensityAt, DEFAULT_ISM_PARAMS } from './ism';
 import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
-import { generateSeededArms, rollArmClass } from './spiralArms';
+import { generateSeededArms, rollArmClass, ARMS, type ArmDefinition } from './spiralArms';
 import { complexParticipation, complexCellsOverlapping, complexCentresInCell, type ComplexCentre } from './starFormingComplexes';
 import { generateSector, assembleSector } from './sectorFootprint';
 import { searchNearestSystem } from './sectorSearch';
@@ -709,6 +709,13 @@ interface DensityDisplayField {
    *  same index convention as `norm` (Amendment A8's own patch, Section 5.4,
    *  "colour by population"; see `paintDensityField`). */
   readonly warmth: Float64Array;
+  /** Dust-lane opacity, in [ISM_EXTINCTION_FLOOR, 1], 1 = clear, lower =
+   *  dustier - same index convention as `norm`/`warmth` (25 Aug 2026, "do
+   *  dust-lane rendering in the top down view"). `undefined` for a caller
+   *  that did not supply an `arms` table (`computeDensityDisplayField`'s
+   *  own `arms` parameter) - no dust layer is drawn rather than falling
+   *  back to a table that might not match the model's own arm geometry. */
+  readonly dustOpacity: Float64Array | undefined;
   readonly res: { nx: number; ny: number };
   readonly centrePc: { x: number; y: number; z: number };
   readonly halfWidthPc: number;
@@ -732,8 +739,14 @@ const COLOUR_OLD_AGE_REF_GYR = 13;
  *  blue-white, cool old K/M giants read amber/red) - only these specific RGB
  *  values are a display choice. Per the patch document's own Section 5.4:
  *  "old populations warm, young populations blue-white". */
-const COLOUR_YOUNG_RGB: readonly [number, number, number] = [190, 210, 255];
-const COLOUR_OLD_RGB: readonly [number, number, number] = [255, 195, 130];
+// RGB values RICHENED 25 Aug 2026, alongside the smooth-glow rewrite (see
+// paintDensityField's own header) - against a reference Milky Way photo,
+// the original pair read as too close to each other/to white once actually
+// rendered as a continuous glow rather than sparse dots; these push further
+// toward a vivid blue and a genuinely golden amber, same DIRECTION, just
+// more saturated endpoints.
+const COLOUR_YOUNG_RGB: readonly [number, number, number] = [140, 180, 255];
+const COLOUR_OLD_RGB: readonly [number, number, number] = [255, 214, 140];
 
 /** Contrast-boosts a warmth value's DEVIATION from the neutral midpoint
  *  (0.5), same `dev^gamma` shape `densityMap.ARM_MODULATION_CONTRAST_GAMMA`
@@ -813,6 +826,13 @@ function computeDensityDisplayField(
   // header (densityMap.ts) for why the frame's margin band needs this at
   // all: arm contrast does not naturally fade with radius in this model.
   taperOuterFraction = 1,
+  // arms (25 Aug 2026) - OPTIONAL, the model's OWN arm table (`params.arms`
+  // - the caller's, since GalaxyModel itself carries no arms field), needed
+  // so dust lanes follow the SAME arm geometry the visible density field
+  // does, not the unrelated real-Milky-Way default. Omitted entirely, no
+  // dust layer is computed (`dustOpacity` stays undefined) - a caller that
+  // does not pass one gets today's behaviour exactly, bit-for-bit.
+  arms?: readonly ArmDefinition[],
 ): DensityDisplayField {
   const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
   // byPopulation:true (17 Aug 2026, Step 5) - needed for computeAgeWarmth
@@ -840,16 +860,58 @@ function computeDensityDisplayField(
     ? complexCentresForOverview(model, complexOverlay.worldSeed, complexOverlay.complexTier, centrePc, halfWidthPc)
     : [];
   const warmth = computeAgeWarmth(model, surface.byPopulation, res.nx * res.ny);
-  return { norm, warmth, res, centrePc, halfWidthPc, complexCentres };
+  // Dust lanes (25 Aug 2026) - isSpiralLike-gated, same as `norm`'s own arm
+  // path above: elliptical/lenticular have no arm-tracing gas structure to
+  // show. Computed once here (a coarse polar grid, bilinear-sampled onto
+  // THIS field's own (nx,ny) resolution) rather than per canvas pixel at
+  // paint time - `paintDensityField` may repaint this same field many times
+  // (an overlay moving, a repeated redraw) without recomputing it.
+  let dustOpacity: Float64Array | undefined;
+  if (isSpiralLike && arms) {
+    const coarse = ismTopDownOpacityCoarseGrid(halfWidthPc * Math.SQRT2, arms);
+    const { nR, nTheta } = ISM_TOPDOWN_COARSE_RES;
+    dustOpacity = new Float64Array(res.nx * res.ny);
+    for (let iy = 0; iy < res.ny; iy++) {
+      for (let ix = 0; ix < res.nx; ix++) {
+        const x = -halfWidthPc + ((ix + 0.5) / res.nx) * 2 * halfWidthPc;
+        const y = -halfWidthPc + ((iy + 0.5) / res.ny) * 2 * halfWidthPc;
+        const R = Math.hypot(x, y), theta = Math.atan2(y, x);
+        dustOpacity[ix + res.nx * iy] = sampleBilinearPolarWrap(coarse, nR, nTheta, R, halfWidthPc * Math.SQRT2, theta);
+      }
+    }
+  }
+  return { norm, warmth, dustOpacity, res, centrePc, halfWidthPc, complexCentres };
 }
 
-/** Renders a precomputed field as a textured scatter (importance-sampled
- *  stipple, not a smooth gradient) - per this session's own "should look
- *  like a map of the Milky Way complete with clumps, not just radiating
- *  lines". Purely visual dithering, `Math.random()` - NOT the plugin's own
- *  seeded/channelled RNG, since this draws nothing and generates no
- *  system; it is exactly `densityMap`'s own "reveals, does not roll"
- *  posture, extended to pixels.
+/** Dark warm brown a heavily-extincted pixel blends toward - the same
+ *  "attenuation, not literal opacity" floor discipline `ISM_EXTINCTION_FLOOR`
+ *  already applies, just a colour rather than a pure dimming: a real dust
+ *  lane reads as dark brownish against the surrounding glow, not merely a
+ *  dimmer copy of the same hue. 25 Aug 2026, "do dust-lane rendering". */
+const DUST_TINT_RGB: readonly [number, number, number] = [40, 28, 20];
+
+/** Renders a precomputed field as a SMOOTH continuous glow (25 Aug 2026,
+ *  rewritten - a direct user report against a real reference photo: "the
+ *  whole image looks noisy, with random dots floating around, and not the
+ *  smooth image that I normally expect when looking at a galaxy image").
+ *  The field's own (nx,ny) grid is bilinearly upsampled onto every canvas
+ *  pixel via `ImageData`/`putImageData` (the SAME generic `sampleBilinear`
+ *  the side-on view's own ISM grid already uses - Law 1), rather than
+ *  scattering `Math.random()`-jittered dots per cell: a photograph is a
+ *  continuous brightness field, and the previous stipple's own jitter noise
+ *  was loud enough to bury real signal (patchiness, dust) under itself, on
+ *  top of just not looking like the reference at all.
+ *
+ *  Dust lanes (`field.dustOpacity`, same request) blend the glow toward
+ *  `DUST_TINT_RGB` before it is composited against the background - a
+ *  genuinely dusty cell reads as dark brownish, not merely dim.
+ *
+ *  A SPARSE dusting of individual bright dots is still drawn on top (real
+ *  astro images show discrete bright knots atop the smooth glow, not pure
+ *  gradient) - `Math.random()`, NOT the plugin's own seeded/channelled RNG,
+ *  since this draws nothing and generates no system; `densityMap`'s own
+ *  "reveals, does not roll" posture, extended to pixels - but far sparser
+ *  than the old stipple, texture rather than the dominant signal.
  *
  *  `overlay.centrePc` (16 Aug 2026) is a WORLD position, independent of the
  *  field's own `centrePc` - the field may be a fixed whole-galaxy view
@@ -861,52 +923,87 @@ function paintDensityField(
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const w = canvas.width, h = canvas.height;
-  ctx.fillStyle = '#05050a';
-  ctx.fillRect(0, 0, w, h);
 
-  const { norm, warmth, res, centrePc, halfWidthPc, complexCentres } = field;
+  const { norm, warmth, dustOpacity, res, centrePc, halfWidthPc, complexCentres } = field;
   const pcToPx = w / (2 * halfWidthPc);
+  const [bgR, bgG, bgB] = [5, 5, 10];   // '#05050a', matched here rather than a separate fillRect underneath
+
+  const img = ctx.createImageData(w, h);
+  const data = img.data;
+  for (let py = 0; py < h; py++) {
+    const cyPc = ((h / 2 - py) / pcToPx);
+    const fracY = (cyPc + halfWidthPc) / (2 * halfWidthPc);
+    for (let px = 0; px < w; px++) {
+      const cxPc = ((px - w / 2) / pcToPx);
+      const fracX = (cxPc + halfWidthPc) / (2 * halfWidthPc);
+      const v = sampleBilinear(norm, res.nx, res.ny, fracX, fracY);
+      const wm = sampleBilinear(warmth, res.nx, res.ny, fracX, fracY);
+      let r = COLOUR_YOUNG_RGB[0] + (COLOUR_OLD_RGB[0] - COLOUR_YOUNG_RGB[0]) * wm;
+      let g = COLOUR_YOUNG_RGB[1] + (COLOUR_OLD_RGB[1] - COLOUR_YOUNG_RGB[1]) * wm;
+      let b = COLOUR_YOUNG_RGB[2] + (COLOUR_OLD_RGB[2] - COLOUR_YOUNG_RGB[2]) * wm;
+      if (dustOpacity) {
+        const op = sampleBilinear(dustOpacity, res.nx, res.ny, fracX, fracY);   // 1=clear, floor=dustiest
+        r = DUST_TINT_RGB[0] + (r - DUST_TINT_RGB[0]) * op;
+        g = DUST_TINT_RGB[1] + (g - DUST_TINT_RGB[1]) * op;
+        b = DUST_TINT_RGB[2] + (b - DUST_TINT_RGB[2]) * op;
+      }
+      // v^0.6 - RETUNED 25 Aug 2026 from an initial v^1.3 guess: rendered
+      // and actually looked at (a disposable diagnostic script, this
+      // session, encoding real renders to PNG rather than reasoning about
+      // the curve blind) against the correct R90-derived frame size -
+      // v^1.3 crushed almost the entire disc to near-black outside the
+      // brightest arm peaks, nothing like the reference photo's own evenly
+      // -lit disc. A gamma BELOW 1 lifts the mid-tones (the bulk of the
+      // disc) toward visibility while `norm`'s own contrast (arm vs
+      // interarm, bulge vs disc) still survives the compression, since nothing
+      // here flattens the RATIOS between values - only their absolute level.
+      const alpha = Math.min(1, Math.pow(Math.max(0, v), 0.6));
+      const i4 = (py * w + px) * 4;
+      data[i4 + 0] = Math.round(bgR + (r - bgR) * alpha);
+      data[i4 + 1] = Math.round(bgG + (g - bgG) * alpha);
+      data[i4 + 2] = Math.round(bgB + (b - bgB) * alpha);
+      data[i4 + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Sparse sparkle (25 Aug 2026) - discrete bright knots atop the smooth
+  // glow, MUCH reduced from the old stipple's v^1.5*18 (routinely a dozen+
+  // dots per cell, the dominant visual signal): v^2.2*2.5 draws close to
+  // nothing outside real peaks and only a handful even at the brightest
+  // arm ridge, texture rather than noise.
   for (let iy = 0; iy < res.ny; iy++) {
     for (let ix = 0; ix < res.nx; ix++) {
       const i = ix + res.nx * iy;
       const v = norm[i]!;
+      const n = stochasticRound(Math.pow(v, 2.2) * 2.5);
+      if (n <= 0) continue;
       const cxPc = -halfWidthPc + ((ix + 0.5) / res.nx) * 2 * halfWidthPc;
       const cyPc = -halfWidthPc + ((iy + 0.5) / res.ny) * 2 * halfWidthPc;
       const px = w / 2 + cxPc * pcToPx, py = h / 2 - cyPc * pcToPx;
-      // Population-age colour (17 Aug 2026, Step 5) - lerped once per CELL,
-      // not per dot, and reused across every dot the cell draws below.
       const wm = warmth[i]!;
       const r = Math.round(COLOUR_YOUNG_RGB[0] + (COLOUR_OLD_RGB[0] - COLOUR_YOUNG_RGB[0]) * wm);
       const g = Math.round(COLOUR_YOUNG_RGB[1] + (COLOUR_OLD_RGB[1] - COLOUR_YOUNG_RGB[1]) * wm);
       const b = Math.round(COLOUR_YOUNG_RGB[2] + (COLOUR_OLD_RGB[2] - COLOUR_YOUNG_RGB[2]) * wm);
-      // v^1.5 (softened from a straight square, 16 Aug 2026, alongside
-      // densityMap.ts's own INTERARM_FLOOR raise) - still pushes contrast
-      // toward a clumpy, high-dynamic-range starfield look rather than a
-      // smooth linear wash, just less starkly than v^2 did: a direct user
-      // follow-up ("reduce the contrast more, so you can see more stars
-      // between the arms") - v^2 was itself compounding densityMap's own
-      // stretch on top of an already-floored value, so even a floored
-      // interarm cell (v=0.4) rounded down to very few dots. At v^1.5 the
-      // SAME floor value keeps noticeably more of its own brightness
-      // relative to a bright arm peak (v=1), reading as sparser stars
-      // rather than emptiness, without flattening the arms themselves.
-      // stochasticRound, not Math.round - see that function's own header.
-      const n = stochasticRound(Math.pow(v, 1.5) * 18);
       for (let p = 0; p < n; p++) {
         const jx = px + (Math.random() - 0.5) * (w / res.nx);
         const jy = py + (Math.random() - 0.5) * (h / res.ny);
-        const alpha = 0.25 + 0.65 * Math.random();
+        const alpha = 0.35 + 0.55 * Math.random();
         ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
         ctx.fillRect(jx, jy, 1, 1);
       }
     }
   }
 
-  // Complex-tier clumps (16 Aug 2026) - the REAL seeded star-forming-complex
-  // positions (`complexCentresForOverview`), drawn as small bright clusters
-  // on top of the smooth stipple above, patchy rather than a uniform band.
-  // See that function's own header for why the visual size here is a fixed
-  // pixel radius rather than a literal projection of `sigmaPc`.
+  // Complex-tier clumps (16 Aug 2026, recoloured 25 Aug 2026 pink/magenta -
+  // the reference photo's own small red/pink highlights along its arms are
+  // HII (star-forming) regions; a young-cluster PALE BLUE read as one more
+  // shade of the same off-white everything else already was) - the REAL
+  // seeded star-forming-complex positions (`complexCentresForOverview`),
+  // drawn as small bright clusters on top of the smooth glow above, patchy
+  // rather than a uniform band. See that function's own header for why the
+  // visual size here is a fixed pixel radius rather than a literal
+  // projection of `sigmaPc`.
   for (const c of complexCentres) {
     const px = w / 2 + (c.x - centrePc.x) * pcToPx, py = h / 2 - (c.y - centrePc.y) * pcToPx;
     if (px < -8 || px > w + 8 || py < -8 || py > h + 8) continue;   // off-canvas, skip
@@ -915,7 +1012,7 @@ function paintDensityField(
       const ang = Math.random() * 2 * Math.PI, r = Math.random() * 3.2;
       const jx = px + Math.cos(ang) * r, jy = py + Math.sin(ang) * r;
       const alpha = 0.4 + 0.5 * Math.random();
-      ctx.fillStyle = `rgba(230,238,255,${alpha.toFixed(2)})`;
+      ctx.fillStyle = `rgba(255,150,180,${alpha.toFixed(2)})`;
       ctx.fillRect(jx, jy, 1, 1);
     }
   }
@@ -1108,6 +1205,112 @@ function sampleBilinear(grid: Float64Array, nR: number, nz: number, fracR: numbe
   const v01 = grid[bR0 + nR * bZ1]!, v11 = grid[bR1 + nR * bZ1]!;
   const v0 = v00 * (1 - fR) + v10 * fR, v1 = v01 * (1 - fR) + v11 * fR;
   return v0 * (1 - fZ) + v1 * fZ;
+}
+
+/**
+ * Top-down dust lanes (25 Aug 2026, direct user request + a real reference
+ * photo of the Milky Way: "do dust-lane rendering in the top down view").
+ * Reuses `ism.ts`'s own `ismDensityAt` (G5's second, still-legitimate call
+ * site WITHIN this one module - `ism.conformance.ts`'s own gate 8 checks
+ * "called from exactly one FILE", not one call site, so this does not
+ * violate it) rather than inventing a second dust model (Law 1) - the same
+ * discipline the side-on view's `ismExtinctionAt` above already follows.
+ *
+ * COLUMN, not a single z-slice: the top-down view looks straight down
+ * through the disc, so what a viewer would actually see is the INTEGRAL of
+ * dust density through the slab, not one plane's worth - `ismDensityAt`
+ * summed over a small z range (`ISM_TOPDOWN_HALF_THICKNESS_PC` = 900pc,
+ * comfortably covering the molecular layer, which `ismExtinctionAt`'s own
+ * header already establishes is "fully recovered by z=1000pc" - dust
+ * beyond that contributes negligibly). Same floor/strength opacity SHAPE
+ * as `ismExtinctionAt` (never fully opaque - "extinction is real
+ * attenuation, not literal opacity"), normalised against a self-consistent
+ * reference column computed the SAME way at the same (R0, theta=0)
+ * reference point `ISM_REFERENCE_DENSITY` already uses, rather than a
+ * second hand-picked constant.
+ *
+ * COARSE POLAR grid + WRAP-AWARE bilinear sample, not a direct per-cell
+ * call: `ismDensityAt` is smooth at this scale (that module's own header),
+ * and the side-on view's own `ismExtinctionCoarseGrid` already established
+ * this exact pattern is the fix for a found perf regression from calling
+ * it directly per grid cell - reused here rather than re-learning that
+ * lesson. WRAP-AWARE specifically because a plain clamped-edge bilinear
+ * (`sampleBilinear` above) would seam visibly at theta=0/2*pi, unlike the
+ * side-on view's own (R, z) grid which never wraps.
+ */
+const ISM_TOPDOWN_COARSE_RES = { nR: 48, nTheta: 96 } as const;
+const ISM_TOPDOWN_Z_SAMPLES = 5;
+const ISM_TOPDOWN_HALF_THICKNESS_PC = 900;
+
+function ismTopDownColumnAt(R_pc: number, theta_rad: number, arms: readonly ArmDefinition[]): number {
+  const dz = (2 * ISM_TOPDOWN_HALF_THICKNESS_PC) / (ISM_TOPDOWN_Z_SAMPLES - 1);
+  let column = 0;
+  for (let k = 0; k < ISM_TOPDOWN_Z_SAMPLES; k++) {
+    const z = -ISM_TOPDOWN_HALF_THICKNESS_PC + k * dz;
+    column += ismDensityAt(R_pc, theta_rad, z, DEFAULT_ISM_PARAMS, arms) * dz;
+  }
+  return column;
+}
+
+/** Self-consistent column reference - the SAME (R0, theta=0) point
+ *  `ISM_REFERENCE_DENSITY` uses, integrated the SAME way `ismTopDownColumnAt`
+ *  integrates every other point, rather than a second hand-picked constant
+ *  that could silently drift out of step with it. Depends only on `ARMS`
+ *  (the real table) - a stable, load-time constant, matching `ISM_REFERENCE
+ *  _DENSITY`'s own convention. */
+const ISM_TOPDOWN_REFERENCE_COLUMN = ismTopDownColumnAt(R0_PC, 0, ARMS);
+
+/** Own strength/power for the top-down COLUMN opacity - deliberately NOT
+ *  `ISM_EXTINCTION_STRENGTH` (6): that constant was calibrated against the
+ *  side-on view's own VOLUME-density ratio at the midplane, a different
+ *  quantity with a different natural dynamic range - reusing it here
+ *  (checked directly, a disposable diagnostic script rendering real PNGs)
+ *  made the ENTIRE disc read as uniformly dusty-grey, since a "typical"
+ *  column ratio near 1 already darkened toward the floor. RATIO RAISED TO
+ *  `ISM_TOPDOWN_EXTINCTION_POWER` before the same floor/strength shape: at
+ *  ratio=1 (the reference point itself) this is unchanged by the power, so
+ *  a typical column still stays near-clear (`_STRENGTH`=0.15 alone gives
+ *  ~0.9 there), while a genuinely dust-concentrated region (arm-boosted
+ *  ratio well above 1) gets driven hard toward the floor - dust lanes
+ *  concentrate visibly where the model actually concentrates gas, rather
+ *  than a flat grey wash over the whole disc. */
+const ISM_TOPDOWN_EXTINCTION_STRENGTH = 0.15;
+const ISM_TOPDOWN_EXTINCTION_POWER = 3;
+
+function ismTopDownOpacityCoarseGrid(maxRadiusPc: number, arms: readonly ArmDefinition[]): Float64Array {
+  const { nR, nTheta } = ISM_TOPDOWN_COARSE_RES;
+  const grid = new Float64Array(nR * nTheta);
+  for (let it = 0; it < nTheta; it++) {
+    const theta = (it / nTheta) * 2 * Math.PI;
+    for (let iR = 0; iR < nR; iR++) {
+      const R = ((iR + 0.5) / nR) * maxRadiusPc;
+      const ratio = ismTopDownColumnAt(R, theta, arms) / ISM_TOPDOWN_REFERENCE_COLUMN;
+      const weighted = ISM_TOPDOWN_EXTINCTION_STRENGTH * Math.pow(ratio, ISM_TOPDOWN_EXTINCTION_POWER);
+      grid[iR + nR * it] = ISM_EXTINCTION_FLOOR + (1 - ISM_EXTINCTION_FLOOR) / (1 + weighted);
+    }
+  }
+  return grid;
+}
+
+/** Wrap-aware bilinear sample of a (R, theta) polar grid - `theta` wraps at
+ *  2*pi (unlike `sampleBilinear`'s clamped-edge R/z axes) so the dust field
+ *  does not seam at the theta=0 boundary. */
+function sampleBilinearPolarWrap(
+  grid: Float64Array, nR: number, nTheta: number, R_pc: number, maxRadiusPc: number, theta_rad: number,
+): number {
+  const fracR = Math.min(1, Math.max(0, R_pc / maxRadiusPc));
+  const bR = Math.min(nR - 1, Math.max(0, fracR * nR - 0.5));
+  const bR0 = Math.floor(bR), bR1 = Math.min(nR - 1, bR0 + 1), fR = bR - bR0;
+  const twoPi = 2 * Math.PI;
+  const wrapped = ((theta_rad % twoPi) + twoPi) % twoPi;
+  const bT = (wrapped / twoPi) * nTheta - 0.5;
+  const bT0raw = Math.floor(bT), fT = bT - bT0raw;
+  const wrapIdx = (i: number) => ((i % nTheta) + nTheta) % nTheta;
+  const bT0 = wrapIdx(bT0raw), bT1 = wrapIdx(bT0raw + 1);
+  const v00 = grid[bR0 + nR * bT0]!, v10 = grid[bR1 + nR * bT0]!;
+  const v01 = grid[bR0 + nR * bT1]!, v11 = grid[bR1 + nR * bT1]!;
+  const v0 = v00 * (1 - fR) + v10 * fR, v1 = v01 * (1 - fR) + v11 * fR;
+  return v0 * (1 - fT) + v1 * fT;
 }
 
 /**
@@ -1379,7 +1582,7 @@ export class GalaxyScreen1Modal extends Modal {
     const field = computeDensityDisplayField(
       model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc, GALAXY_OVERVIEW_RES,
       { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
-      1 / R90_MARGIN,
+      1 / R90_MARGIN, params.arms,
     );
     hideBusyOverlay(overlay);   // ALWAYS remove the overlay THIS call created - never racy
     if (this.busyOverlay === overlay) this.busyOverlay = null;
@@ -1642,7 +1845,7 @@ export class GalaxyScreen2Modal extends Modal {
     this.galaxyOverview = computeDensityDisplayField(
       this.model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc, GALAXY_OVERVIEW_RES,
       { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },
-      1 / R90_MARGIN,
+      1 / R90_MARGIN, this.params.arms,
     );
     hideBusyOverlay(overlay);
     this.draft = reconcileSizeFields(this.model, this.draft);
