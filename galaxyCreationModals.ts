@@ -1270,6 +1270,14 @@ export class GalaxyScreen1Modal extends Modal {
    *  directly. */
   private seedRefreshTimer: number | null = null;
   private busyOverlay: HTMLElement | null = null;
+  /** Staleness guard (25 Aug 2026, a found race - see `computeAndCacheField`'s
+   *  own header) - bumped by every render REQUEST (`render()`, and the
+   *  seed field's own debounced handler), never by a completion. A completed
+   *  request compares its own captured value against the current one before
+   *  touching `cachedField`/`cachedFieldKey` or painting the canvas; a
+   *  mismatch means a newer request has since started, so this one's result
+   *  is silently discarded rather than clobbering something fresher. */
+  private renderGeneration = 0;
 
   /**
    * `settings`/`onSettingsChange` (16 Aug 2026) are a plain data + callback
@@ -1321,9 +1329,28 @@ export class GalaxyScreen1Modal extends Modal {
    * Shows the overlay unconditionally, yields to let it actually paint
    * (`nextPaint`'s own header explains why a delayed-show race does not
    * work for a synchronous computation), THEN runs the real work.
+   *
+   * RACE FIXED (25 Aug 2026, reproduced directly - rapid "Randomise" clicks
+   * left the preview stuck on "Rendering preview..." permanently). Root
+   * cause: the overlay this function REMOVED was read from the shared
+   * `this.busyOverlay` instance field, not from what THIS call itself
+   * created - with two overlapping calls in flight, whichever one happened
+   * to finish could remove the OTHER's overlay (or its own already-replaced
+   * one), leaving an orphan with no code path left to ever remove it. Fixed
+   * by capturing the overlay in a LOCAL variable and always removing
+   * exactly that one, regardless of completion order - no more possible
+   * orphan. `myGeneration` (captured from the caller, which bumped
+   * `renderGeneration` at the REQUEST, not here) separately guards against
+   * a slower, older request overwriting the cache after a faster, newer one
+   * already has - `this.busyOverlay` itself is no longer read for removal,
+   * only kept for any other code that might introspect "is something
+   * rendering right now".
    */
-  private async computeAndCacheField(model: GalaxyModel, params: GalaxyParameters, key: string): Promise<DensityDisplayField> {
-    this.busyOverlay = showBusyOverlay(this.mapPane, 'Rendering preview…');
+  private async computeAndCacheField(
+    model: GalaxyModel, params: GalaxyParameters, key: string, myGeneration: number,
+  ): Promise<DensityDisplayField> {
+    const overlay = showBusyOverlay(this.mapPane, 'Rendering preview…');
+    this.busyOverlay = overlay;
     await nextPaint();
     const previewScale = previewScaleFor(model, params);
     const thicknessPc = GALAXY_OVERVIEW_THICKNESS_BASE_PC * previewScale;
@@ -1333,17 +1360,21 @@ export class GalaxyScreen1Modal extends Modal {
       { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
       1 / R90_MARGIN,
     );
-    this.cachedField = field;
-    this.cachedFieldKey = key;
-    hideBusyOverlay(this.busyOverlay);
-    this.busyOverlay = null;
+    hideBusyOverlay(overlay);   // ALWAYS remove the overlay THIS call created - never racy
+    if (this.busyOverlay === overlay) this.busyOverlay = null;
+    if (myGeneration === this.renderGeneration) {
+      // Only the LATEST requested render gets to update the cache - an
+      // older, slower request finishing after a newer one must not clobber it.
+      this.cachedField = field;
+      this.cachedFieldKey = key;
+    }
     return field;
   }
 
-  private async fieldForCurrentDraft(model: GalaxyModel, params: GalaxyParameters): Promise<DensityDisplayField> {
+  private async fieldForCurrentDraft(model: GalaxyModel, params: GalaxyParameters, myGeneration: number): Promise<DensityDisplayField> {
     const key = `${this.draft.morphology}:${this.draft.sizeStepIndex}:${this.draft.lenticularBulgeType}:${this.draft.worldSeed}`;
     if (this.cachedFieldKey === key && this.cachedField) return this.cachedField;
-    return this.computeAndCacheField(model, params, key);
+    return this.computeAndCacheField(model, params, key, myGeneration);
   }
 
   onOpen(): void {
@@ -1362,11 +1393,14 @@ export class GalaxyScreen1Modal extends Modal {
   private render(): void {
     const { model, params } = modelFromDraft(this.draft);
     this.buildDom();
-    void this.paintCanvas(model, params);
+    void this.paintCanvas(model, params, ++this.renderGeneration);
   }
 
-  private async paintCanvas(model: GalaxyModel, params: GalaxyParameters): Promise<void> {
-    const field = await this.fieldForCurrentDraft(model, params);
+  private async paintCanvas(model: GalaxyModel, params: GalaxyParameters, myGeneration: number): Promise<void> {
+    const field = await this.fieldForCurrentDraft(model, params, myGeneration);
+    // A newer render has since been requested - painting this stale result
+    // would flicker the canvas back to an earlier seed/morphology's field.
+    if (myGeneration !== this.renderGeneration) return;
     paintDensityField(this.canvas, field, null);
   }
 
@@ -1400,9 +1434,13 @@ export class GalaxyScreen1Modal extends Modal {
           // never affected shape).
           if (this.seedRefreshTimer !== null) window.clearTimeout(this.seedRefreshTimer);
           this.seedRefreshTimer = window.setTimeout(() => {
+            const myGeneration = ++this.renderGeneration;
             void (async () => {
               const { model, params } = modelFromDraft(this.draft);
-              paintDensityField(this.canvas, await this.fieldForCurrentDraft(model, params), null);
+              const field = await this.fieldForCurrentDraft(model, params, myGeneration);
+              // Same staleness guard paintCanvas uses - see its own header.
+              if (myGeneration !== this.renderGeneration) return;
+              paintDensityField(this.canvas, field, null);
             })();
           }, 400);
         }))
