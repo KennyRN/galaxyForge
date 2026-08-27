@@ -1,5 +1,74 @@
 # Ruling 11 (proposed) — pattern-speed architecture for Package 02
 
+## Erratum 3 (2026-08-27) — published versions confirm Erratum 2; By-law S headline replaced
+
+Full findings: `galaxyForge-P13-ERRATUM-1-2026-08-27.md`, checked against three
+papers supplied after the P13 report was cut (Reid et al. 2019, Honig &
+Reid 2015, Font et al. 2014a at their versions of record). Nothing in
+Erratum 2 changes direction — everything below is confirmation, grading
+promotion, or a correction to a number that turned out not to exist.
+
+**Confirmed, no amendment.** Reid et al. 2019 Table 2 is identical in the
+published version to the preprint — the "no termination radii exist"
+finding is now `sourced` throughout, not partly `provisional`. The
+`ARMS`/`grandDesign` resonance regime remains unsuperseded.
+
+**Grading correction — `armTipArcDeg`/`armTipWidthRatio` are `derived`, not
+`sourced`, even now.** Honig & Reid's published tables are also identical
+to the preprint, and both constants (31.25°, 0.6204) reproduce exactly —
+but the paper never states either number; they are this project's own
+reduction of four qualitatively-identified terminal segments. Grade
+`derived (from sourced inputs)`, and record n=4 alongside it — a future
+reader needs to see how thin that sample is.
+
+**New — the M51 double-corotation citations are not the same finding and
+must not be merged.** Honig & Reid's ≈6/≈9 kpc (from arm widths) and Meidt
+2008b's two speeds (from the radial Tremaine-Weinberg method, confined to
+the *inner 4 kpc*) cover disjoint radii. Both support "a single global
+pattern speed fails for M51"; citing them as agreeing on *which* resonance
+would be wrong. Register both, separately, with their own radii.
+
+**New — a fourth sign/frame-convention risk, matching this project's own
+history.** Honig & Reid's β is zero toward north, increasing east; Reid
+2019's β is zero toward the Sun, increasing with Galactic rotation.
+`armTipArcDeg` survives because arc lengths are convention-independent,
+but nothing mixing a raw azimuth from one paper with the other's may be
+implemented without an explicit conversion. Separately: pitch-angle sign
+in this literature encodes winding sense, not leading/trailing — do not
+assume a sign match means anything about arm orientation.
+
+**Correction — Meidt et al. 2008's citation, corrected a third time and
+now with a known root cause.** Honig & Reid's own reference list confirms
+ApJ 688, 224 (third independent confirmation). More importantly: the
+"three pattern speeds in M51" figure propagating through the literature
+traces to Font et al. 2014a §1 crossing its own 2008a/2008b reference
+suffixes — Meidt's own abstract says **two**, confined to the inner 4 kpc.
+Erratum 2's caution against writing "three" into the register is now
+vindicated with an identified origin, not just a hunch.
+
+**Replace the By-law S headline — do not use "28 of 32."** Checked
+directly against Font et al. 2014a (the paper, not a citing summary): no
+combination of its numbers produces 28 of 32. The only 32 in the paper is
+a *32-of-32* result (Table 7, bar-length subsample). **Sourced
+replacement:** at least one corotation resonance found in every galaxy
+measured; the interlocking (OLR-of-one-near-corotation-of-another) pattern
+found at least once in 74 of 104 galaxies (71.2%), or 74 of 92 (80.4%)
+excluding inclination outliers; resonance peaks per galaxy range 1–7, mode
+3, median 4, mean 4.2. Use this framing, not a single fabricated ratio.
+
+**Correction — Lépine 2011b's title**, confirmed already fixed above.
+
+Updated remaining-open list (supersedes Prompt P13 §12 and the prior
+erratum's list): Lépine 2011b at the version of record, Quillen & Minchev's
+body (determines the `ultraharmonic_4_1` vs. ILR attachment — still the
+most important open item for correctly wiring the resonance enum),
+Contopoulos & Grosbøl's 1986/1988 originals (robots-blocked, needs a human
+with a browser), Sun et al. 2024 and Dias et al. 2019 bodies. Font et al.
+2014b is explicitly not being chased — the recommendation is to strike
+28-of-32, not relocate it elsewhere.
+
+---
+
 ## Erratum 2 (2026-08-27) — P13 research closes four Tier-1 items; model simplifies to one free parameter
 
 Full findings: `galaxyForge-P13-PATTERN-SPEED-RESEARCH-2026-08-27.md`, same
