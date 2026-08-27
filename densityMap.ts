@@ -244,7 +244,13 @@ export interface DensitySurface {
  */
 export const Z_SAMPLES = 5;
 
-function simpsonWeights(n: number): Float64Array {
+/** Exported (Prompt P1, 27 Aug 2026) so the isophote legend's solar-anchor
+ *  column integral (`galaxyCreationModals.ts`) can reuse the same Simpson
+ *  quadrature technique this module already uses for its own z-integral,
+ *  rather than a second hand-rolled copy - Law 1, applied to a numeric
+ *  TECHNIQUE (not a science quantity; `model.densityAt` stays the sole
+ *  source of the actual density). */
+export function simpsonWeights(n: number): Float64Array {
   if (n < 3 || n % 2 === 0) throw new Error(`Z_SAMPLES must be odd and >= 3, got ${n}`);
   const w = new Float64Array(n);
   w[0] = 1; w[n - 1] = 1;
@@ -254,7 +260,7 @@ function simpsonWeights(n: number): Float64Array {
 
 /* ------------------------------- the samplers ----------------------------- */
 
-function cellCentres(lo: number, hi: number, n: number): Float64Array {
+export function cellCentres(lo: number, hi: number, n: number): Float64Array {
   // Cell CENTRES, not edges. A pixel shows the field over the area it covers, so
   // sampling its corner biases the whole grid half a pixel toward the origin -
   // which is invisible on a galaxy view and obvious on a 50 pc sector view.
@@ -404,6 +410,27 @@ export function expectedSystemCount(
   let acc = 0;
   for (let i = 0; i < surface.values.length; i++) acc += surface.values[i]!;
   return acc * cellArea;
+}
+
+/** Bilinear sample of a coarse grid at a fractional (0..1, 0..1) position -
+ *  clamped-edge convention (out-of-range fractions clamp to the nearest
+ *  valid cell rather than wrapping or extrapolating). Moved here (Prompt
+ *  P1, 27 Aug 2026) from `galaxyCreationModals.ts`, which needs it for two
+ *  independent reasons (isophote grid upsampling, the ISM side-on view)
+ *  and where it was module-poisoned for gate-testing purposes by that
+ *  file's own `obsidian` import - this is a pure numeric utility with no
+ *  science content, so `densityMap.ts` (itself DOM/Obsidian-free) is its
+ *  natural, gate-testable home; Law 1, one utility, not two divergent
+ *  copies once a second caller needs it. */
+export function sampleBilinear(grid: Float64Array, nR: number, nz: number, fracR: number, fracZ: number): number {
+  const bR = Math.min(nR - 1, Math.max(0, fracR * nR - 0.5));
+  const bR0 = Math.floor(bR), bR1 = Math.min(nR - 1, bR0 + 1), fR = bR - bR0;
+  const bZ = Math.min(nz - 1, Math.max(0, fracZ * nz - 0.5));
+  const bZ0 = Math.floor(bZ), bZ1 = Math.min(nz - 1, bZ0 + 1), fZ = bZ - bZ0;
+  const v00 = grid[bR0 + nR * bZ0]!, v10 = grid[bR1 + nR * bZ0]!;
+  const v01 = grid[bR0 + nR * bZ1]!, v11 = grid[bR1 + nR * bZ1]!;
+  const v0 = v00 * (1 - fR) + v10 * fR, v1 = v01 * (1 - fR) + v11 * fR;
+  return v0 * (1 - fZ) + v1 * fZ;
 }
 
 /**

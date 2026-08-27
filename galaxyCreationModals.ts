@@ -48,13 +48,16 @@
 
 import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App } from 'obsidian';
 import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, R0_PC, type GalaxyModel, type PopulationKey } from './galaxyModel';
-import { upsilonFor, densityByPopulationAtCartesian } from './galacticDensity';
-import { fieldFromModel, projectSlab, normaliseForDisplay, modulateArmsForDisplay, diametralEdgeOnDisplayField, type SlabRegionPc } from './densityMap';
+import { upsilonFor } from './galacticDensity';
+import { fieldFromModel, projectSlab, diametralEdgeOnDisplayField, sampleBilinear, type SlabRegionPc } from './densityMap';
 import { ismDensityAt, DEFAULT_ISM_PARAMS } from './ism';
 import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
 import { generateSeededArms, rollArmClass, ARMS, type ArmDefinition } from './spiralArms';
 import { degToRad, radToDeg } from './units';
-import { complexParticipation, complexCellsOverlapping, complexCentresInCell, type ComplexCentre } from './starFormingComplexes';
+import {
+  computeDensityDisplayField, paintDensityField, drawIsophoteLegend, complexCentresForOverview,
+  type DensityDisplayField, type IsophotePalette,
+} from './isophoteRenderer';
 import { generateSector, assembleSector } from './sectorFootprint';
 import { searchNearestSystem } from './sectorSearch';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
@@ -417,89 +420,10 @@ function modelFromDraft(d: Screen1Draft): DraftModel {
   return { model: createLenticularModel(sizeValue, upsilonFor, d.lenticularBulgeType, params), params };
 }
 
-/**
- * Complex-tier clump positions for the preview (16 Aug 2026, closing a real
- * promise: the "updated arm-creation method" (`starFormingComplexes.ts`'s
- * own seeded Poisson hierarchy, already wired into REAL generation via
- * `sectorFootprint.assembleSector`) was meant to account for clusters/
- * bright patches on the arms, but this GUI's own preview only ever painted
- * the smooth continuous field - the real mechanism existed and ran on
- * every actual "Generate Sector" commit, it just never reached what the
- * user could SEE beforehand. This draws the REAL complex centres - same
- * worldSeed, same positions eventual sector generation will actually place
- * - as small bright clumps layered on the smooth stipple, not invented
- * decoration.
- *
- * DELIBERATE PREVIEW SIMPLIFICATIONS, stated rather than hidden - a
- * REAL sector's own complex layer places actual, individually-legible
- * complexes because a sector spans tens to hundreds of pc; the whole
- * GALAXY spans tens of THOUSANDS of pc, so the real complex population
- * over that whole area is genuinely enormous (this session's own
- * diagnostic script measured ~90 000 real complex centres for one typical
- * seed at the real pipeline's own density) - individually rendering that
- * many is neither legible (each one is far sub-pixel at this zoom, same
- * reasoning as the bar's own core scale) nor affordable. So this overlay
- * is a deliberately THINNED, representative sample of the real seeded
- * positions, not the true population:
- *  - `cellMeanSubGridN` is coarsened to `PREVIEW_COMPLEX_SUBGRID_N` (4, vs
- *    the real pipeline's default 32) and `cellSizePc` widened to
- *    `PREVIEW_COMPLEX_CELL_SIZE_PC` (3000, vs the real default 1200) - both
- *    purely computational-budget choices; the quadrature accuracy and fine
- *    cell binning real generation needs are wasted precision for a few
- *    hundred on-screen pixels.
- *  - `youngSurfaceAt` is scaled by `PREVIEW_COMPLEX_SURFACE_SCALE`, a
- *    DIMENSIONLESS render-budget knob, not a physical slab thickness (the
- *    galaxy-wide overview has no single real thickness to represent - a
- *    sector's own generation reads its own actual chosen thickness at
- *    commit time, completely independently of this preview). Tuned
- *    empirically (this session's own diagnostic script) to land in the low
- *    hundreds of complex centres across a typical seed's whole visible
- *    disc - enough to read as genuine patchy structure along the arms,
- *    far short of the real population, honestly a SAMPLE rather than a
- *    census.
- *  - each centre is drawn as a small FIXED-PIXEL-RADIUS cluster, not
- *    `sigmaPc` projected to true scale - at a whole-galaxy zoom a genuine
- *    150 pc complex is sub-pixel, so a literal projection would be
- *    invisible. Same "legible, not literal" principle the stipple density
- *    mapping already uses elsewhere in this file (the quadratic dot-count
- *    curve, the jittered scatter).
- *  - `MAX_PREVIEW_CLUMPS` is a hard safety cap (deterministic stride
- *    -thinning, not a random drop) for whatever seed/morphology combination
- *    produces an unusually high `complexParticipation` - render cost stays
- *    bounded regardless of how the underlying science happens to weight a
- *    given population.
- */
-const PREVIEW_COMPLEX_SUBGRID_N = 4;
-const PREVIEW_COMPLEX_CELL_SIZE_PC = 3000;
-const PREVIEW_COMPLEX_SURFACE_SCALE = 0.05;
-const MAX_PREVIEW_CLUMPS = 900;
-
-function complexCentresForOverview(
-  model: GalaxyModel, worldSeed: string, complexTier: ComplexTierParams,
-  centrePc: { readonly x: number; readonly y: number; readonly z: number }, radiusPc: number,
-): readonly ComplexCentre[] {
-  const youngPop = model.populations.find((p) => p.key === 'spiralYoungThin');
-  if (!youngPop) return [];   // elliptical/lenticular/thick/halo-only morphologies: no young disc, no complexes
-  const w = complexParticipation(youngPop, complexTier);
-  if (!(w > 0)) return [];
-  const preview: ComplexTierParams = {
-    ...complexTier, cellMeanSubGridN: PREVIEW_COMPLEX_SUBGRID_N, cellSizePc: PREVIEW_COMPLEX_CELL_SIZE_PC,
-  };
-  const youngSurfaceAt = (x: number, y: number): number => {
-    const d = densityByPopulationAtCartesian(model, x, y, 0);
-    return PREVIEW_COMPLEX_SURFACE_SCALE * (d.spiralYoungThin ?? 0);
-  };
-  const guardPc = preview.guardBandSigma * preview.sigmaComplexPc;
-  const cells = complexCellsOverlapping(centrePc.x, centrePc.y, radiusPc, preview.cellSizePc, guardPc, youngSurfaceAt, preview.cellMeanSubGridN);
-  const meanSystemsPerGroup = youngPop.meanGroupSize ?? 12;
-  const out: ComplexCentre[] = [];
-  for (const cell of cells) out.push(...complexCentresInCell(cell, worldSeed, w, youngSurfaceAt, preview, meanSystemsPerGroup));
-  if (out.length <= MAX_PREVIEW_CLUMPS) return out;
-  const stride = Math.ceil(out.length / MAX_PREVIEW_CLUMPS);
-  return out.filter((_, i) => i % stride === 0);
-}
-
 /* ------------------------------- shared canvas rendering ------------------------ */
+// complexCentresForOverview and its own PREVIEW_COMPLEX_* constants moved to
+// isophoteRenderer.ts (Prompt P1, 27 Aug 2026) - see that file's own header
+// for the full "deliberate preview simplifications" rationale, unchanged.
 
 /**
  * Stochastic rounding (16 Aug 2026, a direct user follow-up: "no gradual
@@ -539,23 +463,8 @@ function filenameTimestamp(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
-function boundaryPointsPc(radiusPc: number, shape: FootprintShape): { x: number; y: number }[] {
-  if (shape === 'circle') {
-    return Array.from({ length: 65 }, (_, i) => {
-      const a = (i / 64) * 2 * Math.PI;
-      return { x: radiusPc * Math.cos(a), y: radiusPc * Math.sin(a) };
-    });
-  }
-  if (shape === 'square') {
-    const half = radiusPc / Math.SQRT2;
-    return [{ x: half, y: half }, { x: -half, y: half }, { x: -half, y: -half }, { x: half, y: -half }, { x: half, y: half }];
-  }
-  // hexagon, pointy-top - vertices at k*60deg, matching isWithinFootprint's own convention
-  return Array.from({ length: 7 }, (_, k) => {
-    const a = (k % 6) * (Math.PI / 3);
-    return { x: radiusPc * Math.cos(a), y: radiusPc * Math.sin(a) };
-  });
-}
+// boundaryPointsPc moved to isophoteRenderer.ts (Prompt P1, 27 Aug 2026) -
+// paintDensityField, its only caller, moved there with it.
 
 /**
  * The whole-galaxy overview - the SAME view on both Screen 1 and Screen 2
@@ -585,7 +494,11 @@ function boundaryPointsPc(radiusPc: number, shape: FootprintShape): { x: number;
  */
 const GALAXY_OVERVIEW_CENTRE_PC = { x: 0, y: 0, z: 0 } as const;
 const GALAXY_OVERVIEW_THICKNESS_BASE_PC = 4000;
-const GALAXY_OVERVIEW_RES = { nx: 200, ny: 200 };
+// GALAXY_OVERVIEW_RES (fixed 200x200) retired, Prompt P1 (27 Aug 2026) -
+// grid resolution is now DERIVED from halfWidthPc via `isophoteGridRes`,
+// erratum 1.1/1.2's fix for gate 1 (absolute levels invariant under frame
+// extent): a fixed grid against a varying frame was in tension with that
+// gate by construction.
 
 /** `params.scale` only means anything for the locally-anchored spiral
  *  family (`scaleSpiralModel`'s own header explains why) - elliptical/
@@ -696,349 +609,13 @@ function computeR90Pc(model: GalaxyModel, thicknessPc: number, previewScale: num
  */
 const EDGE_ON_HALF_HEIGHT_BASE_PC = 6000;
 
-/** The reduced-and-display-scaled field a canvas is painted from, computed
- *  once and reusable across repaints (the overlay alone changes far more
- *  often than the field itself does). `complexCentres` (16 Aug 2026) rides
- *  along on the same cache - it is exactly as expensive to recompute as
- *  the smooth field itself and depends on the same (model, worldSeed,
- *  region) inputs, so caching one without the other would just move the
- *  waste rather than remove it. */
-interface DensityDisplayField {
-  readonly norm: Float64Array;
-  /** Per-cell population-age warmth, in [0,1], 0 = as young as
-   *  `COLOUR_YOUNG_AGE_REF_GYR`, 1 = as old as `COLOUR_OLD_AGE_REF_GYR` -
-   *  same index convention as `norm` (Amendment A8's own patch, Section 5.4,
-   *  "colour by population"; see `paintDensityField`). */
-  readonly warmth: Float64Array;
-  /** Dust-lane opacity, in [ISM_EXTINCTION_FLOOR, 1], 1 = clear, lower =
-   *  dustier - same index convention as `norm`/`warmth` (25 Aug 2026, "do
-   *  dust-lane rendering in the top down view"). `undefined` for a caller
-   *  that did not supply an `arms` table (`computeDensityDisplayField`'s
-   *  own `arms` parameter) - no dust layer is drawn rather than falling
-   *  back to a table that might not match the model's own arm geometry. */
-  readonly dustOpacity: Float64Array | undefined;
-  readonly res: { nx: number; ny: number };
-  readonly centrePc: { x: number; y: number; z: number };
-  readonly halfWidthPc: number;
-  readonly complexCentres: readonly ComplexCentre[];
-}
+// The isophote renderer (constants, band index, grid derivation, smoothing,
+// the field terms, the solar anchor, palette data, DensityDisplayField,
+// computeDensityDisplayField, paintDensityField, drawIsophoteLegend) moved to
+// isophoteRenderer.ts (Prompt P1, 27 Aug 2026) - that module has no Obsidian
+// import, so it is gate-testable; this file could not be, and importing
+// anything from it drags in the obsidian module at Node runtime.
 
-/** Reference age span for the population-colour warmth mapping (17 Aug 2026,
- *  morphology patch v3.0, Step 5) - `calibrated`, a display choice, not a
- *  physical constant. Chosen to cover the shipped population set's own
- *  `ageMeanGyr` range with a little headroom either side (`spiralYoungThin`
- *  at 1.5 Gyr is the youngest population in the codebase, `ellipticalAccreted`
- *  at 12.2 Gyr the oldest) so no shipped population saturates fully at either
- *  end of the interpolation. */
-const COLOUR_YOUNG_AGE_REF_GYR = 1;
-const COLOUR_OLD_AGE_REF_GYR = 13;
-
-/** Blue-white (young) / warm amber (old) endpoints for the population-colour
- *  interpolation - `calibrated`, chosen for legibility against this canvas's
- *  own `#05050a` ground, not measured off a blackbody curve. The DIRECTION
- *  is real stellar-colour-temperature physics (hot young O/B stars read
- *  blue-white, cool old K/M giants read amber/red) - only these specific RGB
- *  values are a display choice. Per the patch document's own Section 5.4:
- *  "old populations warm, young populations blue-white". */
-// RGB values RICHENED 25 Aug 2026, alongside the smooth-glow rewrite (see
-// paintDensityField's own header) - against a reference Milky Way photo,
-// the original pair read as too close to each other/to white once actually
-// rendered as a continuous glow rather than sparse dots; these push further
-// toward a vivid blue and a genuinely golden amber, same DIRECTION, just
-// more saturated endpoints.
-const COLOUR_YOUNG_RGB: readonly [number, number, number] = [140, 180, 255];
-const COLOUR_OLD_RGB: readonly [number, number, number] = [255, 214, 140];
-
-/** Contrast-boosts a warmth value's DEVIATION from the neutral midpoint
- *  (0.5), same `dev^gamma` shape `densityMap.ARM_MODULATION_CONTRAST_GAMMA`
- *  already establishes for arm contrast (Law 1 - one contrast-boost
- *  primitive, not two) - added 25 Aug 2026, a direct user report ("the
- *  colour of the display is pure black and white"). Root cause, confirmed
- *  by hand-computing a typical mixed-disc cell's own weighted mean age: the
- *  shipped spiral population set's own mass-weighted average (youngThin
- *  1.5 Gyr @10%, midThin 4.5 @30%, oldThin 7.0 @30%, thick 10.0 @25%, halo
- *  12.0 @5%) lands around 6.7 Gyr - warmth = (6.7-1)/12 ~ 0.475, almost
- *  exactly the neutral midpoint between the two RGB endpoints - so an
- *  ordinary disc pixel away from any strong arm/bulge feature blends to a
- *  colour barely distinguishable from grey, and only the real extremes
- *  (deep in an arm, or right at the bulge) pull far enough from 0.475 to
- *  read as genuinely blue or amber. This pushes an ordinary blended cell's
- *  own moderate deviation outward toward a colour that actually reads,
- *  without moving a cell that is GENUINELY neutral (dev=0 stays 0). */
-const AGE_WARMTH_CONTRAST_GAMMA = 0.6;
-
-/**
- * Per-cell population-age warmth (17 Aug 2026, morphology patch v3.0, Step
- * 5). Weighted-mean `ageMeanGyr` across whichever populations contribute
- * density at that cell, weighted by their own column-density share there -
- * NOT a winner-take-all "which population dominates" classification, so a
- * cell where two populations of different age genuinely overlap (routine
- * near the bulge/disc boundary) reads as a genuine blend, not a hard edge
- * that isn't really there in the field.
- *
- * Reuses `Population.ageMeanGyr` directly (Law 1) - no new age concept is
- * invented for display, and no per-key colour table needs maintaining as
- * populations are added: a new population's age alone places it correctly
- * on the warm/cool axis.
- */
-function computeAgeWarmth(
-  model: GalaxyModel, byPopulation: Readonly<Partial<Record<PopulationKey, Float64Array>>> | undefined, n: number,
-): Float64Array {
-  const warmth = new Float64Array(n);
-  if (!byPopulation) { warmth.fill(0.5); return warmth; }   // no split data - neutral, not misleading
-  const ageByKey = new Map<PopulationKey, number>();
-  for (const pop of model.populations) ageByKey.set(pop.key, pop.ageMeanGyr);
-  const entries = Object.entries(byPopulation) as [PopulationKey, Float64Array][];
-  const span = COLOUR_OLD_AGE_REF_GYR - COLOUR_YOUNG_AGE_REF_GYR;
-  for (let i = 0; i < n; i++) {
-    let weighted = 0, total = 0;
-    for (const [key, arr] of entries) {
-      const v = arr[i]!;
-      if (v <= 0) continue;
-      const age = ageByKey.get(key);
-      if (age === undefined) continue;
-      weighted += v * age;
-      total += v;
-    }
-    const raw = total > 0 ? Math.min(1, Math.max(0, (weighted / total - COLOUR_YOUNG_AGE_REF_GYR) / span)) : 0.5;
-    const dev = raw - 0.5;
-    const boosted = dev === 0 ? 0 : Math.sign(dev) * Math.pow(Math.abs(dev) / 0.5, AGE_WARMTH_CONTRAST_GAMMA) * 0.5;
-    warmth[i] = Math.min(1, Math.max(0, 0.5 + boosted));
-  }
-  return warmth;
-}
-
-/** Samples and display-scales a model's density field over a square region
- *  - the expensive half of what used to be `renderDensityCanvas` alone,
- *  split out so a caller whose region never changes (Screen 2's galaxy
- *  overview) can compute it once and only repaint. `complexOverlay` (16 Aug
- *  2026), when supplied, also computes the real seeded complex-tier clump
- *  positions for the same region - see `complexCentresForOverview`'s own
- *  header. Omitted entirely for callers that do not want it (Screen 3's
- *  position-only preview uses its own separate renderer and never reaches
- *  this at all). */
-function computeDensityDisplayField(
-  model: GalaxyModel, centrePc: { x: number; y: number; z: number },
-  halfWidthPc: number, thicknessPc: number, res: { nx: number; ny: number } = { nx: 80, ny: 80 },
-  complexOverlay?: { readonly worldSeed: string; readonly complexTier: ComplexTierParams },
-  // taperOuterFraction (25 Aug 2026) - OPTIONAL, defaults to 1 (no taper).
-  // Pass `1 / R90_MARGIN` when `halfWidthPc` was itself derived as
-  // `R90_MARGIN * computeR90Pc(...)` - see `modulateArmsForDisplay`'s own
-  // header (densityMap.ts) for why the frame's margin band needs this at
-  // all: arm contrast does not naturally fade with radius in this model.
-  taperOuterFraction = 1,
-  // arms (25 Aug 2026) - OPTIONAL, the model's OWN arm table (`params.arms`
-  // - the caller's, since GalaxyModel itself carries no arms field), needed
-  // so dust lanes follow the SAME arm geometry the visible density field
-  // does, not the unrelated real-Milky-Way default. Omitted entirely, no
-  // dust layer is computed (`dustOpacity` stays undefined) - a caller that
-  // does not pass one gets today's behaviour exactly, bit-for-bit.
-  arms?: readonly ArmDefinition[],
-): DensityDisplayField {
-  const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
-  // byPopulation:true (17 Aug 2026, Step 5) - needed for computeAgeWarmth
-  // below; `projectSlab` already supports and gates this split for every
-  // morphology (densityMap.ts's own gate 5), this is the first call site
-  // that actually asks for it.
-  const surface = projectSlab(fieldFromModel(model), region, res, { byPopulation: true });
-  // modulateArmsForDisplay (17 Aug 2026, rewritten - see densityMap.ts's own
-  // header) for spiral/barred - plain log normalisation alone still makes
-  // arm structure invisible on a galaxy-wide view (the radial falloff,
-  // centre to outskirts, many orders of magnitude, swamps the much smaller
-  // azimuthal arm contrast once both are log-compressed into the same
-  // [0,1] range), but the retired `emphasiseArmsForDisplay` fixed that by
-  // discarding the radial shape entirely, which made the boxy/peanut bulge
-  // (Amendment A4) undisplayable - the rewrite modulates the real
-  // log-normalised shape instead of replacing it, so both the bulge's
-  // radial concentration and the arm's azimuthal contrast survive together.
-  // Elliptical/lenticular have no arms to lose, so they stay on the
-  // simpler plain-log path.
-  const isSpiralLike = model.morphology === 'spiral' || model.morphology === 'barredSpiral';
-  const norm = isSpiralLike
-    ? modulateArmsForDisplay(surface.values, res.nx, res.ny, halfWidthPc, taperOuterFraction)
-    : normaliseForDisplay(surface.values, { log: true });
-  const complexCentres = complexOverlay
-    ? complexCentresForOverview(model, complexOverlay.worldSeed, complexOverlay.complexTier, centrePc, halfWidthPc)
-    : [];
-  const warmth = computeAgeWarmth(model, surface.byPopulation, res.nx * res.ny);
-  // Dust lanes (25 Aug 2026) - isSpiralLike-gated, same as `norm`'s own arm
-  // path above: elliptical/lenticular have no arm-tracing gas structure to
-  // show. Computed once here (a coarse polar grid, bilinear-sampled onto
-  // THIS field's own (nx,ny) resolution) rather than per canvas pixel at
-  // paint time - `paintDensityField` may repaint this same field many times
-  // (an overlay moving, a repeated redraw) without recomputing it.
-  let dustOpacity: Float64Array | undefined;
-  if (isSpiralLike && arms) {
-    const coarse = ismTopDownOpacityCoarseGrid(halfWidthPc * Math.SQRT2, arms);
-    const { nR, nTheta } = ISM_TOPDOWN_COARSE_RES;
-    dustOpacity = new Float64Array(res.nx * res.ny);
-    for (let iy = 0; iy < res.ny; iy++) {
-      for (let ix = 0; ix < res.nx; ix++) {
-        const x = -halfWidthPc + ((ix + 0.5) / res.nx) * 2 * halfWidthPc;
-        const y = -halfWidthPc + ((iy + 0.5) / res.ny) * 2 * halfWidthPc;
-        const R = Math.hypot(x, y), theta = Math.atan2(y, x);
-        dustOpacity[ix + res.nx * iy] = sampleBilinearPolarWrap(coarse, nR, nTheta, R, halfWidthPc * Math.SQRT2, theta);
-      }
-    }
-  }
-  return { norm, warmth, dustOpacity, res, centrePc, halfWidthPc, complexCentres };
-}
-
-/** Dark warm brown a heavily-extincted pixel blends toward - the same
- *  "attenuation, not literal opacity" floor discipline `ISM_EXTINCTION_FLOOR`
- *  already applies, just a colour rather than a pure dimming: a real dust
- *  lane reads as dark brownish against the surrounding glow, not merely a
- *  dimmer copy of the same hue. 25 Aug 2026, "do dust-lane rendering". */
-const DUST_TINT_RGB: readonly [number, number, number] = [40, 28, 20];
-
-/** Renders a precomputed field as a SMOOTH continuous glow (25 Aug 2026,
- *  rewritten - a direct user report against a real reference photo: "the
- *  whole image looks noisy, with random dots floating around, and not the
- *  smooth image that I normally expect when looking at a galaxy image").
- *  The field's own (nx,ny) grid is bilinearly upsampled onto every canvas
- *  pixel via `ImageData`/`putImageData` (the SAME generic `sampleBilinear`
- *  the side-on view's own ISM grid already uses - Law 1), rather than
- *  scattering `Math.random()`-jittered dots per cell: a photograph is a
- *  continuous brightness field, and the previous stipple's own jitter noise
- *  was loud enough to bury real signal (patchiness, dust) under itself, on
- *  top of just not looking like the reference at all.
- *
- *  Dust lanes (`field.dustOpacity`, same request) blend the glow toward
- *  `DUST_TINT_RGB` before it is composited against the background - a
- *  genuinely dusty cell reads as dark brownish, not merely dim.
- *
- *  A SPARSE dusting of individual bright dots is still drawn on top (real
- *  astro images show discrete bright knots atop the smooth glow, not pure
- *  gradient) - `Math.random()`, NOT the plugin's own seeded/channelled RNG,
- *  since this draws nothing and generates no system; `densityMap`'s own
- *  "reveals, does not roll" posture, extended to pixels - but far sparser
- *  than the old stipple, texture rather than the dominant signal.
- *
- *  `overlay.centrePc` (16 Aug 2026) is a WORLD position, independent of the
- *  field's own `centrePc` - the field may be a fixed whole-galaxy view
- *  while the overlay marks wherever the sector actually sits within it. */
-function paintDensityField(
-  canvas: HTMLCanvasElement, field: DensityDisplayField,
-  overlay: { readonly centrePc: { readonly x: number; readonly y: number }; readonly radiusPc: number; readonly shape: FootprintShape } | null,
-): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const w = canvas.width, h = canvas.height;
-
-  const { norm, warmth, dustOpacity, res, centrePc, halfWidthPc, complexCentres } = field;
-  const pcToPx = w / (2 * halfWidthPc);
-  const [bgR, bgG, bgB] = [5, 5, 10];   // '#05050a', matched here rather than a separate fillRect underneath
-
-  const img = ctx.createImageData(w, h);
-  const data = img.data;
-  for (let py = 0; py < h; py++) {
-    const cyPc = ((h / 2 - py) / pcToPx);
-    const fracY = (cyPc + halfWidthPc) / (2 * halfWidthPc);
-    for (let px = 0; px < w; px++) {
-      const cxPc = ((px - w / 2) / pcToPx);
-      const fracX = (cxPc + halfWidthPc) / (2 * halfWidthPc);
-      const v = sampleBilinear(norm, res.nx, res.ny, fracX, fracY);
-      const wm = sampleBilinear(warmth, res.nx, res.ny, fracX, fracY);
-      let r = COLOUR_YOUNG_RGB[0] + (COLOUR_OLD_RGB[0] - COLOUR_YOUNG_RGB[0]) * wm;
-      let g = COLOUR_YOUNG_RGB[1] + (COLOUR_OLD_RGB[1] - COLOUR_YOUNG_RGB[1]) * wm;
-      let b = COLOUR_YOUNG_RGB[2] + (COLOUR_OLD_RGB[2] - COLOUR_YOUNG_RGB[2]) * wm;
-      if (dustOpacity) {
-        const op = sampleBilinear(dustOpacity, res.nx, res.ny, fracX, fracY);   // 1=clear, floor=dustiest
-        r = DUST_TINT_RGB[0] + (r - DUST_TINT_RGB[0]) * op;
-        g = DUST_TINT_RGB[1] + (g - DUST_TINT_RGB[1]) * op;
-        b = DUST_TINT_RGB[2] + (b - DUST_TINT_RGB[2]) * op;
-      }
-      // v^0.6 - RETUNED 25 Aug 2026 from an initial v^1.3 guess: rendered
-      // and actually looked at (a disposable diagnostic script, this
-      // session, encoding real renders to PNG rather than reasoning about
-      // the curve blind) against the correct R90-derived frame size -
-      // v^1.3 crushed almost the entire disc to near-black outside the
-      // brightest arm peaks, nothing like the reference photo's own evenly
-      // -lit disc. A gamma BELOW 1 lifts the mid-tones (the bulk of the
-      // disc) toward visibility while `norm`'s own contrast (arm vs
-      // interarm, bulge vs disc) still survives the compression, since nothing
-      // here flattens the RATIOS between values - only their absolute level.
-      const alpha = Math.min(1, Math.pow(Math.max(0, v), 0.6));
-      const i4 = (py * w + px) * 4;
-      data[i4 + 0] = Math.round(bgR + (r - bgR) * alpha);
-      data[i4 + 1] = Math.round(bgG + (g - bgG) * alpha);
-      data[i4 + 2] = Math.round(bgB + (b - bgB) * alpha);
-      data[i4 + 3] = 255;
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-
-  // Sparse sparkle (25 Aug 2026) - discrete bright knots atop the smooth
-  // glow, MUCH reduced from the old stipple's v^1.5*18 (routinely a dozen+
-  // dots per cell, the dominant visual signal): v^2.2*2.5 draws close to
-  // nothing outside real peaks and only a handful even at the brightest
-  // arm ridge, texture rather than noise.
-  for (let iy = 0; iy < res.ny; iy++) {
-    for (let ix = 0; ix < res.nx; ix++) {
-      const i = ix + res.nx * iy;
-      const v = norm[i]!;
-      const n = stochasticRound(Math.pow(v, 2.2) * 2.5);
-      if (n <= 0) continue;
-      const cxPc = -halfWidthPc + ((ix + 0.5) / res.nx) * 2 * halfWidthPc;
-      const cyPc = -halfWidthPc + ((iy + 0.5) / res.ny) * 2 * halfWidthPc;
-      const px = w / 2 + cxPc * pcToPx, py = h / 2 - cyPc * pcToPx;
-      const wm = warmth[i]!;
-      const r = Math.round(COLOUR_YOUNG_RGB[0] + (COLOUR_OLD_RGB[0] - COLOUR_YOUNG_RGB[0]) * wm);
-      const g = Math.round(COLOUR_YOUNG_RGB[1] + (COLOUR_OLD_RGB[1] - COLOUR_YOUNG_RGB[1]) * wm);
-      const b = Math.round(COLOUR_YOUNG_RGB[2] + (COLOUR_OLD_RGB[2] - COLOUR_YOUNG_RGB[2]) * wm);
-      for (let p = 0; p < n; p++) {
-        const jx = px + (Math.random() - 0.5) * (w / res.nx);
-        const jy = py + (Math.random() - 0.5) * (h / res.ny);
-        const alpha = 0.35 + 0.55 * Math.random();
-        ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
-        ctx.fillRect(jx, jy, 1, 1);
-      }
-    }
-  }
-
-  // Complex-tier clumps (16 Aug 2026, recoloured 25 Aug 2026 pink/magenta -
-  // the reference photo's own small red/pink highlights along its arms are
-  // HII (star-forming) regions; a young-cluster PALE BLUE read as one more
-  // shade of the same off-white everything else already was) - the REAL
-  // seeded star-forming-complex positions (`complexCentresForOverview`),
-  // drawn as small bright clusters on top of the smooth glow above, patchy
-  // rather than a uniform band. See that function's own header for why the
-  // visual size here is a fixed pixel radius rather than a literal
-  // projection of `sigmaPc`.
-  for (const c of complexCentres) {
-    const px = w / 2 + (c.x - centrePc.x) * pcToPx, py = h / 2 - (c.y - centrePc.y) * pcToPx;
-    if (px < -8 || px > w + 8 || py < -8 || py > h + 8) continue;   // off-canvas, skip
-    const nDots = 8 + Math.floor(Math.random() * 10);
-    for (let k = 0; k < nDots; k++) {
-      const ang = Math.random() * 2 * Math.PI, r = Math.random() * 3.2;
-      const jx = px + Math.cos(ang) * r, jy = py + Math.sin(ang) * r;
-      const alpha = 0.4 + 0.5 * Math.random();
-      ctx.fillStyle = `rgba(255,150,180,${alpha.toFixed(2)})`;
-      ctx.fillRect(jx, jy, 1, 1);
-    }
-  }
-
-  if (overlay) {
-    const offsetX = overlay.centrePc.x - centrePc.x, offsetY = overlay.centrePc.y - centrePc.y;
-    const pts = boundaryPointsPc(overlay.radiusPc, overlay.shape);
-    ctx.strokeStyle = '#e0b25a';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    pts.forEach((p, i) => {
-      const px = w / 2 + (p.x + offsetX) * pcToPx, py = h / 2 - (p.y + offsetY) * pcToPx;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    });
-    ctx.stroke();
-    // Centre marker - fixed pixel radius regardless of `overlay.radiusPc`,
-    // so a sector far too small to show its own boundary at this zoom
-    // (routine on the galaxy overview - a 25pc sector against a 20 000pc
-    // half-width view) still marks WHERE it is.
-    ctx.fillStyle = '#e0b25a';
-    ctx.beginPath();
-    ctx.arc(w / 2 + offsetX * pcToPx, h / 2 - offsetY * pcToPx, 2.5, 0, 2 * Math.PI);
-    ctx.fill();
-  }
-}
 
 /**
  * Angle/radius positioning guides (16 Aug 2026, a user follow-up): a
@@ -1116,15 +693,16 @@ function drawPositionGuides(canvas: HTMLCanvasElement, field: DensityDisplayFiel
 }
 
 /** Convenience wrapper for a one-shot render (no caching) - anywhere that
- *  computes and paints in one step. */
+ *  computes and paints in one step. Grid resolution is no longer a
+ *  parameter (Prompt P1) - derived from `halfWidthPc` inside
+ *  `computeDensityDisplayField` itself. */
 function renderDensityCanvas(
   canvas: HTMLCanvasElement, model: GalaxyModel,
   centrePc: { x: number; y: number; z: number }, halfWidthPc: number, thicknessPc: number,
   overlay: { readonly radiusPc: number; readonly shape: FootprintShape } | null,
-  res?: { nx: number; ny: number },
   complexOverlay?: { readonly worldSeed: string; readonly complexTier: ComplexTierParams },
 ): void {
-  const field = computeDensityDisplayField(model, centrePc, halfWidthPc, thicknessPc, res, complexOverlay);
+  const field = computeDensityDisplayField(model, centrePc, halfWidthPc, thicknessPc, complexOverlay);
   paintDensityField(canvas, field, overlay ? { centrePc, radiusPc: overlay.radiusPc, shape: overlay.shape } : null);
 }
 
@@ -1193,19 +771,6 @@ function ismExtinctionCoarseGrid(theta_rad: number, maxRadiusPc: number, halfHei
     }
   }
   return grid;
-}
-
-/** Bilinear sample of a coarse grid at a fractional (0..1, 0..1) position -
- *  same clamped-edge convention `edgeOnBaselineAndShape` already uses. */
-function sampleBilinear(grid: Float64Array, nR: number, nz: number, fracR: number, fracZ: number): number {
-  const bR = Math.min(nR - 1, Math.max(0, fracR * nR - 0.5));
-  const bR0 = Math.floor(bR), bR1 = Math.min(nR - 1, bR0 + 1), fR = bR - bR0;
-  const bZ = Math.min(nz - 1, Math.max(0, fracZ * nz - 0.5));
-  const bZ0 = Math.floor(bZ), bZ1 = Math.min(nz - 1, bZ0 + 1), fZ = bZ - bZ0;
-  const v00 = grid[bR0 + nR * bZ0]!, v10 = grid[bR1 + nR * bZ0]!;
-  const v01 = grid[bR0 + nR * bZ1]!, v11 = grid[bR1 + nR * bZ1]!;
-  const v0 = v00 * (1 - fR) + v10 * fR, v1 = v01 * (1 - fR) + v11 * fR;
-  return v0 * (1 - fZ) + v1 * fZ;
 }
 
 /**
@@ -1581,9 +1146,8 @@ export class GalaxyScreen1Modal extends Modal {
     const thicknessPc = GALAXY_OVERVIEW_THICKNESS_BASE_PC * previewScale;
     const halfWidthPc = R90_MARGIN * computeR90Pc(model, thicknessPc, previewScale);
     const field = computeDensityDisplayField(
-      model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc, GALAXY_OVERVIEW_RES,
+      model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc,
       { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
-      1 / R90_MARGIN, params.arms,
     );
     hideBusyOverlay(overlay);   // ALWAYS remove the overlay THIS call created - never racy
     if (this.busyOverlay === overlay) this.busyOverlay = null;
@@ -1844,9 +1408,8 @@ export class GalaxyScreen2Modal extends Modal {
     const thicknessPc = GALAXY_OVERVIEW_THICKNESS_BASE_PC * this.previewScale;
     const halfWidthPc = R90_MARGIN * computeR90Pc(this.model, thicknessPc, this.previewScale);
     this.galaxyOverview = computeDensityDisplayField(
-      this.model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc, GALAXY_OVERVIEW_RES,
+      this.model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc,
       { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },
-      1 / R90_MARGIN, this.params.arms,
     );
     hideBusyOverlay(overlay);
     this.draft = reconcileSizeFields(this.model, this.draft);
