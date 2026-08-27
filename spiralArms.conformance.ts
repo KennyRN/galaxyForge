@@ -9,7 +9,7 @@
 import {
   ARMS, DEFAULT_ARM_WIDTH, armWidthPc, thetaArmRad, kappaOf, armFactor, armContrastRatio,
   deriveArmContrasts, anchorArmCorrection, generateSeededArms, DRIMMEL_SPERGEL_K,
-  rollArmClass, ARM_CLASS_PRIOR,
+  rollArmClass, ARM_CLASS_PRIOR, assertArmFrameSanity,
 } from './spiralArms';
 
 let failures = 0;
@@ -363,6 +363,46 @@ check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=491
 
   check('10d kappaOf also switches pitch at the kink (consistent with thetaArmRad\'s own ridge)',
     kappaOf(kinked, 12000) !== kappaOf(unkinked, 12000) && kappaOf(kinked, 7000) === kappaOf(unkinked, 7000));
+}
+
+/* 11. STRUCTURAL SIGN-CONVENTION GATE (Prompt P3, arms bundle R2, 27 Aug
+ * 2026) - a sign-convention error transcribing Reid's beta-to-R equation
+ * has occurred three times in this project's history, most recently
+ * inside the documents warning about it. Reid's own convention (beta zero
+ * toward the Sun, increasing with Galactic rotation) makes theta strictly
+ * DECREASE as R increases; a literal transcription into a counter-
+ * clockwise theta frame inverts this and mirrors the galaxy. Swept across
+ * the same 3500-16000pc range as gate 2's kappa sweep, for every arm in
+ * ARMS, so a future sign flip (even a partial one, e.g. only past a kink)
+ * fails immediately rather than waiting to be noticed visually. -------- */
+{
+  let ok = true;
+  const offenders: string[] = [];
+  for (const a of ARMS) {
+    let prevTheta = thetaArmRad(a, 3500);
+    for (let R = 3525; R <= 16000; R += 25) {
+      const theta = thetaArmRad(a, R);
+      if (theta > prevTheta + 1e-9) { ok = false; offenders.push(a.name); break; }
+      prevTheta = theta;
+    }
+  }
+  check(`11 theta strictly decreases as R increases, for every arm in ARMS, swept 3500-16000pc ` +
+    `at 25pc steps (Reid's own beta convention - a mirrored counter-clockwise frame would have ` +
+    `theta INCREASE with R instead)${offenders.length ? ` - offenders: ${offenders.join(', ')}` : ''}`,
+    ok);
+}
+
+/* 12. FRAME-SANITY ASSERTION (Prompt P3) - assertArmFrameSanity() is the
+ * named, exported helper that would have caught this project's sign
+ * error before it shipped; run it here so the gate suite exercises the
+ * same check any future beta<->R work is expected to call directly. It
+ * throws on failure rather than returning a bool, so wrap it. --------- */
+{
+  let threw = false, message = '';
+  try { assertArmFrameSanity(); } catch (e) { threw = true; message = e instanceof Error ? e.message : String(e); }
+  check(`12 assertArmFrameSanity() passes - Perseus at theta=0 lands within 0.5 kpc of the real ` +
+    `~10.07 kpc, not the mirrored-frame ~7.81 kpc${threw ? ` (threw: ${message})` : ''}`,
+    !threw);
 }
 
 /* --------------------------------- result ------------------------------------ */

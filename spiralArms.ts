@@ -102,6 +102,19 @@
  * Sun's azimuth, increasing with Galactic rotation - the same convention
  * Reid's beta uses, so no re-signing is needed at the seam).
  *
+ * SIGN-CONVENTION DISCIPLINE (Prompt P3, arms bundle R2, 27 Aug 2026). This
+ * exact sign has been transcribed wrong three times in this project's
+ * history, most recently inside the documents that exist to warn about it -
+ * a mirrored, counter-clockwise theta frame is easy to write down and looks
+ * plausible right up until you check a real arm against a real radius. Any
+ * beta<->R conversion - in this module, in a future one, or in a document -
+ * gets checked against a named arm at a known azimuth before it is trusted,
+ * not just re-derived symbolically. `assertArmFrameSanity()` below is that
+ * check, kept as a callable helper rather than a one-off; gate 11 in
+ * `spiralArms.conformance.ts` additionally pins the structural property
+ * (theta strictly decreases as R increases, for every arm in `ARMS`) so a
+ * sign flip fails immediately rather than waiting to be noticed visually.
+ *
  * ARM WIDTH. `armWidthPc(R) = refPc + slopePcPerKpc * (R/1000 - r0Kpc)`,
  * `sourced`, Reid et al. 2019's own linear width-vs-radius fit, values
  * transcribed from the patch schema (refPc=336, slopePcPerKpc=36,
@@ -539,6 +552,55 @@ export function thetaArmRad(a: ArmDefinition, R_pc: number): number {
 
   const outerPitchRad = degToRad(a.pitchOuterDeg!);
   return thetaFromRef(a.RkinkPc!) - (1 / Math.tan(outerPitchRad)) * Math.log(R / a.RkinkPc!);
+}
+
+/**
+ * Frame-sanity assertion (Prompt P3, arms bundle R2, 27 Aug 2026) - the
+ * one-line check that would have caught this project's sign-convention
+ * error before it shipped, had it existed at the time. A sign error in
+ * the Reid arm equation has occurred three times in this project's
+ * history, most recently inside the very documents warning about it -
+ * see `thetaArmRad`'s own header and the module header below for the
+ * convention this protects: Reid's `beta` runs zero toward the Sun,
+ * increasing with Galactic rotation, and R DECREASES as beta increases
+ * (`ln(R/R_kink) = -(beta - beta_kink)*tan(psi)`); a literal transcription
+ * of that sign into a counter-clockwise theta frame inverts it and mirrors
+ * the whole galaxy.
+ *
+ * Numerically inverts `thetaArmRad` (bisection, since it is monotonic in R
+ * - see gate 11 in `spiralArms.conformance.ts`) to find where the Perseus
+ * arm crosses theta=0, the point directly beyond the Sun (Perseus's own
+ * `thetaRefDeg` is 0). The real answer is Perseus sitting roughly 2 kpc
+ * beyond the Sun toward the anticentre, ~10.07 kpc; the mirrored-frame
+ * answer is ~7.81 kpc, INSIDE the solar circle - the two are far enough
+ * apart that a 0.5 kpc tolerance cannot confuse them.
+ *
+ * Exposed as a helper, not buried in a test, so any future beta<->R work -
+ * a new arm table, a rewritten `thetaArmRad`, a different reference radius
+ * - can call this directly and fail loudly rather than silently mirroring
+ * the galaxy. Throws rather than returning a bool: this is a hard
+ * assertion for gate/startup-time use, not a query.
+ */
+export function assertArmFrameSanity(): void {
+  const perseus = ARMS.find((a) => a.name === 'Perseus');
+  if (!perseus) {
+    throw new Error('assertArmFrameSanity: no arm named "Perseus" in ARMS - cannot run the frame-sanity check');
+  }
+  let lo = 1000, hi = 30000;   // pc; brackets Perseus's own RrefPc=10470 comfortably, no kink to worry about
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (thetaArmRad(perseus, mid) > 0) lo = mid; else hi = mid;
+  }
+  const R_kpc = (lo + hi) / 2000;
+  const EXPECTED_KPC = 10.07, TOLERANCE_KPC = 0.5;
+  if (Math.abs(R_kpc - EXPECTED_KPC) > TOLERANCE_KPC) {
+    throw new Error(
+      `assertArmFrameSanity: Perseus at theta=0 lands at ${R_kpc.toFixed(2)} kpc, outside ` +
+      `${TOLERANCE_KPC} kpc of the expected ${EXPECTED_KPC} kpc (Perseus, ~2 kpc beyond the ` +
+      `Sun toward the anticentre). A mirrored, counter-clockwise theta frame would land near ` +
+      `7.81 kpc, INSIDE the solar circle - check the sign in thetaArmRad.`,
+    );
+  }
 }
 
 /** Von Mises concentration for arm `a` at radius R - derived, see header.
