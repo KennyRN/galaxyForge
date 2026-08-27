@@ -1,5 +1,65 @@
 # Ruling 11 (proposed) — pattern-speed architecture for Package 02
 
+## Erratum 1 (2026-08-27) — owner rejects the single-regime simplification; primary driver reconsidered
+
+Owner decision: do not keep a single-Ω_p simplification anywhere out of
+convenience. Direction given: "something more robust and honest and
+accurate and hopefully produces better and more random and better looking
+results." That widens the scope below Option D materially, and surfaces a
+finding the original draft under-weighted.
+
+**The primary termination driver is not resonance at all.** Re-reading the
+citation report's own quote of Honig & Reid 2015 §V.2: they attribute arm
+narrowing *primarily* to massive star formation dying out at large
+galactocentric radii, and raise the resonance/corotation reading only as a
+secondary hypothesis — which they then immediately reject on the M51
+evidence. A Package 02 built primarily on Ω_p-derived resonance radii would
+be modelling the mechanism the source paper itself tested and rejected, not
+the one it actually advances.
+
+**Revised design, keyed on the `ArmClass` enum that already exists (no new
+field, Law 1 intact):**
+
+- **`grandDesign`** — keep Ω_p/resonance-based termination from Option D
+  below, ONE shared pattern speed across the table. This is the one class
+  where classical density-wave theory is the standard textbook explanation
+  and where a shared global pattern is itself well-supported.
+- **`multipleArm`** — primary driver switches to the sourced star-formation/
+  gas-extent model: `armTipArcDeg`=31°, `armTipWidthRatio`=0.62,
+  `armTipProbability`=4/10 (all promoted to sourced/calibrated by the
+  citation report), rolled **independently per major arm** rather than once
+  per galaxy — matches Font et al. 2014's per-galaxy multiplicity finding,
+  and gives each arm its own termination length instead of one uniform cut
+  across the table. This is the actual "more random, better looking" lever:
+  independent per-arm extents read as organic; a shared resonance radius
+  reads as a cookie-cutter ring.
+- **`flocculent`** — no coherent global pattern at all, stated honestly:
+  independent-per-arm stochastic extent, graded `tunable` outright, not
+  dressed up as resonance math this class doesn't have real statistics for.
+- **`ARMS`** (real MW) — retains Option D's two-regime Ω_p-vs-radius split
+  below as a resonance cross-check/fallback. New residual obligation: check
+  whether Reid et al. 2019 gives real per-arm tip radii directly — if so,
+  that is better-sourced than deriving termination from resonance at all
+  for this table, and should be preferred over both regimes below.
+
+Per-arm independent rolls (multipleArm's narrowing chance, flocculent's
+stochastic extent) need their own RNG channel — `CHANNELS.armTermination`,
+keyed on `worldSeed` + arm identity, following the existing
+`CHANNELS.armClass`/`CHANNELS.seededArms` isolation discipline — so results
+stay deterministic per seed.
+
+Applying Honig & Reid's real-galaxy tip statistics to `generateSeededArms`'s
+procedural, non-MW population is itself a new extension beyond what the
+paper measured, and should be graded `tunable (extended from sourced
+statistics)`, not `sourced`, in whatever provenance header this lands in.
+
+This erratum does not replace Option D below (the `ARMS`-table resonance
+regimes) — it demotes resonance from the universal primary mechanism to a
+`grandDesign`-only mechanism plus an `ARMS`-table fallback, and adds the
+star-formation/stochastic mechanisms for the other two classes on top.
+
+---
+
 **Status: proposal, not a ruling yet.** Raised 2026-08-27 off the back of
 `galaxyForge-CITATION-VERIFICATION-2026-08-26.md` item 1(d). No code exists
 for this yet — `spiralPatternSpeedKmSKpc` was never implemented (confirmed
