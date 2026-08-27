@@ -29,7 +29,13 @@ reasoning chain:
    alternative (vs. 4:1) applies to `grandDesign`/`ARMS`.
 4. **Sun et al. 2024 body** (ApJL) — the R ≈ 22 kpc arm extent is
    load-bearing for whichever ruling ends up governing outer-disc arm
-   extent (Ruling 10), currently abstract-level only.
+   extent (Ruling 10), currently abstract-level only. **Promoted in
+   priority 27 Aug 2026** — Ruling 10 has since been formally recorded
+   (retain Reid β spans as an interim position, selection function
+   documented) specifically *because* this item was still open; the owner
+   has asked to revisit Ruling 10 once this is read, to replace the
+   interim position with Sun 2024's own arc-length approach if it holds
+   up. This is now the single most consequential item on this list.
 5. **Dias et al. 2019 body** (MNRAS 486, 5726) — lowest priority; the
    abstract already states the adopted frame explicitly and the arithmetic
    closes cleanly, so this is a confirmation pass, not a correction hunt.
