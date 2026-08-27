@@ -10,6 +10,8 @@ import {
   ARMS, DEFAULT_ARM_WIDTH, armWidthPc, thetaArmRad, kappaOf, armFactor, armContrastRatio,
   deriveArmContrasts, anchorArmCorrection, generateSeededArms, DRIMMEL_SPERGEL_K,
   rollArmClass, ARM_CLASS_PRIOR, assertArmFrameSanity,
+  resonanceRatio, SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC, SPIRAL_PATTERN_SPEED_OUTER_KM_S_KPC,
+  ARM_INNER_ATTACH_RADIUS_PC,
 } from './spiralArms';
 
 let failures = 0;
@@ -403,6 +405,30 @@ check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=491
   check(`12 assertArmFrameSanity() passes - Perseus at theta=0 lands within 0.5 kpc of the real ` +
     `~10.07 kpc, not the mirrored-frame ~7.81 kpc${threw ? ` (threw: ${message})` : ''}`,
     !threw);
+}
+
+/* 13. Package 02/03 build plan, Stage A (27 Aug 2026) - resonanceRatio
+ * against this project's own already-audited flat-curve reference values,
+ * and the pattern-speed/attachment constants. ------------------------- */
+{
+  const close4 = (a: number, b: number) => Math.abs(a - b) < 5e-5;
+  check('13 resonanceRatio(2, 0, "inner") === 0.2929 (ILR, flat curve)', close4(resonanceRatio(2, 0, 'inner'), 0.2929));
+  check('13b resonanceRatio(4, 0, "inner") === 0.6464 (4:1 ultraharmonic, flat curve)', close4(resonanceRatio(4, 0, 'inner'), 0.6464));
+  check('13c resonanceRatio(4, 0, "outer") === 1.3536 (OLR m=4, flat curve)', close4(resonanceRatio(4, 0, 'outer'), 1.3536));
+  check('13d resonanceRatio(2, 0, "outer") === 1.7071 (OLR m=2, flat curve)', close4(resonanceRatio(2, 0, 'outer'), 1.7071));
+  check('13e resonanceRatio(2, 0, "inner") + resonanceRatio(2, 0, "outer") straddle 1 symmetrically at beta=0 ' +
+    '(1-x and 1+x for the same x, the flat-curve special case)',
+    close4(1 - resonanceRatio(2, 0, 'inner'), resonanceRatio(2, 0, 'outer') - 1));
+  check('13f SPIRAL_PATTERN_SPEED_OUTER_KM_S_KPC is DERIVED, not independently stored - reproduces ' +
+    'resonanceRatio(4,0,"inner") * SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC exactly, live, not a copied-in literal',
+    SPIRAL_PATTERN_SPEED_OUTER_KM_S_KPC === resonanceRatio(4, 0, 'inner') * SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC);
+  check('13g SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC matches Dias et al. 2019\'s own sourced figure (28.2)',
+    SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC === 28.2);
+  check('13h the outer pattern speed is SLOWER than the main one (0.6464x), matching the physical picture ' +
+    '(an outer companion pattern rotates slower than the main inner one)',
+    SPIRAL_PATTERN_SPEED_OUTER_KM_S_KPC < SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC);
+  check('13i ARM_INNER_ATTACH_RADIUS_PC matches Wegg/Gerhard/Portail 2015\'s own long-bar half-length (5000pc)',
+    ARM_INNER_ATTACH_RADIUS_PC === 5000);
 }
 
 /* --------------------------------- result ------------------------------------ */

@@ -552,6 +552,14 @@ export const CHANNELS = {
    *  already-reserved, collision-free stream waiting rather than a new key
    *  invented under time pressure at that point. */
   ism: 'ism',
+  /** Package 02/03 build plan, Stage A (27 Aug 2026) - reserved for
+   *  REGISTRY COMPLETENESS ONLY, same precedent as `ism` immediately
+   *  above: the per-arm termination roll (tip narrowing for `multipleArm`,
+   *  stochastic extent for `flocculent`) isn't wired to any generation
+   *  path yet - that lands in Stage C. Isolated from every other channel
+   *  for the same reason `seededArms`/`armClass` are: it decides galaxy
+   *  SHAPE (where an arm ends), not any one system's content. */
+  armTermination: 'armTermination',
   planets: 'planets',
   belts: 'belts',
   rotation: (starIndex: number) => `rotation:${starIndex}`,

@@ -918,6 +918,92 @@ export const ARM_CLASS_CONTRAST_TARGET_K: Readonly<Record<ArmClass, number>> = {
   grandDesign: 3.0,
 };
 
+/* ============================================================================
+ * RESONANCE RADII AND PATTERN SPEED (Package 02/03 build plan, Stage A,
+ * 27 Aug 2026) - foundations only. Pure functions and sourced/derived
+ * constants, not yet wired into armFactor/densityAt - genuinely bump-free,
+ * same as every other addition in this stage. Ruling 11's own design
+ * document (`verification/arms-bundle-r2/RULING-11-PROPOSAL-pattern-speed
+ * -architecture.md`, Erratum 2) is the source of record for the reasoning
+ * below; this is that design, implemented.
+ * ==========================================================================*/
+
+/**
+ * The standard epicyclic-resonance radius ratio, flat rotation curve
+ * generalised to a power-law slope `beta` (V(R) ~ R^beta, beta=0 flat) -
+ * `sourced (form)`, classical resonance theory (see
+ * `verification/arms-bundle-r2/bundle-source/resonance-derivation.py` for
+ * the derivation this reproduces). `side` picks the inner ('-') or outer
+ * ('+') member of the m-armed resonance pair - the SAME |m| gives two
+ * different radii (e.g. m=2 has both an ILR and an OLR), so this is not
+ * folded into the sign of `m` itself.
+ *
+ * VERIFIED against the flat-curve (beta=0) reference values this project's
+ * own audit already carries: ILR m=2 -> 0.2929 ('inner'), 4:1 ultraharmonic
+ * m=4 -> 0.6464 ('inner'), corotation -> 1.0000 (m -> infinity, or read
+ * directly, never through this formula), OLR m=4 -> 1.3536 ('outer'), OLR
+ * m=2 -> 1.7071 ('outer') - all four reproduce to 4dp (gated).
+ */
+export function resonanceRatio(m: number, beta: number, side: 'inner' | 'outer'): number {
+  const sign = side === 'outer' ? 1 : -1;
+  return (1 + sign * Math.sqrt(2 * (1 + beta)) / m) ** (1 / (1 - beta));
+}
+
+/**
+ * Main spiral pattern speed - `sourced`, Dias et al. 2019, MNRAS 486, 5726.
+ * Ω_p = 28.2 ± 2.1 km/s/kpc is their own MEASURED quantity (from spiral-arm
+ * tracer kinematics); R_c = 8.51 kpc is DERIVED from it under their own
+ * adopted frame (R0=8.3kpc, V0=240km/s) via R_c = V0/Ω_p, not a second
+ * independent measurement - confirmed by re-deriving it from their own
+ * numbers (240/28.2 = 8.5106, matching their stated 8.51 exactly). This
+ * project imports Ω_p directly, per Ruling 11 Erratum 2 / this session's
+ * own P13 research (`galaxyForge-P13-PATTERN-SPEED-RESEARCH-2026-08-27
+ * .md`) - never R_c, which would silently import a number computed in
+ * Dias's own frame rather than this project's.
+ */
+export const SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC = 28.2;
+
+/**
+ * Outer m=2 companion pattern speed - `derived`, NOT an independent
+ * constant. Lépine et al. 2011b's own "outer pattern" claim is an N-body
+ * reconciliation conjecture (not an observation) between Lépine 2011a
+ * (single pattern, corotation ~8.4 kpc) and Quillen & Minchev 2005 (4:1
+ * inner resonance at the solar radius, independently measured from local
+ * stellar kinematics) - there is no real "outer Ω_p" measurement to
+ * import. What IS real is the reconciliation CONSTRAINT itself: the outer
+ * pattern's own 4:1 inner resonance coincides with the main pattern's
+ * corotation, R_4:1,outer = R_CR,main. On a flat curve that is
+ * `resonanceRatio(4, 0, 'inner')` = 0.6464, so Ω_p,outer =
+ * 0.6464 x Ω_p,main - storing this as an independent stored constant would
+ * be the same "measuring the analysis, not the galaxy" error Erratum 1
+ * already fixed for `armTipArcDeg` (a calibrated STATISTIC mistaken for a
+ * sourced one), applied here to a CONSTANT instead. See Ruling 11 Erratum
+ * 2 for the full reasoning and the open sourcing gap this still carries
+ * (Lépine 2011b/Quillen & Minchev not yet read at their own version of
+ * record - `FOLLOW-UP-AUDIT-2026-08-27.md`, items 1-2).
+ */
+export const SPIRAL_PATTERN_SPEED_OUTER_KM_S_KPC =
+  resonanceRatio(4, 0, 'inner') * SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC;
+
+/**
+ * Arm inner attachment radius (Ruling 5, 27 Aug 2026: arms attach at the
+ * bar END, not bar corotation) - `sourced, By-law S`. Wegg, Gerhard &
+ * Portail 2015's own long-bar half-length, 5.0 +/- 0.2 kpc - distinct from
+ * `DEFAULT_BULGE.scalePc` (`galaxyParameters.ts`, 700pc x-scale), which
+ * models the much smaller boxy/peanut bulge component, not this long bar.
+ * The bar-length dispute is partly definitional, not a 30% measurement
+ * spread on one quantity: Wegg/Gerhard/Portail's 5.0kpc is the long-bar
+ * half-length; the boxy/peanut component is ~2.2kpc; Lucey et al. 2023's
+ * ~3.5kpc is the maximal extent of TRAPPED bar orbits, a different
+ * quantity again. By-law S marked because the attachment mechanism itself
+ * is contested (Sellwood & Sparke 1988: bar and spiral generally run at
+ * DIFFERENT pattern speeds even where this attachment reading survives -
+ * the empirical attachment holds for a large fraction of the beat period
+ * regardless of the dynamical dispute, which is why the bar-end reading
+ * is adopted despite that contest, not because it is settled).
+ */
+export const ARM_INNER_ATTACH_RADIUS_PC = 5000;
+
 /**
  * Derives this module's own `oldThin`/`midThin`/`youngThin` contrast
  * constants by the patch's own target-driven procedure - see header for why
