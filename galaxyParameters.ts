@@ -60,6 +60,7 @@ import {
   DRIMMEL_SPERGEL_K, ARM_CLASS_CONTRAST_TARGET_K, ARM_CLASS_MODULATION,
   type ArmDefinition, type ArmWidthParams, type ArmResponseSet, type ArmContrastSet, type ArmClass, type ArmModulationParams,
 } from './spiralArms';
+import { degToRad } from './units';
 
 /* --------------------------------- arm block ---------------------------------- */
 
@@ -176,7 +177,7 @@ export interface BulgeParams {
   readonly strength: number;
 }
 export const DEFAULT_BULGE: BulgeParams = {
-  phaseRad: (27 * Math.PI) / 180,
+  phaseRad: degToRad(27),
   scalePc: { x: 700, y: 440, z: 180 },
   boxiness: 4,
   totalStellarMassSol: 6.08e10,
@@ -391,7 +392,7 @@ export const DEFAULT_GALAXY_PARAMETERS: GalaxyParameters = makeDefaultGalaxyPara
  */
 export function anchorArmCorrectionFor(params: GalaxyParameters, set: ArmResponseSet): number {
   return computeAnchorArmCorrection(
-    set, params.armContrast(), params.referenceRPc, (params.referenceThetaDeg * Math.PI) / 180, params.armWidth, params.arms,
+    set, params.armContrast(), params.referenceRPc, degToRad(params.referenceThetaDeg), params.armWidth, params.arms,
     params.armModulation,
   );
 }

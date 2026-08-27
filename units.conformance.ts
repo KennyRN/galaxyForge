@@ -51,13 +51,21 @@ check('5 units.ts imports nothing from rng.ts (every function here is pure)',
   !readSource('units.ts').includes("from './rng'"));
 
 // 6. STRUCTURAL (Prompt P2) - no other source file hand-rolls a
-// degree/radian conversion instead of calling degToRad/radToDeg. Checked
-// as normalised whitespace so `Math.PI / 180` and `Math.PI/180` both hit.
-const DEG_RAD_PATTERNS = [/Math\.PI\s*\/\s*180/, /180\s*\/\s*Math\.PI/];
+// degree/radian conversion instead of calling degToRad/radToDeg. Strips
+// whitespace AND parens before matching, not just whitespace - a literal
+// transcription of `spiralArms.ts`'s own former local degToRad, `(d *
+// Math.PI) / 180`, slipped past a whitespace-only regex here once
+// (found and fixed the same day this gate was added: the parenthesised
+// `Math.PI)` broke a `Math\.PI\s*\/\s*180` pattern). Stripping parens too
+// leaves `Math.PI/180` or `180/Math.PI` as a contiguous substring
+// regardless of surrounding multiplication factors or grouping.
+function stripWhitespaceAndParens(src: string): string { return src.replace(/[\s()]/g, ''); }
 check('6 no source file OTHER than units.ts hand-rolls a Math.PI-based ' +
   'degree/radian conversion (must call degToRad/radToDeg instead)',
-  allTsFiles().filter((f) => f !== 'units.ts').every((f) =>
-    DEG_RAD_PATTERNS.every((pat) => !pat.test(readSource(f)))));
+  allTsFiles().filter((f) => f !== 'units.ts').every((f) => {
+    const stripped = stripWhitespaceAndParens(readSource(f));
+    return !stripped.includes('Math.PI/180') && !stripped.includes('180/Math.PI');
+  }));
 
 // extra: angle and density round-trips
 check('+ degToRad/radToDeg round-trip', Math.abs(radToDeg(degToRad(123.4)) - 123.4) < 1e-9);

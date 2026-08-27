@@ -169,6 +169,7 @@
 import { besselI0e } from './mathStats';
 import { channelRng } from './rng';
 import { CHANNELS } from './types';
+import { degToRad } from './units';
 
 export type ArmTier = 'major' | 'minor' | 'spur';
 export type ArmResponseSet = 'all' | 'majorMinor' | 'major' | 'none';
@@ -497,8 +498,6 @@ export const DEFAULT_ARM_WIDTH: ArmWidthParams = {
 export function armWidthPc(R_pc: number, w: ArmWidthParams = DEFAULT_ARM_WIDTH): number {
   return w.broadening * (w.refPc + w.slopePcPerKpc * (R_pc / 1000 - w.r0Kpc));
 }
-
-const degToRad = (d: number) => (d * Math.PI) / 180;
 
 /** Guards the log-spiral formula's R=0 singularity (`ln(R/Rref)` diverges
  *  as R -> 0). 1 pc is physically inert here - real arms do not extend
