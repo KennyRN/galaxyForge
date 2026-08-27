@@ -18,6 +18,8 @@ import {
   MULTIPLE_ARM_TERMINUS_LO_PC, MULTIPLE_ARM_TERMINUS_HI_PC,
   FLOCCULENT_TERMINUS_LO_PC, FLOCCULENT_TERMINUS_HI_PC, ARM_TERMINUS_SMOOTH_PC,
 } from './spiralArms';
+import * as fs from 'fs';
+import * as path from 'path';
 
 let failures = 0;
 function check(name: string, cond: boolean) {
@@ -679,6 +681,49 @@ check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=491
         }
       }
       return min > 0;
+    })());
+}
+
+/* 16. Package 02/03 build plan, Stage D (27 Aug 2026, Ruling 10 closed) -
+ * `tracedCoverageRatio`, reference data only, deliberately unwired.
+ * Verifies the sourced table is present and correct, AND - the load
+ * -bearing structural check - that no generation-path function reads the
+ * field at all (a grep of spiralArms.ts's own source for the property
+ * -access pattern `.tracedCoverageRatio`, which would only ever appear if
+ * some function actually consumed it - the interface declaration and the
+ * ARMS literal both use `tracedCoverageRatio:`, never `.tracedCoverage
+ * Ratio`, so a zero-match result is decisive, not a heuristic). ---------- */
+{
+  const expected: Readonly<Record<string, number>> = {
+    Perseus: 1.00, 'Scutum-Centaurus': 0.75, 'Sagittarius-Carina': 0.69,
+    Outer: 0.63, Norma: 0.36, Local: 0.30,
+  };
+  check('16a every ARMS entry carries the sourced tracedCoverageRatio exactly, Perseus normalised to 1.00',
+    ARMS.every((a) => a.tracedCoverageRatio === expected[a.name]));
+  check('16b Perseus is the longest-traced arm (ratio 1.00) - every other ratio is strictly less',
+    ARMS.filter((a) => a.name !== 'Perseus').every((a) => a.tracedCoverageRatio! < 1.00));
+  check('16c every ratio is strictly positive (a real, if partial, azimuth span was traced for all six)',
+    ARMS.every((a) => a.tracedCoverageRatio! > 0));
+
+  check('16d STRUCTURAL: tracedCoverageRatio is never property-accessed anywhere in spiralArms.ts - ' +
+    'genuinely reference data, not silently wired into armFactor/kappaOf/thetaArmRad/withTermination', (() => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'spiralArms.ts'), 'utf8');
+    // Strip the interface declaration and the ARMS literal's own field-name
+    // occurrences (both use "tracedCoverageRatio:", a definition, never a
+    // property READ) before searching for an access pattern.
+    const accessPattern = /\.tracedCoverageRatio\b/g;
+    const matches = source.match(accessPattern) ?? [];
+    return matches.length === 0;
+  })());
+
+  check('16e generateSeededArms tables (multipleArm/flocculent/grandDesign) never carry ' +
+    'tracedCoverageRatio - this is real-Reid-arm reference data only, no procedural equivalent exists',
+    (() => {
+      for (const cls of ['grandDesign', 'multipleArm', 'flocculent'] as const) {
+        const arms = generateSeededArms(`gate-staged-seeded-${cls}`, cls);
+        if (arms.some((a) => a.tracedCoverageRatio !== undefined)) return false;
+      }
+      return true;
     })());
 }
 

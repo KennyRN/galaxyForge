@@ -416,6 +416,47 @@ export interface ArmDefinition {
    *  (dimensionless, so per-cohort terminus scaling carries it along
    *  automatically) - `tipStartRatioFor`'s own header has the derivation. */
   readonly tipStartRatio?: number;
+  /** Package 02/03 build plan Stage D (Ruling 10, closed 27 Aug 2026) -
+   *  REFERENCE DATA ONLY, deliberately unwired. Reid et al. 2019 Table 2's
+   *  traced beta-azimuth span for this arm, converted to a relative
+   *  fraction of Perseus's own span (the longest) - `sourced` for the
+   *  underlying azimuth spans themselves, `calibrated` for treating them
+   *  as a relative-extent ordering at all (`02-SOURCE-REID-T2.md` SS3.5,
+   *  bundle-source - this is the VLBI array's own observational COVERAGE,
+   *  not a length measurement; a real, dated selection effect, not an
+   *  oversight).
+   *
+   *  DELIBERATELY NOT NAMED "relativeExtent" or "tracedSpanDeg" (the
+   *  bundle's own proposed name) - `tracedCoverageRatio` states plainly
+   *  what the number actually is, per Ruling 10's OWN closing recommendation
+   *  (`galaxyForge-RULING-10-RESEARCH-2026-08-27.md`, "Ruling box"):
+   *  Sun et al. 2024's full body was read specifically to find a better
+   *  (genuinely physical, arc-length) replacement and could not supply
+   *  one for this table - three of six arms absent, one of the three
+   *  present (OSC) not a row this table carries at all, no uncertainties
+   *  quoted, and its own lengths reproduce to within 3-17% from survey
+   *  coverage times radius alone (same document, SS4) - so a second
+   *  coverage-based number would have replaced one known bias with
+   *  another for no gain. The search was conducted and closed, not
+   *  abandoned; see `FOLLOW-UP-AUDIT-2026-08-27.md`.
+   *
+   *  UNWIRED, INTENTIONALLY - owner ruling, 27 Aug 2026: mechanically
+   *  scaling `terminusPc` by this ratio was considered and rejected. It
+   *  fails on both grounds a wired field would need to clear: it would
+   *  encode a KNOWN selection-function artifact into the generation path
+   *  as though it were physical arm structure (exactly what Ruling 10's
+   *  own research warns against substituting one bias for another to
+   *  achieve), and it fails MECHANICALLY for the inner arms regardless -
+   *  Local's own `RrefPc` (8719pc) already sits PAST where a naive
+   *  0.30x scaling of `ARM_TERMINUS_SHARED_PC` (~13.86kpc) would place
+   *  its terminus (~4.2kpc), which would terminate the arm before its own
+   *  reference point. Filed as honest reference data for a future
+   *  genuinely-physical replacement, not read by `armFactor`, `kappaOf`,
+   *  `thetaArmRad` or `withTermination` anywhere (gated structurally,
+   *  gate 16 in `spiralArms.conformance.ts`) - Stage D is therefore
+   *  genuinely bump-free, the same "documented, not wired" precedent
+   *  Stage A's own additions already established. */
+  readonly tracedCoverageRatio?: number;
 }
 
 /** Reid et al. 2019, ApJ 885, 131 - sourced, transcribed from the patch
@@ -429,14 +470,17 @@ export interface ArmDefinition {
  *  the other five arms don't (yet) carry the same fields. `terminusPc`
  *  (Stage C, 27 Aug 2026) is the SAME `ARM_TERMINUS_SHARED_PC` value on
  *  every entry - see that constant's own header for the resonance choice
- *  and its own stated limitations. */
+ *  and its own stated limitations. `tracedCoverageRatio` (Stage D, 27 Aug
+ *  2026, Ruling 10 closed) is Reid Table 2's own traced beta-azimuth span
+ *  per arm, normalised to Perseus (the longest) - REFERENCE DATA ONLY,
+ *  deliberately unwired, see that field's own header for why. */
 export const ARMS: readonly ArmDefinition[] = [
-  { name: 'Norma',              tier: 'minor', pitchDeg: 12.43, RrefPc: 4780,  thetaRefDeg: 0, weight: 0.55, terminusPc: ARM_TERMINUS_SHARED_PC },
-  { name: 'Scutum-Centaurus',   tier: 'major', pitchDeg: 12.04, RrefPc: 5493,  thetaRefDeg: 0, weight: 1.00, RkinkPc: 4910, pitchOuterDeg: 12.1, terminusPc: ARM_TERMINUS_SHARED_PC },
-  { name: 'Sagittarius-Carina', tier: 'minor', pitchDeg: 12.07, RrefPc: 6878,  thetaRefDeg: 0, weight: 0.55, terminusPc: ARM_TERMINUS_SHARED_PC },
-  { name: 'Local',              tier: 'spur',  pitchDeg: 12.43, RrefPc: 8719,  thetaRefDeg: 0, weight: 0.35, terminusPc: ARM_TERMINUS_SHARED_PC },
-  { name: 'Perseus',            tier: 'major', pitchDeg: 12.07, RrefPc: 10470, thetaRefDeg: 0, weight: 1.00, terminusPc: ARM_TERMINUS_SHARED_PC },
-  { name: 'Outer',              tier: 'minor', pitchDeg: 12.43, RrefPc: 12289, thetaRefDeg: 0, weight: 0.55, terminusPc: ARM_TERMINUS_SHARED_PC },
+  { name: 'Norma',              tier: 'minor', pitchDeg: 12.43, RrefPc: 4780,  thetaRefDeg: 0, weight: 0.55, terminusPc: ARM_TERMINUS_SHARED_PC, tracedCoverageRatio: 0.36 },
+  { name: 'Scutum-Centaurus',   tier: 'major', pitchDeg: 12.04, RrefPc: 5493,  thetaRefDeg: 0, weight: 1.00, RkinkPc: 4910, pitchOuterDeg: 12.1, terminusPc: ARM_TERMINUS_SHARED_PC, tracedCoverageRatio: 0.75 },
+  { name: 'Sagittarius-Carina', tier: 'minor', pitchDeg: 12.07, RrefPc: 6878,  thetaRefDeg: 0, weight: 0.55, terminusPc: ARM_TERMINUS_SHARED_PC, tracedCoverageRatio: 0.69 },
+  { name: 'Local',              tier: 'spur',  pitchDeg: 12.43, RrefPc: 8719,  thetaRefDeg: 0, weight: 0.35, terminusPc: ARM_TERMINUS_SHARED_PC, tracedCoverageRatio: 0.30 },
+  { name: 'Perseus',            tier: 'major', pitchDeg: 12.07, RrefPc: 10470, thetaRefDeg: 0, weight: 1.00, terminusPc: ARM_TERMINUS_SHARED_PC, tracedCoverageRatio: 1.00 },
+  { name: 'Outer',              tier: 'minor', pitchDeg: 12.43, RrefPc: 12289, thetaRefDeg: 0, weight: 0.55, terminusPc: ARM_TERMINUS_SHARED_PC, tracedCoverageRatio: 0.63 },
 ];
 
 /**

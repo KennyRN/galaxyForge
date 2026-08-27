@@ -47,9 +47,22 @@ turned out unnecessary, recorded honestly rather than forced through).
 against it. Visually verified via a disposable ASCII density-field
 diagnostic before shipping (arms genuinely narrow to a visible end;
 inner-attachment contrast measured 0% below 4700pc, ramping to ~4.8% by
-5000pc). Stage D (extent ordering, Ruling 10) remains — designed but not
-yet built, and explicitly provisional pending Sun et al. 2024 regardless
-(see `FOLLOW-UP-AUDIT-2026-08-27.md`).
+5000pc). **Stage D (extent ordering, Ruling 10) is also done, 27 Aug
+2026 — the whole four-stage plan is now complete.** Ruling 10's own
+research came back and closed the search (Sun et al. 2024 cannot supply a
+better ordering — see Ruling 10's own row below); owner ruling scoped
+Stage D down to REFERENCE DATA ONLY, deliberately unwired: `ArmDefinition`
+gains an optional `tracedCoverageRatio` field, set on all six `ARMS`
+entries from Reid's own β spans (1.00/0.75/0.69/0.63/0.36/0.30,
+Perseus-normalised), read by nothing on the generation path — gated
+structurally (gate 16d, a source-grep for any `.tracedCoverageRatio`
+property access) rather than merely documented as unwired. Genuinely
+bump-free: no `genVersion` change, `gen14.json` unchanged and still
+verifies. `armFactor`'s own mechanical scaling idea was considered and
+rejected — it would have encoded a known survey-selection artefact into
+the generation path as physical structure, and fails outright for the
+inner arms regardless (Local's own `RrefPc` already sits past where a
+naive 0.30x scaling of the shared terminus would place it).
 
 ## Rulings
 
@@ -64,7 +77,7 @@ yet built, and explicitly provisional pending Sun et al. 2024 regardless
 | 7 | canonical units for angle/density quantities | **answered 2026-08-27 — degrees for azimuth/arc/pitch angle (radians math-only); km/s/kpc declared canonical for angular velocity; systems/pc² for surface density; systems/pc³ for volume density (already canonical pre-ruling).** See `units.ts`'s own Ruling-7 doc comments. |
 | 8 | cross-section width-gate collision + peak-vs-area reading | open — **owner asked this be deferred until P1/P7/P10 land, then handed to another agent for deeper research.** See the P13-style prompt this session owes for it. |
 | 9 | Norma–Outer: one arm or two | **answered AND IMPLEMENTED 2026-08-27 — two separate arms.** Matches Reid 2019 Table 2's own row structure (confirmed by this session's P13 research) and Xu et al. 2023. Built as Package 02/03 build plan Stage B: `ARMS` now carries `Norma`/`Outer` as separate entries, `genVersion` BUMP 13. Norma's own real Table-2 pitch branch turned out near-degenerate (kappa-collapsing); a further owner ruling settled it reuses Outer/Local's own already-verified pitch instead — see `spiralArms.ts`'s own header for the full numeric verification and grading. |
-| 10 | extent source (Sun 2024 / Hou & Han 2014 / Drimmel 2025 / Reid β spans) | **research back, 27 Aug 2026 — `galaxyForge-RULING-10-RESEARCH-2026-08-27.md` + `galaxyForge-P13-ERRATUM-2-2026-08-27.md`.** Sun et al. 2024's full body read: gives a genuine per-arm length table, but for only 3 of 6 arms (one of which, OSC, isn't even a row `ARMS` carries), no uncertainties quoted, and the lengths demonstrably measure MWISP's own survey coverage times radius (reproduced to 3–17% by that arithmetic alone) — cannot supply a six-arm ordering. **Research's own recommendation, awaiting owner sign-off: retain the Reid-β-span ordering PERMANENTLY, relabelled honestly as a traced-coverage proxy (not a length), and close the search** rather than continue to Hou & Han 2014. Separately confirms real CO-traced gas exceeds Stage C's shared terminus in the Outer arm (marginally, inside its own kinematic uncertainty) and via a proposed OSC extension (substantially, ~7.9kpc — but OSC isn't a modelled arm) — recorded as an examined limitation in `spiralArms.ts`, not actioned. |
+| 10 | extent source (Sun 2024 / Hou & Han 2014 / Drimmel 2025 / Reid β spans) | **FINAL, answered AND IMPLEMENTED 2026-08-27 — retain the Reid-β-span ordering PERMANENTLY, relabelled honestly as `tracedCoverageRatio` (a traced-coverage proxy, not a length), search closed.** Sun et al. 2024's full body was read (`galaxyForge-RULING-10-RESEARCH-2026-08-27.md` + `galaxyForge-P13-ERRATUM-2-2026-08-27.md`): a genuine per-arm length table exists, but for only 3 of 6 arms (one of which, OSC, isn't even a row `ARMS` carries), no uncertainties quoted, and the lengths demonstrably measure MWISP's own survey coverage times radius (reproduced to 3–17% by that arithmetic alone) — cannot supply a six-arm ordering, and no all-sky survey ever will (none sees a whole arm). Owner confirmed closing the search over continuing to Hou & Han 2014. Built as Package 02/03 build plan Stage D, scoped down to reference data only (owner ruling): `ArmDefinition.tracedCoverageRatio`, sourced values on all six `ARMS` entries, deliberately unwired — see the Stage D note above. Separately, the research confirms real CO-traced gas exceeds Stage C's shared terminus in the Outer arm (marginally, inside its own kinematic uncertainty) and via a proposed OSC extension (substantially, ~7.9kpc — but OSC isn't a modelled arm) — recorded as an examined limitation in `spiralArms.ts`'s own header, not actioned. |
 
 Separately, **Ruling 11** (not part of the original ten — raised this
 session) covers Package 02's pattern-speed architecture; see
@@ -85,8 +98,8 @@ proposed but not yet formally adopted by the owner.
 | P7 | Inner attachment | **done, folded into Package 02/03 build plan Stage C, 2026-08-27** — see Ruling 5's own updated row above. |
 | P8 | Interarm floor derived from A₂ | not started — this is package 03's own cross-section §1.3, entangled with the same P5/ruling-8 two-component-width question, so deferred alongside it |
 | P9 | `armFactor` signature amendment | **resolved WITHOUT a signature amendment, Package 02/03 build plan Stage C, 2026-08-27** — building it for real found `armFactor` already receives everything termination needs (`set`, already mapped to cohort; each arm's own new `terminusPc`/`tipStartRatio` fields) — see `genVersion.ts`'s own bump-14 entry, "a plan that didn't survive contact with implementation, stated honestly". The PRNG-channel half of this prompt's own concern (`CHANNELS.armTermination`) is real and done — registered Stage A, wired Stage C. |
-| P10 | Package 02 extent re-sourcing | **partially done** — the resonance-based terminus half (Stage C) is built; the `tracedSpanDeg`-style relative-ordering half (Ruling 10) is Stage D, not yet built, and explicitly provisional pending Sun et al. 2024 regardless. |
-| P11 | Rebuild the gate set | not started — after P1–P10 (Stage D still open) |
+| P10 | Package 02 extent re-sourcing | **done, 27 Aug 2026** — the resonance-based terminus half (Stage C) is built and wired; the `tracedSpanDeg`-style relative-ordering half (Ruling 10, Stage D) is built as reference data only, deliberately unwired (owner ruling, once Sun et al. 2024 closed the search for a better source). The Package 02/03 build plan's all four stages are now complete. |
+| P11 | Rebuild the gate set | not started — the next open item |
 | P12 | Literature verification | **in progress**, well beyond the original prompt's scope — see `galaxyForge-CITATION-VERIFICATION-2026-08-26.md`, the P13 follow-on chain, and `FOLLOW-UP-AUDIT-2026-08-27.md` for what's still open |
 
 ## P4 accounting (report, not edit — see P0's own rule)
