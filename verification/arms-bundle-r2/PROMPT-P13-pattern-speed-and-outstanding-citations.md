@@ -1,5 +1,18 @@
 # Prompt P13 — research request: pattern-speed sourcing + outstanding P12 items
 
+**READ THIS FIRST — this is not a re-ask of Prompt P12.** The last time
+this prompt was sent, the response that came back was the *previous* P12
+answer (`galaxyForge-CITATION-VERIFICATION-2026-08-26.md`), returned
+unchanged — same header, same "Cut date: 2026-08-26", same eight-row
+table, byte-for-byte. That document already exists, is already filed, and
+is already fully credited below in "Context the agent will need." **Do
+not reproduce it.** None of its eight items are being asked again. Every
+item below is either brand new (Tier 1, opened by a design decision made
+*after* P12 landed) or an item P12 itself explicitly left open in its own
+§10 and did not resolve (Tier 2). If the honest answer to any Tier 1 item
+is "I don't have live access to check this," say exactly that for that
+item — do not substitute an already-answered P12 item in its place.
+
 Consolidated hand-off for a research agent with real journal/ADS/arXiv
 access. Combines two new obligations opened by Ruling 11's erratum
 (`RULING-11-PROPOSAL-pattern-speed-architecture.md`) with the six items
