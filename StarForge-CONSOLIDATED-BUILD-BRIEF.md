@@ -70,7 +70,8 @@ The canonical units are **astronomical, not SI** - chosen for human-readability,
 |---|---|---|
 | coordinates x/y/z, R, height | pc (3 dp) | ly, kpc, km |
 | distance between systems | pc | ly |
-| stellar density | **systems/pc^3** (S4.1) | stars/pc^3 via `meanStarsPerSystem()` |
+| stellar density (volume) | **systems/pc^3** (S4.1) | stars/pc^3 via `meanStarsPerSystem()` |
+| surface (column) density | **systems/pc^2** (S4.6) | systems/ly^2 via `surfaceDensityPc2ToLy2()` |
 | stellar temperature | K | degC, degF |
 | stellar luminosity | Lsun | W |
 | stellar radius | Rsun | km, Rearth |
@@ -85,8 +86,12 @@ The canonical units are **astronomical, not SI** - chosen for human-readability,
 | planet mass | Mearth | kg, MJup |
 | moon orbital distance | Rp (Amendment A1) | km |
 | moon / small-body radius | km | Rearth |
+| azimuth / arc / pitch angle | **degrees** (S4.6) | radians, math-only via `degToRad()`, never stored |
+| angular velocity (pattern speed) | **km/s/kpc** (S4.6) | - (declared canonical in its literature unit, same human-readability principle as AU over metres; `spiralPatternSpeedKmSKpc`/`barPatternSpeedKmSKpc` name the canonical unit correctly, not a violation) |
 
 "Convert only at display" is not a discipline to remember - it is enforced by there being nowhere else to convert. Every toggle is a call into `units`; no other module holds a conversion factor. The one sanctioned exception is **audited table-definition transcription**: `units` is unavailable when a constant table is being defined, so a published kpc figure is converted by hand once, stored in pc, and **both values placed in the provenance comment** so the conversion is auditable (S4.2).
+
+**S4.6 (Ruling 7, arms bundle R2 Prompt P2, 27 Aug 2026).** The arms work was the first thing in the project to need azimuth, pitch angle, angular velocity, and surface density - four quantities absent from the original table above. Surface density and the angle/radian split were genuine gaps, now closed by `surfaceDensityPc2ToLy2()`/`surfaceDensityLy2ToPc2()` and `degToRad()`/`radToDeg()` in `units.ts`. Angular velocity's canonical unit was a real choice, not a gap: `spiralPatternSpeedKmSKpc` bakes `km/s/kpc` into its own name, which is exactly what this law exists to flag - the ruling is that `km/s/kpc` **is** the canonical unit for angular velocity, on the same grounds already used for AU/Rsun, so the existing name is a correct statement of the canonical unit rather than a violation to fix. Volume density needed no new row - `systems/pc^3` was already canonical (S4.1); this ruling only cross-references the arms-bundle package-01 solar anchor to that existing decision. Gate 6 in `units.conformance.ts` structurally enforces the angle half of this (no other file may hand-roll a `Math.PI / 180` conversion); the density half is already covered by gate 4's existing literal-reuse check, since the new density functions are built from `pcToLy` rather than introducing a new literal.
 
 ### When the science improves - the only procedure
 

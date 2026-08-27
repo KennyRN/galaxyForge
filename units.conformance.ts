@@ -3,6 +3,7 @@ import {
   radiusSolToKm, radiusSolToRearth, radiusEarthToKm, kmToRadiusEarth,
   radiusEarthToRjup, massEarthToMjup, gyrToMyr, myrToGyr, dexToLinearRatio,
   linearRatioToDex, MEARTH_PER_MSUN, surfaceGravityG,
+  degToRad, radToDeg, surfaceDensityPc2ToLy2, surfaceDensityLy2ToPc2,
 } from './units';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -48,6 +49,24 @@ check('4 no source file OTHER than units.ts reproduces one of units.ts\'s own ' 
 // 5. purity - no Rng anywhere
 check('5 units.ts imports nothing from rng.ts (every function here is pure)',
   !readSource('units.ts').includes("from './rng'"));
+
+// 6. STRUCTURAL (Prompt P2) - no other source file hand-rolls a
+// degree/radian conversion instead of calling degToRad/radToDeg. Checked
+// as normalised whitespace so `Math.PI / 180` and `Math.PI/180` both hit.
+const DEG_RAD_PATTERNS = [/Math\.PI\s*\/\s*180/, /180\s*\/\s*Math\.PI/];
+check('6 no source file OTHER than units.ts hand-rolls a Math.PI-based ' +
+  'degree/radian conversion (must call degToRad/radToDeg instead)',
+  allTsFiles().filter((f) => f !== 'units.ts').every((f) =>
+    DEG_RAD_PATTERNS.every((pat) => !pat.test(readSource(f)))));
+
+// extra: angle and density round-trips
+check('+ degToRad/radToDeg round-trip', Math.abs(radToDeg(degToRad(123.4)) - 123.4) < 1e-9);
+check('+ degToRad(180) === Math.PI exactly', degToRad(180) === Math.PI);
+check('+ surfaceDensityPc2ToLy2/Ly2ToPc2 round-trip',
+  Math.abs(surfaceDensityLy2ToPc2(surfaceDensityPc2ToLy2(1.6)) - 1.6) < 1e-9);
+check('+ surfaceDensityPc2ToLy2(1) is smaller than 1 (ly is a smaller unit than pc, ' +
+  'so a per-ly^2 density is a smaller number)',
+  surfaceDensityPc2ToLy2(1) < 1);
 
 // extra: derived constants sanity
 check('+ MEARTH_PER_MSUN lands near the well-known ~333000 figure',

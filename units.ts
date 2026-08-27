@@ -108,6 +108,51 @@ export function myrToGyr(myr: number): number { return myr / 1000; }
 export function dexToLinearRatio(dex: number): number { return Math.pow(10, dex); }
 export function linearRatioToDex(ratio: number): number { return Math.log10(ratio); }
 
+/* ----------------------------------- angle ------------------------------------------ */
+
+/**
+ * Ruling 7 (arms bundle R2, Prompt P2, 27 Aug 2026): degrees are canonical
+ * for every azimuth/arc/pitch-angle quantity (`tracedSpanDeg`, `armTipArcDeg`,
+ * `betaKink`, `pitchOuterDeg`, pitch angle generally) - matching every
+ * sourced table this project draws from (Reid 2019, Honig & Reid 2015,
+ * Hyland 2026 all report in degrees) and the existing `StarForge-
+ * CONSOLIDATED-BUILD-BRIEF.md` law's own human-readability principle (the
+ * same one that made AU and Rsun canonical over metres). Radians are a
+ * MATH-ONLY intermediate, never stored - convert via these two functions,
+ * and nowhere else. A sign-convention error has already lived in this
+ * exact deg/rad seam once (Erratum 3, P3); routing every conversion
+ * through one pure pair is the structural fix, enforced by gate 6 below.
+ */
+export function degToRad(deg: number): number { return deg * Math.PI / 180; }
+export function radToDeg(rad: number): number { return rad * 180 / Math.PI; }
+
+/* --------------------------------- density ------------------------------------------ */
+
+/**
+ * Ruling 7 (arms bundle R2, Prompt P2, 27 Aug 2026): `systems pc^-2` is
+ * canonical for surface (column) density - `densityMap.ts`'s own
+ * `DensitySurface` doc comment already named this exact unit and already
+ * said the ly^-2 conversion "belongs in units.ts"; it did not yet exist.
+ * Derived from the existing pc<->ly length conversion (no new literal), so
+ * gate 4's existing literal-reuse check already guards it - a hand-rolled
+ * copy elsewhere would still have to reproduce one of `KM_PER_AU`/
+ * `KM_PER_LY`'s literals to get the ratio right.
+ *
+ * Volume density (`systems pc^-3`, the arms-bundle package-01 solar
+ * anchor) was ALREADY canonical in the governing law's table before this
+ * ruling - see `StarForge-CONSOLIDATED-BUILD-BRIEF.md` section 1, "stellar
+ * density". No new function needed there; Ruling 7 only cross-references
+ * an existing decision, it does not make a new one.
+ */
+export function surfaceDensityPc2ToLy2(systemsPerPc2: number): number {
+  const pcPerLy = 1 / pcToLy(1);
+  return systemsPerPc2 * pcPerLy * pcPerLy;
+}
+export function surfaceDensityLy2ToPc2(systemsPerLy2: number): number {
+  const lyPerPc = pcToLy(1);
+  return systemsPerLy2 * lyPerPc * lyPerPc;
+}
+
 /* --------------------------------- gates ------------------------------------ */
 
 /**
@@ -123,5 +168,11 @@ export function linearRatioToDex(ratio: number): number { return Math.log10(rati
  *     constant of its own (grepped for characteristic literals like
  *     149597870 across every file except this one and `verification/`).
  *  5. Every function here is pure - no `Rng` parameter, no side effect.
+ *  6. STRUCTURAL (Prompt P2, arms bundle R2) - no OTHER source file hand-
+ *     rolls a degree/radian conversion (`Math.PI / 180` or `180 / Math.PI`
+ *     in either spacing/order) instead of calling `degToRad`/`radToDeg`.
+ *     Density conversions need no separate literal check: they are built
+ *     from `pcToLy`, so gate 4's existing literal-reuse check already
+ *     covers a hand-rolled copy.
  */
-export const UNITS_GATES = 5 as const;
+export const UNITS_GATES = 6 as const;

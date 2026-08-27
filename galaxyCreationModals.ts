@@ -53,6 +53,7 @@ import { fieldFromModel, projectSlab, normaliseForDisplay, modulateArmsForDispla
 import { ismDensityAt, DEFAULT_ISM_PARAMS } from './ism';
 import { DEFAULT_JURIC, makeDefaultGalaxyParameters, type GalaxyParameters, type ComplexTierParams } from './galaxyParameters';
 import { generateSeededArms, rollArmClass, ARMS, type ArmDefinition } from './spiralArms';
+import { degToRad, radToDeg } from './units';
 import { complexParticipation, complexCellsOverlapping, complexCentresInCell, type ComplexCentre } from './starFormingComplexes';
 import { generateSector, assembleSector } from './sectorFootprint';
 import { searchNearestSystem } from './sectorSearch';
@@ -1906,8 +1907,8 @@ export class GalaxyScreen2Modal extends Modal {
     }
 
     renderSliderRow(
-      contentEl, { icon: ANGLE_ICON, title: `Angle (θ) - ${this.draft.angleRad * 180 / Math.PI}°` },
-      0, 359, 1, 2, this.draft.angleRad * 180 / Math.PI, (v) => this.setDraft({ angleRad: (v * Math.PI) / 180 }),
+      contentEl, { icon: ANGLE_ICON, title: `Angle (θ) - ${radToDeg(this.draft.angleRad)}°` },
+      0, 359, 1, 2, radToDeg(this.draft.angleRad), (v) => this.setDraft({ angleRad: degToRad(v) }),
     );
     renderSliderRow(
       contentEl, { icon: DISTANCE_FROM_CENTRE_ICON, title: `Distance from centre (R) - ${this.draft.distanceFromCentrePc} pc` },
