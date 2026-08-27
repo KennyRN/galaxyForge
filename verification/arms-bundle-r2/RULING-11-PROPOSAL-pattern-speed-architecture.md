@@ -1,5 +1,93 @@
 # Ruling 11 (proposed) — pattern-speed architecture for Package 02
 
+## Erratum 2 (2026-08-27) — P13 research closes four Tier-1 items; model simplifies to one free parameter
+
+Full findings: `galaxyForge-P13-PATTERN-SPEED-RESEARCH-2026-08-27.md`, same
+folder. Net effect: **the design gets simpler, not more complex** — one
+sourced constant plus one derived coupling, not two independent regimes.
+
+**Resolved — Reid et al. 2019 has no per-arm termination radii, at all.**
+Checked directly against Table 2's full nine-column structure (this
+project's own record of it was missing column 3, ℓ tangency — corrected).
+The β range column is explicitly the range of the *parallax data*, not
+where the arm physically ends: the traced extent moved when Hyland et al.
+2026 added new masers, Reid himself hand-extends several arms past it, and
+§3 states plainly it is a statement about data coverage. **This removes
+the open question from Erratum 1** — there is no better-sourced
+alternative to resonance for the `ARMS` table's termination, because Reid
+2019 contains no termination model at all. The `ARMS`/`grandDesign`
+resonance regime stands as designed, unsuperseded.
+
+**Resolved — the two-pattern model is one free parameter, not two.**
+Lépine et al. 2011b's outer-pattern claim is not a measurement — it is an
+N-body reconciliation conjecture between Lépine 2011a (single pattern,
+corotation ≈8.4 kpc) and Quillen & Minchev 2005 (4:1 inner resonance at
+the solar radius, independently measured from local stellar kinematics).
+There is no "Lépine outer Ω_p" to import; the placeholder Ω_p ≈ 18–20
+km/s/kpc from Erratum 1 was silently re-deriving the same number Lépine
+2011b itself derives. But the reconciliation constraint itself is real and
+useful: **R_4:1,outer = R_CR,main**, which on a flat curve gives
+`Ω_p,outer = 0.6464 × Ω_p,main`. **Revise `PatternSpeedModel`: store one
+sourced Ω_p,main (Dias et al. 2019, Ω_p = 28.2 km/s/kpc, recomputed in the
+project's own V₀ per Erratum 1/item 2 of the citation report) and derive
+Ω_p,outer as a fixed multiple of it, graded `derived`, never stored as an
+independent constant.** This is the same class of error Erratum 1 fixed
+for `armTipArcDeg` (measuring the analysis, not the galaxy) applied to a
+constant instead of a statistic.
+
+**New — resonance-member attachment trap.** Quillen & Minchev's "4:1 ILR"
+means the 4:1 *inner resonance* (i.e. the same ultraharmonic resonance
+`ultraharmonic_4_1` already names in the enum), not the m=2 ILR — confirmed
+via Sellwood 2010's re-analysis of their own model. Whichever
+`PatternSpeedModel`/resonance-enum wiring eventually implements this MUST
+attach Quillen & Minchev's number to `ultraharmonic_4_1`, not a separate
+ILR member. Getting this wrong silently pins the wrong resonance to the
+whole `grandDesign` regime. Also carry the honest uncertainty: Quillen &
+Minchev's 18.1 km/s/kpc is a minority value — Gerhard 2011's review range
+is Ω_p ≈ 17–30 km/s/kpc, and open-cluster/APOGEE methods cluster near
+23–24 against phase-space/hydro methods near 18–20. Register this spread,
+not a single point value.
+
+**New — barred-host scope caveat on `grandDesign`'s 4:1 termination.** The
+4:1 ultraharmonic criterion is documented (Contopoulos & Grosbøl via a 2004
+review of Grosbøl & Patsis 2001) as applying to *strong* spirals; *barred*
+hosts are reported as better fit by corotation/OLR limiting instead. The
+Milky Way is barred. Applying 4:1 termination unconditionally to
+`grandDesign` — which is what `ARMS`/`'observed-mw'` represents — may be a
+scope error independent of whether the 2–10% strong/weak threshold itself
+is right. Needs a decision when Package 02 gets its numbered prompt:
+either gate 4:1-vs-corotation/OLR on a barred flag, or accept the
+simplification explicitly and document why.
+
+**Correction — Meidt et al. 2008 citation and register wording.** Wrong
+reference in Erratum 1 (`ApJ 683, 798` doesn't exist for this result;
+correct is Meidt, Rand, Merrifield, Shetty & Vogel 2008, **ApJ 688, 224**,
+*"Radial Dependence of the Pattern Speed of M51"*). Content confirmed at
+abstract level: **two** pattern speeds (not three — that's a later
+extension by other papers), confined to the **inner 4 kpc** at PA=170°,
+both above the global value. The By-law S register entry must carry these
+qualifiers, not a general "radial variation of pattern speed" claim.
+
+**Correction — Lépine et al. 2011b's title was wrong in Erratum 1's own
+prompt** (MNRAS 417, 698 is the right volume/page; the title is
+*"Overlapping abundance gradients and azimuthal gradients related to the
+spiral structure of the Galaxy"*).
+
+**Do not use — the "28 of 32" barred-galaxy figure.** Could not be located
+anywhere in the Font/Beckman corpus across three papers (2011, 2014a,
+2014b) despite a direct search. It should not be the By-law S headline
+number until located or replaced; the corpus does support a weaker but
+locatable claim ("multiple corotations in virtually all cases" across
+100+ galaxies), currently still secondary.
+
+Still open, folded into `PROMPT-P13-pattern-speed-and-outstanding-
+citations.md`'s own §12 priority list rather than repeated here: Honig &
+Reid's published tables, the 28-of-32 relocation, Lépine 2011b and Quillen
+& Minchev's bodies at the version of record, Contopoulos & Grosbøl's
+originals, Font 2014a/Sun 2024/Dias 2019 bodies.
+
+---
+
 ## Erratum 1 (2026-08-27) — owner rejects the single-regime simplification; primary driver reconsidered
 
 Owner decision: do not keep a single-Ω_p simplification anywhere out of
