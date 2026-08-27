@@ -1,15 +1,15 @@
 # Follow-up audit note — arms bundle R2, pattern-speed citations
 
-**Raised 2026-08-27. Originally not urgent — none of this blocked Ruling
-11's design being adopted.** Item 4 has since changed status: the Package
-02/03 build plan's own Stage D (extent ordering) is now genuinely blocked
-on it, not merely sharpened by it — see `PROMPT-RULING-10-extent-ordering
--research.md` (drafted 27 Aug 2026, ready to send), which bundles item 4
-as its primary ask and items 2/3 below as optional carry-alongs. Items 1
-and 5 remain genuinely low-priority; pick those up whenever a future
-audit pass has spare capacity.
+**Raised 2026-08-27. Largely closed 27 Aug 2026** by
+`galaxyForge-RULING-10-RESEARCH-2026-08-27.md` and
+`galaxyForge-P13-ERRATUM-2-2026-08-27.md` — items 2, 3 and 4 below are now
+resolved (2 and 3 sourced/closed outright; 4 closed as a documented
+negative result, see its own entry). Only items 1 and 5 remain, both
+genuinely low-priority. Pick those up whenever a future audit pass has
+spare capacity — nothing here needs an owner decision any more, only
+optional further reading.
 
-## What's still open
+## Still open (low priority)
 
 Carried forward from `galaxyForge-P13-ERRATUM-1-2026-08-27.md` §E1.4 and
 Ruling 11's own Erratum 3 — read those two files first, they have the full
@@ -19,37 +19,56 @@ reasoning chain:
    arXiv:1106.3137, public, no paywall). Won't change its `conjecture`
    grade, but the exact wording should be quoted correctly once read
    properly rather than reconstructed from a citing paper.
-2. **Quillen & Minchev 2005's body**, specifically the resonance-identity
-   question (arXiv:astro-ph/0502205 v2, public). Determines whether the
-   18.1 km/s/kpc citation attaches to the existing `ultraharmonic_4_1` enum
-   member or a separate ILR member — this is the most consequential of the
-   remaining items, because getting it wrong at implementation time would
-   silently mis-wire the `grandDesign` resonance regime.
-3. **Contopoulos & Grosbøl 1986 (A&A 155, 11) and 1988 (A&A 197, 83)
-   originals.** ADS full-text scans exist but are robots-blocked — this
-   one needs an actual human with a browser, not another automated pass.
-   Would promote the 2–10% strong/weak criterion out of `calibrated
-   (secondary)` and settle whether the barred-host corotation/OLR
-   alternative (vs. 4:1) applies to `grandDesign`/`ARMS`.
-4. **Sun et al. 2024 body** (ApJL, DOI `10.3847/2041-8213/ad9605`) — the
-   R ≈ 22 kpc arm extent is load-bearing for whichever ruling ends up
-   governing outer-disc arm extent (Ruling 10), currently abstract-level
-   only. **Promoted in priority 27 Aug 2026** — Ruling 10 has since been
-   formally recorded (retain Reid β spans as an interim position,
-   selection function documented) specifically *because* this item was
-   still open; the owner has asked to revisit Ruling 10 once this is
-   read, to replace the interim position with Sun 2024's own arc-length
-   approach if it holds up. **Promoted again 27 Aug 2026, same day**: the
-   Package 02/03 build plan's Stage D (arm extent ordering, the last
-   remaining stage) is now formally blocked on this item specifically,
-   not merely improved by it — see `PROMPT-RULING-10-extent-ordering
-   -research.md` for the full research ask (per-arm mapping, sample
-   honesty, whether the shared Stage-C terminus itself needs
-   reconsideration). This is the single most consequential item on this
-   list.
-5. **Dias et al. 2019 body** (MNRAS 486, 5726) — lowest priority; the
+2. **Dias et al. 2019 body** (MNRAS 486, 5726) — lowest priority; the
    abstract already states the adopted frame explicitly and the arithmetic
    closes cleanly, so this is a confirmation pass, not a correction hunt.
+
+## Closed 27 Aug 2026
+
+3. **Quillen & Minchev 2005's resonance-identity question** — CLOSED.
+   `galaxyForge-RULING-10-RESEARCH-2026-08-27.md` §7: the 18.1 km/s/kpc
+   citation attaches to `ultraharmonic_4_1`, not a separate ILR member —
+   confirmed from the published AJ 130, 576 abstract directly (the
+   preprint's own "(ILR)" abbreviation was dropped between arXiv and
+   publication, the actual source of the ambiguity). Not currently
+   load-bearing for anything built (Stage C uses OLR for both
+   `grandDesign` and `ARMS`, not 4:1), but settled for whenever that
+   changes.
+4. **Contopoulos & Grosbøl 1986/1988 originals** — CLOSED.
+   `galaxyForge-P13-ERRATUM-2-2026-08-27.md`, both papers read from ADS
+   scans at the version of record. The 4:1-strong/corotation-weak
+   criterion is now `sourced` (C&G 1986's own Summary states it directly).
+   The "2–10%" amplitude range this project cited **does not exist in
+   either paper and has been struck** from `spiralArms.ts`'s own
+   `ARM_TERMINUS_SHARED_PC` header — it traces to Contopoulos's own later
+   (2009) review, not C&G 1986/1988. The actual sourced threshold is a
+   single number: A < 100 km² s⁻² kpc⁻¹, equivalently a 2% density
+   contrast in a completely flat disc model (C&G 1988 §2). The
+   barred-host question is NOT settled by these papers either way — they
+   modelled an unbarred Sc (NGC 5247) and argue the 4:1 mechanism doesn't
+   apply to bars at all, which neither supports nor refutes this
+   project's own OLR choice for the real (barred) Milky Way.
+5. **Sun et al. 2024 body** (ApJL 977, L35, DOI
+   `10.3847/2041-8213/ad9605`) — CLOSED as a documented negative result,
+   not a correction hunt. `galaxyForge-RULING-10-RESEARCH-2026-08-27.md`
+   (full response) + `galaxyForge-P13-ERRATUM-2-2026-08-27.md` §E2.4
+   (Table 1 confirmed unchanged at the version of record, promoting the
+   whole response to `sourced`). Verdict: Sun 2024 gives a genuine
+   per-arm length table for three arms (Perseus, Outer, OSC), Reid
+   -anchored — but it cannot supply a six-arm relative-extent ordering
+   for `ARMS` (three of six arms absent; OSC isn't a row this table
+   carries at all; no uncertainties on any length; and the lengths
+   demonstrably measure MWISP's own survey coverage times radius, not
+   arc length — reproduced to within 3–17% by that arithmetic alone).
+   Ruling 10's own interim Reid-β-span ordering is recommended to stand
+   **permanently, relabelled honestly** (a traced-coverage proxy, not a
+   length) rather than replaced — see Ruling 10's own updated status.
+   Separately: real CO-traced gas puts the Outer arm ~0.19kpc beyond
+   `ARM_TERMINUS_SHARED_PC` (inside its own ~1kpc kinematic uncertainty,
+   not actionable) and a proposed OSC extension ~7.9kpc beyond it (real,
+   but OSC is Scutum-Centaurus's own far-side continuation, not a
+   modelled arm) — recorded honestly in `spiralArms.ts`'s own header as
+   an examined, unactioned limitation.
 
 **Explicitly not on this list:** Font et al. 2014b, Honig & Reid's tables
 at the version of record, Junqueira et al. 2015, and Reid et al. 2019's
@@ -59,10 +78,7 @@ information.
 
 ## Where to resume
 
-For item 4 (Stage D's own blocker), send `PROMPT-RULING-10-extent
--ordering-research.md` as-is — it is the ready-to-send research request.
-For items 1/2/3/5, start from `RULING-11-PROPOSAL-pattern-speed
--architecture.md`'s Erratum 3 (the most recent one) for the current state
-of the design, then work down this list. If a future pass closes any of
-items 1–5, add a new dated erratum to the ruling file (prepend, don't
-rewrite) rather than editing this note or the ruling's existing body.
+Items 1 and 2 only. Start from `RULING-11-PROPOSAL-pattern-speed
+-architecture.md`'s Erratum 3 for the current state of the design. If a
+future pass closes either, add a new dated erratum to the ruling file
+(prepend, don't rewrite) rather than editing this note.

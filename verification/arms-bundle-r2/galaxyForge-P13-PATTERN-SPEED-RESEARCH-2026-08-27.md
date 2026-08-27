@@ -2,6 +2,8 @@
 
 **Superseded in part by `galaxyForge-P13-ERRATUM-1-2026-08-27.md` (same folder) — read that first.** It closes items 1, 5 and the "28-of-32" half of item 8 against three papers supplied after this report was cut, and corrects the Meidt et al. 2008 citation a third time. This file (filed locally as `galaxyForge-P13-PATTERN-SPEED-RESEARCH-2026-08-27.md`; the erratum calls it `galaxyForge-P13-RESEARCH-2026-08-27.md` — same document) is left unmodified below per the erratum's own "prepend, don't rewrite" instruction.
 
+**Also superseded in part by `galaxyForge-P13-ERRATUM-2-2026-08-27.md` (same folder) — read that too.** Closes item 7 (Contopoulos & Grosbøl 1986/1988, now read at the version of record) and strikes the "2–10%" amplitude figure that item's own §7 text below relies on — the sourced weak/strong threshold is a single number (2% density contrast, completely flat model), not a range.
+
 **Response to prompt P13.** Companion to `galaxyForge-CITATION-VERIFICATION-2026-08-26.md`; does not reproduce it and does not re-ask any of its eight items. **Cut date: 2026-08-27.**
 
 **Scope note.** This response works from P13's own description of Ruling 11 — the grandDesign/`ARMS` resonance regime and the placeholder Ω_p ≈ 18–20 km s⁻¹ kpc⁻¹ back-derived from V₀/12 kpc on a flat curve. Check §2 and §4 below against the ruling text before acting (superseded by the erratum in `RULING-11-PROPOSAL-pattern-speed-architecture.md`, filed after this report).

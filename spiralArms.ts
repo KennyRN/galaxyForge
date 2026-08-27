@@ -311,28 +311,46 @@ export const R_CR_MAIN_PC = (SOLAR_CIRCULAR_VELOCITY_KM_S / SPIRAL_PATTERN_SPEED
  *
  * WHY OLR, NOT COROTATION OR 4:1 - `03-ARM-TERMINATION.md` Erratum SS1.10
  * (bundle-source) argues the terminating resonance is selected by arm
- * STRENGTH: weak spirals (A2 <~ 0.10) reach corotation or the OLR, strong/
- * open ones (A2 >~ 0.3) hit the 4:1 ultraharmonic instead (periodic orbits
- * turn rectangular and can no longer support the wave, Contopoulos &
- * Grosbol 1986/1988). The Milky Way sits at A2~0.14 (Drimmel & Spergel) -
- * weak branch. Reid's own corrected outermost traced point (12.63kpc, this
- * project's own Stage-B-era erratum reading) sits 13% inside the Dias OLR
- * (14.53kpc at DIAS's own frame) - "an arm 13% inside its ceiling is what
- * density-wave theory expects" (Erratum 3 SS3.2), i.e. OLR as a CEILING the
- * real arm sits comfortably inside, not a claim the MW's own traced point
- * IS the OLR. `grandDesign` (strong, two-armed, open by this project's own
- * classification) is architecturally the class SS1.10's own strength
- * argument would push toward 4:1 instead - but 4:1 off THIS project's only
- * sourced Omega_p (28.2, MW-specific) puts the terminus at ~5.2kpc, inside
- * the bar-attachment radius itself (`ARM_INNER_ATTACH_RADIUS_PC`=5000) -
- * verified numerically before choosing, not assumed: a degenerate result
- * for a class whose own definition is "two LONG, smooth, continuous arms".
- * OLR is used for BOTH classes here as the one value this project's own
- * sourced constants support without producing a degenerate table-wide
- * terminus - stated as a limitation, not a settled physical claim; 4:1 for
- * `grandDesign` specifically remains open pending a `grandDesign`-scale
- * pattern speed this project does not have (see `FOLLOW-UP-AUDIT-2026-08
- * -27.md`).
+ * STRENGTH: weak spirals reach corotation or the OLR, strong/open ones hit
+ * the 4:1 ultraharmonic instead (periodic orbits turn rectangular and can
+ * no longer support the wave). REGRADED sourced, 27 Aug 2026 (galaxyForge
+ * -P13-ERRATUM-2-2026-08-27.md, both Contopoulos & Grosbol papers now read
+ * at the version of record, ADS scans): C&G 1986's own Summary states the
+ * criterion directly - strong spirals terminate near the 4/1 resonance,
+ * weak ones stay in phase to corotation, "the same result is obtained for
+ * colliding gas clouds" - and C&G 1988 SS2 supplies the actual sourced
+ * threshold, A < 100 km^2 s^-2 kpc^-1, EQUIVALENTLY a 2% density contrast
+ * in a COMPLETELY FLAT disc model - NOT the "2-10%" range this module used
+ * to cite (that figure traces to Contopoulos's own 2009 REVIEW, a later,
+ * different, non-C&G-1986/1988 generalisation - confirmed absent from
+ * both original papers on a full read, struck per the erratum's own
+ * finding). The Milky Way (Drimmel & Spergel A2~0.14, a different,
+ * dimensionless amplitude convention from C&G's own dimensional A - not
+ * claimed to be the same quantity, only qualitatively "weak/moderate") -
+ * weak branch either way. Reid's own corrected outermost traced point
+ * (12.63kpc, this project's own Stage-B-era erratum reading) sits 13%
+ * inside the Dias OLR (14.53kpc at DIAS's own frame) - "an arm 13% inside
+ * its ceiling is what density-wave theory expects" (Erratum 3 SS3.2), i.e.
+ * OLR as a CEILING the real arm sits comfortably inside, not a claim the
+ * MW's own traced point IS the OLR. `grandDesign` (strong, two-armed, open
+ * by this project's own classification) is architecturally the class
+ * SS1.10's own strength argument would push toward 4:1 instead - but 4:1
+ * off THIS project's only sourced Omega_p (28.2, MW-specific) puts the
+ * terminus at ~5.2kpc, inside the bar-attachment radius itself
+ * (`ARM_INNER_ATTACH_RADIUS_PC`=5000) - verified numerically before
+ * choosing, not assumed: a degenerate result for a class whose own
+ * definition is "two LONG, smooth, continuous arms". OLR is used for BOTH
+ * classes here as the one value this project's own sourced constants
+ * support without producing a degenerate table-wide terminus - stated as
+ * a limitation, not a settled physical claim; 4:1 for `grandDesign`
+ * specifically remains open pending a `grandDesign`-scale pattern speed
+ * this project does not have (this is now the ONLY missing piece - the
+ * qualifying criterion itself is fully sourced per the erratum above).
+ * ALSO NOT SETTLED BY C&G: whether OLR is right for a BARRED host
+ * specifically - C&G 1986 SS1/SS4 argue the 4/1 mechanism (differential
+ * apsidal precession) doesn't apply to bars at all, which neither
+ * supports nor refutes this project's own OLR choice for the real
+ * (barred) Milky Way, since C&G modelled an unbarred Sc (NGC 5247).
  *
  * FLAT-CURVE CAVEAT, NOT SILENTLY SKIPPED - SS1.10 also warns the rotation
  * curve is NOT flat where the OLR sits (Eilers et al. 2019 measure beta ~
@@ -347,6 +365,17 @@ export const R_CR_MAIN_PC = (SOLAR_CIRCULAR_VELOCITY_KM_S / SPIRAL_PATTERN_SPEED
  * modest over the range Eilers/Jiao/Ou actually measure near the solar
  * circle), not an oversight - building a full rotation-curve model is its
  * own, much larger, unscoped task.
+ *
+ * A REAL, EXAMINED LIMIT, NOT ACTED ON - Ruling 10 research (27 Aug 2026,
+ * `galaxyForge-RULING-10-RESEARCH-2026-08-27.md` SS3) found that Sun et
+ * al. 2024's own CO-traced arm extents put the real Outer arm's outer end
+ * at ~14.05kpc (0.19kpc beyond this constant's own ~13.86kpc, inside that
+ * paper's own ~1kpc kinematic-distance uncertainty - not actionable) and a
+ * proposed OSC (Outer-Scutum-Centaurus) extension out to ~21.8kpc (7.9kpc
+ * beyond - real, but OSC is Scutum-Centaurus's own far-side continuation,
+ * NOT a row this table carries; not a case of an EXISTING arm's terminus
+ * being wrong). Recorded honestly as a known simplification this shared
+ * terminus does not capture, not silently missed.
  */
 export const ARM_TERMINUS_SHARED_PC = resonanceRatio(2, 0, 'outer') * R_CR_MAIN_PC;
 
