@@ -332,5 +332,104 @@
  * additions - `resonanceRatio`, the pattern-speed constants, the bar
  * -attachment radius - remain unwired and therefore bump-free, per their
  * own header note).
+ *
+ * BUMP 14, 27 Aug 2026 (Package 02/03 build plan, Stage C - the actual
+ * termination mechanism, the largest stage of this plan). Every spiral/
+ * barredSpiral galaxy's arm-adjacent placement draws move, not merely
+ * systems visibly near a tip (Prompt P9's own "widen the Amendment P diff
+ * scope" instruction) - this is stated explicitly here because it is a
+ * genuinely different KIND of change from every prior bump: for the first
+ * time, an arm's ridge stops meaning something at every radius forever.
+ *
+ * TWO independent generation-path changes, one bump:
+ *
+ * (1) OUTER TERMINATION. `ArmDefinition` gains two optional fields,
+ * `terminusPc`/`tipStartRatio` (Amendment A2's own precedent for a
+ * generation-path signature/shape change, applied to `spiralArms.ts`'s own
+ * data model rather than a function signature - `armFactor` itself did NOT
+ * need widening, see (3) below). Per-`armClass` mechanism, `03-ARM-
+ * TERMINATION.md`'s own rulings (bundle-source):
+ *  - `grandDesign` (seeded) and `ARMS` (`observed-mw`, the real Milky Way)
+ *    share ONE table-wide terminus, `ARM_TERMINUS_SHARED_PC` - a NEW
+ *    `derived` constant, the OLR (m=2) off a NEW sourced `SOLAR_CIRCULAR_
+ *    VELOCITY_KM_S` (229 km/s, Eilers et al. 2019) and Stage A's own
+ *    `SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC` (28.2, Dias et al. 2019) - see
+ *    that constant's own header for why OLR rather than 4:1 (4:1 off this
+ *    project's only sourced Omega_p puts the terminus inside the bar
+ *    -attachment radius itself, verified numerically before choosing, not
+ *    assumed) and the stated flat-curve (beta=0) simplification (this
+ *    project has no rotation-curve model to evaluate `03-ARM-TERMINATION
+ *    .md`'s own "the model's own curve" instruction on).
+ *  - `multipleArm` rolls an INDEPENDENT terminus per arm (organic,
+ *    non-uniform lengths) on the newly-WIRED `CHANNELS.armTermination`,
+ *    plus a 40% chance of the sourced Honig & Reid 2015 narrowing tip
+ *    (`ARM_TIP_ARC_DEG`=31, `ARM_TIP_WIDTH_RATIO`=0.62 informing the
+ *    curve's own shape, `ARM_TIP_PROBABILITY`=0.40 - regraded `calibrated
+ *    (n=4, one interacting host)` per this project's own Erratum SS1.7,
+ *    not treated as more precise than four galaxies support).
+ *  - `flocculent` rolls an independent terminus per arm too, in its own
+ *    (lower-ceiling) band, no tip - no borrowed resonance or tip math it
+ *    has no data for.
+ * Per-cohort ordering (Ruling 3) layers on top of whichever mechanism
+ * applies: a NEW `ARM_COHORT_TERMINUS_FACTOR` (youngThin=0.82, midThin
+ * =0.91, oldThin=1.00, `tunable`, strictly ordered) multiplicatively
+ * scales every terminus per cohort - "it is the young arm that closes"
+ * (`03-ARM-TERMINATION.md` SS3), the star-formation-threshold argument.
+ * This project has no separate gas population, so the survey's fuller
+ * young-H-II < old-stellar < gas ordering collapses to the two-tier form
+ * actually representable here.
+ *
+ * (2) INNER ATTACHMENT (Ruling 5). `armStartInnerPc`/`armStartOuterPc`
+ * (`galaxyParameters.ts`) REVISED from an ad hoc ~2kpc-wide taper
+ * (3500-5500) to a narrow, purely-numerical smoothing window
+ * (4700-5000pc) anchored exactly on Stage A's own `ARM_INNER_ATTACH_
+ * RADIUS_PC` (5000, Wegg/Gerhard/Portail 2015's sourced bar-end radius) -
+ * "arms begin at the bar end at FULL amplitude, not ramped" (`03-ARM-
+ * TERMINATION.md` SS4/gate 6), not the physical-looking ramp the old
+ * window implied. Confirmed empirically, not assumed: re-running the
+ * suite against the still-committed `gen13.json` fails `barredSpiral`'s
+ * own placement fixture at its reference cell (R~4170pc, squarely inside
+ * the old taper window); `spiral`'s own reference cell (R~8170pc) is far
+ * outside either window and is bit-for-bit unaffected, confirming this is
+ * a real, scoped change, not a blanket one.
+ *
+ * (3) A NOTE ON A PLAN THAT DIDN'T SURVIVE CONTACT WITH IMPLEMENTATION,
+ * STATED HONESTLY. Stage A's own commit anticipated `armFactor` needing a
+ * widened signature for this stage ("Amendment A10"). Building it for real
+ * found a cleaner design: `armFactor` ALREADY receives `set` (which cohort
+ * is asking - the exact mapping `discTerm`'s own contrast-tier selection
+ * already uses), and each arm's OWN `terminusPc`/`tipStartRatio` fields
+ * carry everything else - so termination is computed automatically inside
+ * `armFactor` from data it already has, with no new parameter, no new
+ * amendment, and no possibility of the "two call sites must pass identical
+ * termination or the self-consistency divide breaks" footgun a threaded
+ * parameter would have carried (exactly the risk `modulation`'s own header
+ * already documents against). Recorded here rather than silently
+ * forcing the original guess through - a plan is a plan, not a contract
+ * with the code.
+ *
+ * Visually verified, not merely gated (disposable diagnostic script, this
+ * session, per the plan's own stated verification discipline): ASCII
+ * density-field renders of `ARMS`/`grandDesign`/`multipleArm`/`flocculent`
+ * tables all show arms genuinely narrowing to a visible end rather than
+ * spiralling forever or cutting off abruptly; the inner-attachment fix's
+ * on-ridge/interarm contrast measured via the real model (not the bare
+ * `armFactor` ridge alone, which does not itself see `armInnerTaper`)
+ * shows exactly 0% contrast below 4700pc, a smooth ramp to ~4.8% by
+ * 5000pc, full strength beyond - matching gate 6's own requirement exactly.
+ *
+ * New gates: `spiralArms.conformance.ts` gate 15 (25 checks, 15a-15y) -
+ * the shared-terminus formula live-recomputed, per-cohort ordering through
+ * `armFactor` itself, the tip mechanism's own young-cohort scoping (a real
+ * bug this gate suite caught before shipping, not merely designed around -
+ * an earlier draft let a rolled tip's own window leak into the mid/old
+ * cohorts too), the numerical-safety margin against `referenceRPc`, and
+ * per-armClass rolling (determinism, band membership, tip incidence,
+ * channel isolation from `CHANNELS.seededArms`, mean-preservation and
+ * strict positivity with termination genuinely active). `galaxyParameters
+ * .conformance.ts` gets a new "STAGE C: inner attachment" block (2 checks).
+ *
+ * `verification/golden/gen14.json` is the fixture cut against THIS
+ * version.
  */
-export const CURRENT_GEN_VERSION = 13;
+export const CURRENT_GEN_VERSION = 14;

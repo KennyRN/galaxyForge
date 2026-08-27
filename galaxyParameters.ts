@@ -57,7 +57,7 @@
 import type { GalaxyModelName } from './galaxyModel';
 import {
   ARMS, DEFAULT_ARM_WIDTH, deriveArmContrasts, anchorArmCorrection as computeAnchorArmCorrection,
-  DRIMMEL_SPERGEL_K, ARM_CLASS_CONTRAST_TARGET_K, ARM_CLASS_MODULATION,
+  DRIMMEL_SPERGEL_K, ARM_CLASS_CONTRAST_TARGET_K, ARM_CLASS_MODULATION, ARM_INNER_ATTACH_RADIUS_PC,
   type ArmDefinition, type ArmWidthParams, type ArmResponseSet, type ArmContrastSet, type ArmClass, type ArmModulationParams,
 } from './spiralArms';
 import { degToRad } from './units';
@@ -267,8 +267,21 @@ export interface GalaxyParameters {
   /** Reproduced HONESTLY, not byte-identically - see `spiralArms.ts`'s own
    *  header. `deriveArmContrasts` is called once, lazily, at first read. */
   readonly armContrast: () => ArmContrastSet;
-  readonly armStartInnerPc: number;   // calibrated, Wegg 2015 bar half-length
-  readonly armStartOuterPc: number;   // calibrated
+  /** Package 02/03 build plan Stage C (27 Aug 2026, Ruling 5) - NARROW
+   *  numerical smoothing window only, `ARM_INNER_ATTACH_RADIUS_PC` minus
+   *  `ARM_INNER_TAPER_SMOOTH_PC`. NOT a physical taper - `03-ARM-
+   *  TERMINATION.md` SS4/gate 6 (bundle-source): "Delete armInnerBluntFraction
+   *  ... arm begins at the bar-end radius at FULL amplitude, not ramped."
+   *  `armInnerBluntFraction` was never built in this codebase (confirmed by
+   *  grep before Stage C started); this pre-existing `armStartInnerPc`/
+   *  `armStartOuterPc` pair WAS a genuine ~2kpc-wide taper (3500-5500) that
+   *  directly conflicted with that ruling - narrowed here to a window just
+   *  wide enough to keep the field C1 (no raw discontinuity) at the
+   *  attachment edge, not to model a gradual physical ramp. */
+  readonly armStartInnerPc: number;   // calibrated, numerical smoothing only
+  /** `= ARM_INNER_ATTACH_RADIUS_PC` exactly - full amplitude AT the bar-end
+   *  radius, per Ruling 5/gate 6 above. */
+  readonly armStartOuterPc: number;   // sourced, Wegg/Gerhard/Portail 2015 bar-end radius
   /** Amendment A6, 17 Aug 2026 - `'multipleArm'` for `armSource:
    *  'observed-mw'` ALWAYS (the real Milky Way's own classification, never
    *  rolled); rolled once per galaxy (`spiralArms.rollArmClass`) for
@@ -339,6 +352,13 @@ export interface GalaxyParameters {
  * own header) - only `armSource === 'seeded'` actually reaches the
  * per-class target.
  */
+/** Package 02/03 build plan Stage C (27 Aug 2026) - purely a numerical
+ *  smoothing width, not a physical taper. See `GalaxyParameters.
+ *  armStartInnerPc`'s own header. `tunable`, chosen narrow (300pc against a
+ *  ~5000pc attachment radius) so "full amplitude at the bar end" reads as
+ *  true at whole-galaxy zoom while keeping `armInnerTaper` continuous. */
+const ARM_INNER_TAPER_SMOOTH_PC = 300;
+
 export function makeDefaultGalaxyParameters(
   worldSeed = '', arms: readonly ArmDefinition[] = ARMS, armSource: 'observed-mw' | 'seeded' = 'observed-mw',
   armClass: ArmClass = 'multipleArm',
@@ -358,8 +378,8 @@ export function makeDefaultGalaxyParameters(
     armWidth: DEFAULT_ARM_WIDTH,
     armResponse: armClass === 'flocculent' ? FLOCCULENT_ARM_RESPONSE : DEFAULT_ARM_RESPONSE,
     armContrast: () => deriveArmContrasts(referenceRPc, DEFAULT_ARM_WIDTH, arms, contrastTargetK),
-    armStartInnerPc: 3500,
-    armStartOuterPc: 5500,
+    armStartInnerPc: ARM_INNER_ATTACH_RADIUS_PC - ARM_INNER_TAPER_SMOOTH_PC,
+    armStartOuterPc: ARM_INNER_ATTACH_RADIUS_PC,
     armClass,
     armModulation: ARM_CLASS_MODULATION[armClass],
     referenceRPc,

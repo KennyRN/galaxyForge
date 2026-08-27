@@ -208,7 +208,7 @@
  * genVersion-bumping for every spiral/barredSpiral-generated system.
  */
 
-import { besselI0e } from './mathStats';
+import { besselI0e, smootherstep } from './mathStats';
 import { channelRng } from './rng';
 import { CHANNELS } from './types';
 import { degToRad } from './units';
@@ -226,6 +226,129 @@ export type ArmResponseSet = 'all' | 'majorMinor' | 'major' | 'none';
  * below for what each class actually changes.
  */
 export type ArmClass = 'flocculent' | 'multipleArm' | 'grandDesign';
+
+/**
+ * The standard epicyclic-resonance radius ratio, flat rotation curve
+ * generalised to a power-law slope `beta` (V(R) ~ R^beta, beta=0 flat) -
+ * `sourced (form)`, classical resonance theory (see
+ * `verification/arms-bundle-r2/bundle-source/resonance-derivation.py` for
+ * the derivation this reproduces). `side` picks the inner ('-') or outer
+ * ('+') member of the m-armed resonance pair - the SAME |m| gives two
+ * different radii (e.g. m=2 has both an ILR and an OLR), so this is not
+ * folded into the sign of `m` itself.
+ *
+ * VERIFIED against the flat-curve (beta=0) reference values this project's
+ * own audit already carries: ILR m=2 -> 0.2929 ('inner'), 4:1 ultraharmonic
+ * m=4 -> 0.6464 ('inner'), corotation -> 1.0000 (m -> infinity, or read
+ * directly, never through this formula), OLR m=4 -> 1.3536 ('outer'), OLR
+ * m=2 -> 1.7071 ('outer') - all four reproduce to 4dp (gated).
+ *
+ * MOVED here from its original Stage A location (below `ArmClass`'s own
+ * original home near the module's contrast machinery) 27 Aug 2026, Stage C -
+ * `ARMS`'s own termination fields (`terminusPc`, see `ArmDefinition`'s own
+ * header) need `resonanceRatio`/`SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC` already
+ * defined at the point `ARMS` itself is declared, a plain module-load-order
+ * requirement (a `const` array literal cannot reference a `const` declared
+ * later in the same file) - not a design change, purely mechanical.
+ */
+export function resonanceRatio(m: number, beta: number, side: 'inner' | 'outer'): number {
+  const sign = side === 'outer' ? 1 : -1;
+  return (1 + sign * Math.sqrt(2 * (1 + beta)) / m) ** (1 / (1 - beta));
+}
+
+/**
+ * Main spiral pattern speed - `sourced`, Dias et al. 2019, MNRAS 486, 5726.
+ * Ω_p = 28.2 ± 2.1 km/s/kpc is their own MEASURED quantity (from spiral-arm
+ * tracer kinematics); R_c = 8.51 kpc is DERIVED from it under their own
+ * adopted frame (R0=8.3kpc, V0=240km/s) via R_c = V0/Ω_p, not a second
+ * independent measurement - confirmed by re-deriving it from their own
+ * numbers (240/28.2 = 8.5106, matching their stated 8.51 exactly). This
+ * project imports Ω_p directly, per Ruling 11 Erratum 2 / this session's
+ * own P13 research (`galaxyForge-P13-PATTERN-SPEED-RESEARCH-2026-08-27
+ * .md`) - never R_c, which would silently import a number computed in
+ * Dias's own frame rather than this project's. MOVED here (see
+ * `resonanceRatio`'s own header) - same value, same grade, unchanged.
+ */
+export const SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC = 28.2;
+
+/**
+ * Local circular (flat-curve) speed - `sourced, By-law S`, Eilers, Rix,
+ * Ting, Hogg & Zari 2019 (ApJ 871, 120), V0 = 229 km/s - the same modern,
+ * Gaia-era measurement `verification/arms-bundle-r2/bundle-source/
+ * resonance-derivation.py` itself already uses (Erratum 3's own "four
+ * rotation frames" table names it explicitly). Paired here with Dias et
+ * al. 2019's own Ω_p (`SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC`) rather than
+ * Dias's own R0=8.3kpc/V0=240km/s frame - NOT internally consistent with
+ * Dias's own adopted frame, and stated honestly rather than implied: this
+ * project has no rotation-curve model of its own to derive a matched V0
+ * from, and `R_CR = V0 / Omega_p` needs a V0 from SOMEWHERE. Eilers is
+ * chosen because it post-dates Dias, is independently measured (stellar
+ * kinematics, not open-cluster proper motions), and sits inside the
+ * "measured range 11-29" By-law S band Ruling 11 already carries for
+ * `spiralPatternSpeedKmSKpc`-family constants - the same "defensible as a
+ * compromise, say so" reasoning Erratum 3 SS3.3 already applies to a
+ * sibling constant. By-law S: the resulting `R_CR_MAIN_PC`/`ARM_TERMINUS_
+ * SHARED_PC` below inherit the mandatory re-audit obligation.
+ */
+export const SOLAR_CIRCULAR_VELOCITY_KM_S = 229;
+
+/**
+ * Main-pattern corotation radius, pc - `derived`, NOT stored (Erratum 1 to
+ * package 02's own "store the input, derive the output" rule, S5). R_CR =
+ * V0 / Omega_p, in pc.
+ */
+export const R_CR_MAIN_PC = (SOLAR_CIRCULAR_VELOCITY_KM_S / SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC) * 1000;
+
+/**
+ * Shared outer-Lindblad-resonance arm terminus, pc - `calibrated, By-law S`
+ * (Package 02/03 build plan, Stage C, 27 Aug 2026). `resonanceRatio(2, 0,
+ * 'outer') x R_CR_MAIN_PC` - the OLR, m=2, evaluated on a FLAT rotation
+ * curve (beta=0). This is the ONE shared termination radius for `grandDesign`
+ * (seeded) and `ARMS` (the real Milky Way, `observed-mw`) - see
+ * `ArmDefinition.terminusPc`'s own header for why these two classes share
+ * ONE table-wide value while `multipleArm`/`flocculent` roll independent
+ * per-arm values instead.
+ *
+ * WHY OLR, NOT COROTATION OR 4:1 - `03-ARM-TERMINATION.md` Erratum SS1.10
+ * (bundle-source) argues the terminating resonance is selected by arm
+ * STRENGTH: weak spirals (A2 <~ 0.10) reach corotation or the OLR, strong/
+ * open ones (A2 >~ 0.3) hit the 4:1 ultraharmonic instead (periodic orbits
+ * turn rectangular and can no longer support the wave, Contopoulos &
+ * Grosbol 1986/1988). The Milky Way sits at A2~0.14 (Drimmel & Spergel) -
+ * weak branch. Reid's own corrected outermost traced point (12.63kpc, this
+ * project's own Stage-B-era erratum reading) sits 13% inside the Dias OLR
+ * (14.53kpc at DIAS's own frame) - "an arm 13% inside its ceiling is what
+ * density-wave theory expects" (Erratum 3 SS3.2), i.e. OLR as a CEILING the
+ * real arm sits comfortably inside, not a claim the MW's own traced point
+ * IS the OLR. `grandDesign` (strong, two-armed, open by this project's own
+ * classification) is architecturally the class SS1.10's own strength
+ * argument would push toward 4:1 instead - but 4:1 off THIS project's only
+ * sourced Omega_p (28.2, MW-specific) puts the terminus at ~5.2kpc, inside
+ * the bar-attachment radius itself (`ARM_INNER_ATTACH_RADIUS_PC`=5000) -
+ * verified numerically before choosing, not assumed: a degenerate result
+ * for a class whose own definition is "two LONG, smooth, continuous arms".
+ * OLR is used for BOTH classes here as the one value this project's own
+ * sourced constants support without producing a degenerate table-wide
+ * terminus - stated as a limitation, not a settled physical claim; 4:1 for
+ * `grandDesign` specifically remains open pending a `grandDesign`-scale
+ * pattern speed this project does not have (see `FOLLOW-UP-AUDIT-2026-08
+ * -27.md`).
+ *
+ * FLAT-CURVE CAVEAT, NOT SILENTLY SKIPPED - SS1.10 also warns the rotation
+ * curve is NOT flat where the OLR sits (Eilers et al. 2019 measure beta ~
+ * -0.06 at R0, steepening further out) and that nothing on the generation
+ * path should call `resonanceRatio` with beta=0 by default. This project
+ * has NO rotation-curve model at all (confirmed - no `rotationCurve`/
+ * `circularVelocity`/beta-slope concept anywhere in `.ts` sources before
+ * this stage), so "the model's own curve at the terminus radius" SS1.10
+ * asks for does not exist to evaluate on. beta=0 is used here as a stated,
+ * bounded simplification (SS1.10's own table: beta=-0.10 moves the m=2 OLR
+ * ratio by only -6.6% from the flat value, beta=-0.30 by -16.2% - real but
+ * modest over the range Eilers/Jiao/Ou actually measure near the solar
+ * circle), not an oversight - building a full rotation-curve model is its
+ * own, much larger, unscoped task.
+ */
+export const ARM_TERMINUS_SHARED_PC = resonanceRatio(2, 0, 'outer') * R_CR_MAIN_PC;
 
 export interface ArmDefinition {
   readonly name: string;
@@ -246,6 +369,24 @@ export interface ArmDefinition {
    *  for a specific, documented reason each. See `pitchDegAt`'s own header. */
   readonly RkinkPc?: number;
   readonly pitchOuterDeg?: number;
+  /** Termination, Package 02/03 build plan Stage C (27 Aug 2026) - OPTIONAL.
+   *  Undefined means "never terminates" (the pre-Stage-C default for every
+   *  arm this module ever shipped - the disc's own generic exponential
+   *  falloff is the only thing that fades it, unchanged). When set, this
+   *  arm's amplitude smoothly reaches zero at `terminusPc` (scaled per
+   *  cohort - see `armFactor`'s own header, "TERMINATION"). `ARMS` and
+   *  `generateSeededArms('grandDesign')` all share ONE identical value
+   *  (`ARM_TERMINUS_SHARED_PC`) here - a genuine table-wide constant, not
+   *  independently fit per arm, per that constant's own header.
+   *  `multipleArm`/`flocculent` roll an independent value per arm instead
+   *  (`withTermination`). */
+  readonly terminusPc?: number;
+  /** Set only when this arm rolled the Honig & Reid narrowing tip
+   *  (`multipleArm` class only, `ARM_TIP_PROBABILITY` chance, YOUNG cohort
+   *  only - see `armFactor`'s own header). The RATIO tipArcStart/terminusPc
+   *  (dimensionless, so per-cohort terminus scaling carries it along
+   *  automatically) - `tipStartRatioFor`'s own header has the derivation. */
+  readonly tipStartRatio?: number;
 }
 
 /** Reid et al. 2019, ApJ 885, 131 - sourced, transcribed from the patch
@@ -256,14 +397,17 @@ export interface ArmDefinition {
  *  entirely by `thetaArm`'s formula (patch v2.2 S2's own ruling).
  *  Scutum-Centaurus's `RkinkPc`/`pitchOuterDeg` are Table 2's own R_kink/
  *  psi> for that arm - see the module header for the verification and why
- *  the other five arms don't (yet) carry the same fields. */
+ *  the other five arms don't (yet) carry the same fields. `terminusPc`
+ *  (Stage C, 27 Aug 2026) is the SAME `ARM_TERMINUS_SHARED_PC` value on
+ *  every entry - see that constant's own header for the resonance choice
+ *  and its own stated limitations. */
 export const ARMS: readonly ArmDefinition[] = [
-  { name: 'Norma',              tier: 'minor', pitchDeg: 12.43, RrefPc: 4780,  thetaRefDeg: 0, weight: 0.55 },
-  { name: 'Scutum-Centaurus',   tier: 'major', pitchDeg: 12.04, RrefPc: 5493,  thetaRefDeg: 0, weight: 1.00, RkinkPc: 4910, pitchOuterDeg: 12.1 },
-  { name: 'Sagittarius-Carina', tier: 'minor', pitchDeg: 12.07, RrefPc: 6878,  thetaRefDeg: 0, weight: 0.55 },
-  { name: 'Local',              tier: 'spur',  pitchDeg: 12.43, RrefPc: 8719,  thetaRefDeg: 0, weight: 0.35 },
-  { name: 'Perseus',            tier: 'major', pitchDeg: 12.07, RrefPc: 10470, thetaRefDeg: 0, weight: 1.00 },
-  { name: 'Outer',              tier: 'minor', pitchDeg: 12.43, RrefPc: 12289, thetaRefDeg: 0, weight: 0.55 },
+  { name: 'Norma',              tier: 'minor', pitchDeg: 12.43, RrefPc: 4780,  thetaRefDeg: 0, weight: 0.55, terminusPc: ARM_TERMINUS_SHARED_PC },
+  { name: 'Scutum-Centaurus',   tier: 'major', pitchDeg: 12.04, RrefPc: 5493,  thetaRefDeg: 0, weight: 1.00, RkinkPc: 4910, pitchOuterDeg: 12.1, terminusPc: ARM_TERMINUS_SHARED_PC },
+  { name: 'Sagittarius-Carina', tier: 'minor', pitchDeg: 12.07, RrefPc: 6878,  thetaRefDeg: 0, weight: 0.55, terminusPc: ARM_TERMINUS_SHARED_PC },
+  { name: 'Local',              tier: 'spur',  pitchDeg: 12.43, RrefPc: 8719,  thetaRefDeg: 0, weight: 0.35, terminusPc: ARM_TERMINUS_SHARED_PC },
+  { name: 'Perseus',            tier: 'major', pitchDeg: 12.07, RrefPc: 10470, thetaRefDeg: 0, weight: 1.00, terminusPc: ARM_TERMINUS_SHARED_PC },
+  { name: 'Outer',              tier: 'minor', pitchDeg: 12.43, RrefPc: 12289, thetaRefDeg: 0, weight: 0.55, terminusPc: ARM_TERMINUS_SHARED_PC },
 ];
 
 /**
@@ -414,7 +558,8 @@ export function generateSeededArms(worldSeed: string, armClass: ArmClass = 'mult
   const cached = seededArmsCache.get(cacheKey);
   if (cached) return cached;
 
-  const arms = generateSeededArmsUncached(worldSeed, armClass);
+  const geometry = generateSeededArmsUncached(worldSeed, armClass);
+  const arms = withTermination(geometry, armClass, worldSeed);
   seededArmsCache.set(cacheKey, arms);
   return arms;
 }
@@ -521,6 +666,209 @@ function generateSeededArmsUncached(worldSeed: string, armClass: ArmClass): read
   }
 
   return arms;
+}
+
+/* ============================================================================
+ * TERMINATION (Package 02/03 build plan, Stage C, 27 Aug 2026). Per-armClass
+ * mechanism, per this session's own Ruling 11 erratum and `03-ARM-
+ * TERMINATION.md`'s own rulings (bundle-source):
+ *  - `grandDesign`/`ARMS` ('observed-mw') - ONE shared, resonance-based
+ *    terminus (`ARM_TERMINUS_SHARED_PC`, see its own header) across the
+ *    whole table, no per-arm roll, no tip.
+ *  - `multipleArm` - an INDEPENDENT terminus rolled per arm (organic,
+ *    non-uniform lengths, not one cut across the table), plus a
+ *    `ARM_TIP_PROBABILITY` chance of the sourced Honig & Reid narrowing tip.
+ *  - `flocculent` - an INDEPENDENT terminus rolled per arm, no tip (no
+ *    borrowed resonance OR tip math it has no data for - `tunable` outright).
+ * All rolls use `CHANNELS.armTermination` (registered, Stage A) - genuinely
+ * isolated from `CHANNELS.seededArms`'s own geometry/kink/spur draws, so
+ * adding termination can never perturb an already-generated table's own
+ * shape and vice versa (Law 2).
+ * ==========================================================================*/
+
+/**
+ * Honig & Reid 2015 (ApJ 800, 53) - the outer-tip narrowing statistics,
+ * regraded `calibrated (n=4, one interacting host)` per `03-ARM-
+ * TERMINATION.md` Erratum SS1.7 (bundle-source) - the 40%/31deg/0.62 figures
+ * reproduce exactly from the survey's own table, but four narrowing arms
+ * (two from one tidally-interacting host, M51) is a thin base for the
+ * tight-looking point values; the 95% CIs are wide (19.3-43.2deg, 0.44-0.80,
+ * 0.15-0.70). Applies to `multipleArm` only, and only when evaluating the
+ * YOUNG cohort specifically - SS3 of the same document: "it is the young
+ * arm that closes", the narrowing is measured in H II regions, a young-star
+ * -formation tracer, not the old stellar arm.
+ */
+export const ARM_TIP_ARC_DEG = 31;
+/** `calibrated`, see `ARM_TIP_ARC_DEG`'s own header. The width AT THE START
+ *  of the terminal arc, per Erratum SS1.1's own resolution of package 03's
+ *  internal contradiction (SS1 says a tip closes to zero, gate 2 said a tip
+ *  closing to zero fails) - restated: 0.62 is the width entering the
+ *  terminal arc, continuing smoothly to `ARM_TIP_WIDTH_FLOOR` (not literally
+ *  zero - see that constant's own header) at the terminus itself. NOT used
+ *  as a hard functional anchor here (the source's own 0.44-0.80 CI does not
+ *  support that precision) - `widthNarrowingScale`'s own header has the
+ *  honest reasoning for the shape actually implemented. */
+export const ARM_TIP_WIDTH_RATIO = 0.62;
+/** `calibrated`, see `ARM_TIP_ARC_DEG`'s own header. 4 of 10 multi-segment
+ *  arms in the survey narrow at their tip. */
+export const ARM_TIP_PROBABILITY = 0.40;
+/** Width floor at the very terminus - NOT literally zero. `armRidge`'s own
+ *  kappa formula is `(R sin(pitch))^2 / sigma_perp^2`; sigma_perp -> 0 would
+ *  send kappa -> infinity, which `besselI0e` handles gracefully (it is
+ *  exactly the scaled form built for large-argument stability) but is an
+ *  unnecessary numerical extreme for what is, physically, "the arm gets very
+ *  tight approaching its own endpoint" - not "the arm becomes a
+ *  mathematical point". `calibrated` safety floor, chosen so the curve's own
+ *  midpoint (t=0.5, `smootherstep`'s own symmetric value) lands at 0.675,
+ *  inside the sourced 0.44-0.80 95% CI (gated) - a sanity anchor, not a
+ *  claim that Honig & Reid measured exactly the midpoint. */
+export const ARM_TIP_WIDTH_FLOOR = 0.35;
+
+/**
+ * Per-cohort terminus SCALE (multiplicative, applied to whatever base
+ * terminus a class/arm has) - `tunable`, invented for this feature exactly
+ * like `generateSeededArms`'s own pitch/count/spur mechanics were (see this
+ * module's own precedent for "ship a reasonable first value, refine from
+ * hands-on testing" - `KINK_PITCH_DELTA_MIN_DEG`/`_MAX_DEG`'s own bump-12
+ * revision is the proof this loop already works). SS3 of `03-ARM-
+ * TERMINATION.md`: "it is the young arm that closes" - massive-star
+ * formation (which the young cohort traces) ceases at a smaller radius than
+ * the old stellar disc extends, on the star-formation-threshold argument
+ * (Kennicutt 1989/Martin & Kennicutt 2001, rationale only, per SS1.10 - NOT
+ * wired as an actual Toomre-Q radius, exactly as that erratum instructs).
+ * STRICTLY youngThin < midThin < oldThin by construction (gated) - this
+ * project has no separate gas population (`galaxyModel.ts`'s own five
+ * spiral/barredSpiral keys are stellar only), so the survey's fuller
+ * young-H-II < old-stellar < gas ordering collapses to the two-tier-plus
+ * -one form actually representable here.
+ */
+export const ARM_COHORT_TERMINUS_FACTOR: Readonly<Record<'youngThin' | 'midThin' | 'oldThin', number>> = {
+  youngThin: 0.82, midThin: 0.91, oldThin: 1.00,
+};
+
+/** `set` -> cohort terminus scale, reusing the EXACT mapping `discTerm`
+ *  (`galaxyModel.ts`) already establishes for contrast tiers (`'all'` ->
+ *  youngThin, `'majorMinor'` -> midThin, `'major'` -> oldThin) - one
+ *  mapping, not two independently-maintained ones (Law 1). */
+export function cohortTerminusFactorFor(set: ArmResponseSet): number {
+  switch (set) {
+    case 'all': return ARM_COHORT_TERMINUS_FACTOR.youngThin;
+    case 'majorMinor': return ARM_COHORT_TERMINUS_FACTOR.midThin;
+    case 'major': return ARM_COHORT_TERMINUS_FACTOR.oldThin;
+    case 'none': return 1;
+  }
+}
+
+/**
+ * Independent per-arm terminus roll bands, `multipleArm`/`flocculent` -
+ * `tunable`, invented (no per-arm-length survey exists to source this from -
+ * `03-ARM-TERMINATION.md` SS3.5's own "re-source the extent ordering from an
+ * all-sky tracer" recommendation is about RELATIVE ordering among the real
+ * named arms, Stage D's own concern, not a per-arm absolute-length
+ * distribution for a procedural table). BOTH floors sit comfortably above
+ * `referenceRPc` (8200pc, `galaxyParameters.ts`) even after the youngest
+ * cohort's own 0.82x scaling (0.82 x 10500 = 8610pc) - load-bearing: the
+ * reference point is where `anchorArmCorrection`'s self-consistency divide
+ * happens (patch S7), and a terminus landing AT or below it would send that
+ * correction toward zero, not merely change the field's shape. Gated
+ * directly (gate 15h), not merely reasoned about. `flocculent`'s own ceiling
+ * sits lower than `multipleArm`'s - a modest difference; the real
+ * "flocculent reads shorter/raggeder" signal already comes from
+ * `ARM_CLASS_MODULATION`'s own far heavier fragmentation depth (0.80 vs
+ * 0.50), not invented twice here.
+ */
+export const MULTIPLE_ARM_TERMINUS_LO_PC = 10500, MULTIPLE_ARM_TERMINUS_HI_PC = 15500;
+export const FLOCCULENT_TERMINUS_LO_PC = 10500, FLOCCULENT_TERMINUS_HI_PC = 13000;
+
+/** The RATIO tipArcStart/terminusPc for a rolled tip - `derived`, pure
+ *  geometry from the log-spiral relation already governing `thetaArmRad`.
+ *  Over the terminal arc (`ARM_TIP_ARC_DEG`, an ABSOLUTE azimuth span, per
+ *  `03-ARM-TERMINATION.md` SS2 - "any parameterisation whose tip scales
+ *  with arm length is wrong"), `ln(R_tipStart/R_terminus) = -arcRad *
+ *  tan(pitch)` (the same `thetaArmRad` formula, solved for the radius ratio
+ *  rather than theta) - so `R_tipStart/R_terminus = exp(-arcRad *
+ *  tan(pitch))` exactly, independent of `R_terminus` itself, which is why
+ *  this can be stored as a pure ratio and scale consistently with any
+ *  per-cohort terminus scaling applied later. */
+export function tipStartRatioFor(pitchDeg: number): number {
+  const arcRad = degToRad(ARM_TIP_ARC_DEG);
+  return Math.exp(-arcRad * Math.tan(degToRad(pitchDeg)));
+}
+
+/** Applies Stage C's per-armClass termination fields to a freshly-built
+ *  geometry table - see this section's own header for the per-class
+ *  mechanism. Pure with respect to `arms`' own geometry (never touches
+ *  `pitchDeg`/`RrefPc`/kink/spur fields, only adds `terminusPc`/
+ *  `tipStartRatio`); the ONLY PRNG consumer here is `CHANNELS.armTermination`
+ *  (`grandDesign` draws nothing at all - its terminus is a pure derived
+ *  constant, no roll). Draw order is array order (base arms then spurs, the
+ *  same order `generateSeededArmsUncached` already returns them in) -
+ *  deterministic for a given `worldSeed`/`armClass` (gated). */
+function withTermination(arms: readonly ArmDefinition[], armClass: ArmClass, worldSeed: string): readonly ArmDefinition[] {
+  if (armClass === 'grandDesign') {
+    return arms.map((a) => ({ ...a, terminusPc: ARM_TERMINUS_SHARED_PC }));
+  }
+  const rng = channelRng(worldSeed, CHANNELS.armTermination);
+  if (armClass === 'multipleArm') {
+    return arms.map((a) => {
+      const terminusPc = MULTIPLE_ARM_TERMINUS_LO_PC + rng() * (MULTIPLE_ARM_TERMINUS_HI_PC - MULTIPLE_ARM_TERMINUS_LO_PC);
+      const hasTip = rng() < ARM_TIP_PROBABILITY;
+      return { ...a, terminusPc, ...(hasTip ? { tipStartRatio: tipStartRatioFor(a.pitchDeg) } : {}) };
+    });
+  }
+  // flocculent
+  return arms.map((a) => {
+    const terminusPc = FLOCCULENT_TERMINUS_LO_PC + rng() * (FLOCCULENT_TERMINUS_HI_PC - FLOCCULENT_TERMINUS_LO_PC);
+    return { ...a, terminusPc };
+  });
+}
+
+/** Amplitude envelope from termination alone - 1 well inside an arm's own
+ *  (cohort-scaled) terminus, smoothly reaching exactly 0 AT it, 1
+ *  unconditionally for an arm with no `terminusPc` set at all (the
+ *  pre-Stage-C default, unchanged). Arms WITHOUT a rolled tip still fade
+ *  smoothly (C1, no level set - `03-ARM-TERMINATION.md` gate 5's own
+ *  requirement, restated as C1 per Erratum SS1.5) over a small fixed
+ *  numerical window (`ARM_TERMINUS_SMOOTH_PC`) rather than a hard cutoff -
+ *  a genuinely different KIND of window from the tip's own (sourced-shaped)
+ *  one, purely to avoid a raw discontinuity.
+ *
+ *  `useTipWindow` (default false) - the tip mechanism is YOUNG-COHORT-ONLY
+ *  (see `armFactor`'s own header and `03-ARM-TERMINATION.md` SS3, "it is
+ *  the young arm that closes"). An arm can carry `tipStartRatio` while
+ *  being evaluated for a DIFFERENT cohort (mid/old sees the same arm, no
+ *  tip) - without this flag, the envelope would use the tip's own
+ *  (typically much wider, arc-degree-based) window for EVERY cohort
+ *  regardless, which is wrong: a real bug caught by this module's own gate
+ *  15m before shipping, not assumed safe. `armFactor` passes
+ *  `set === 'all'` here; every other caller gets the generic numerical
+ *  window regardless of the arm's own `tipStartRatio`. */
+export const ARM_TERMINUS_SMOOTH_PC = 800;
+
+export function terminusEnvelope(a: ArmDefinition, R_pc: number, cohortFactor: number, useTipWindow = false): number {
+  if (a.terminusPc === undefined) return 1;
+  const term = a.terminusPc * cohortFactor;
+  const start = (useTipWindow && a.tipStartRatio !== undefined)
+    ? term * a.tipStartRatio
+    : Math.max(term - ARM_TERMINUS_SMOOTH_PC, 0);
+  if (R_pc <= start) return 1;
+  if (R_pc >= term) return 0;
+  return 1 - smootherstep(start, term, R_pc);
+}
+
+/** Width-narrowing scale from the rolled tip alone (1 = full width) - see
+ *  `ARM_TIP_WIDTH_RATIO`/`ARM_TIP_WIDTH_FLOOR`'s own headers for the
+ *  sourcing and the honest reasoning for using ONE smooth curve rather than
+ *  forcing an exact 0.62 anchor the source data's own wide CI does not
+ *  support. Returns 1 (no narrowing at all) for any arm without a rolled
+ *  tip, or outside its own terminal arc. */
+export function widthNarrowingScale(a: ArmDefinition, R_pc: number, cohortFactor: number): number {
+  if (a.terminusPc === undefined || a.tipStartRatio === undefined) return 1;
+  const term = a.terminusPc * cohortFactor;
+  const tipStart = term * a.tipStartRatio;
+  if (R_pc <= tipStart) return 1;
+  if (R_pc >= term) return ARM_TIP_WIDTH_FLOOR;
+  return 1 - (1 - ARM_TIP_WIDTH_FLOOR) * smootherstep(tipStart, term, R_pc);
 }
 
 export interface ArmWidthParams {
@@ -841,16 +1189,43 @@ export const ARM_CLASS_MODULATION: Readonly<Record<ArmClass, ArmModulationParams
  * `modulation` (17 Aug 2026, Amendment A6) is OPTIONAL - an omitted
  * argument reproduces every prior call site's behaviour exactly (no
  * along-arm envelope at all), bit-for-bit.
+ *
+ * TERMINATION (Package 02/03 build plan, Stage C, 27 Aug 2026) - NOT a new
+ * parameter (an earlier stage of this same plan anticipated needing one,
+ * "Amendment A10"; it turned out not to, once actually built - noted
+ * honestly rather than forced through to match the old plan note). `set`
+ * ALREADY determines which cohort is asking (the exact mapping `discTerm`'s
+ * own `cFull` selection already uses: `'all'`->young, `'majorMinor'`->mid,
+ * `'major'`->old), and each arm's OWN `terminusPc`/`tipStartRatio` fields
+ * (set once at table-construction time - `ARMS`, `withTermination`) carry
+ * everything else needed - so termination is computed HERE, automatically,
+ * from data `armFactor` already receives, rather than threaded through as
+ * an independent argument that could accidentally diverge between two call
+ * sites (exactly the class of bug `modulation`'s own self-consistency
+ * requirement warns about in `anchorArmCorrection`'s header - this design
+ * makes that whole failure mode structurally impossible instead of merely
+ * documented against). An arm with no `terminusPc` set is completely
+ * unaffected (`terminusEnvelope` returns 1 unconditionally) - every
+ * pre-Stage-C caller and every existing gate is bit-for-bit unchanged
+ * UNLESS the arms table it passes actually carries termination fields.
+ * Width-narrowing (the Honig & Reid tip) applies ONLY for `set === 'all'`
+ * (the young cohort) AND only on an arm that rolled a tip - see
+ * `widthNarrowingScale`'s own header.
  */
 export function armFactor(
   set: ArmResponseSet, contrast: number, R_pc: number, theta_rad: number,
   w: ArmWidthParams = DEFAULT_ARM_WIDTH, arms: readonly ArmDefinition[] = ARMS,
   modulation?: ArmModulationParams,
 ): number {
+  const cohortFactor = cohortTerminusFactorFor(set);
+  const applyTipNarrowing = set === 'all';
   let total = 0;
   for (const a of armsInSet(set, arms)) {
     const env = modulation ? alongArmModulation(a, R_pc, modulation) : 1;
-    total += a.weight * armRidge(a, R_pc, theta_rad, w) * env;
+    const termEnv = terminusEnvelope(a, R_pc, cohortFactor, applyTipNarrowing);
+    const widthScale = applyTipNarrowing ? widthNarrowingScale(a, R_pc, cohortFactor) : 1;
+    const effW = widthScale === 1 ? w : { ...w, broadening: w.broadening * widthScale };
+    total += a.weight * armRidge(a, R_pc, theta_rad, effW) * env * termEnv;
   }
   return 1 + contrast * total;
 }
@@ -962,42 +1337,14 @@ export const ARM_CLASS_CONTRAST_TARGET_K: Readonly<Record<ArmClass, number>> = {
  * document (`verification/arms-bundle-r2/RULING-11-PROPOSAL-pattern-speed
  * -architecture.md`, Erratum 2) is the source of record for the reasoning
  * below; this is that design, implemented.
- * ==========================================================================*/
-
-/**
- * The standard epicyclic-resonance radius ratio, flat rotation curve
- * generalised to a power-law slope `beta` (V(R) ~ R^beta, beta=0 flat) -
- * `sourced (form)`, classical resonance theory (see
- * `verification/arms-bundle-r2/bundle-source/resonance-derivation.py` for
- * the derivation this reproduces). `side` picks the inner ('-') or outer
- * ('+') member of the m-armed resonance pair - the SAME |m| gives two
- * different radii (e.g. m=2 has both an ILR and an OLR), so this is not
- * folded into the sign of `m` itself.
  *
- * VERIFIED against the flat-curve (beta=0) reference values this project's
- * own audit already carries: ILR m=2 -> 0.2929 ('inner'), 4:1 ultraharmonic
- * m=4 -> 0.6464 ('inner'), corotation -> 1.0000 (m -> infinity, or read
- * directly, never through this formula), OLR m=4 -> 1.3536 ('outer'), OLR
- * m=2 -> 1.7071 ('outer') - all four reproduce to 4dp (gated).
- */
-export function resonanceRatio(m: number, beta: number, side: 'inner' | 'outer'): number {
-  const sign = side === 'outer' ? 1 : -1;
-  return (1 + sign * Math.sqrt(2 * (1 + beta)) / m) ** (1 / (1 - beta));
-}
-
-/**
- * Main spiral pattern speed - `sourced`, Dias et al. 2019, MNRAS 486, 5726.
- * Ω_p = 28.2 ± 2.1 km/s/kpc is their own MEASURED quantity (from spiral-arm
- * tracer kinematics); R_c = 8.51 kpc is DERIVED from it under their own
- * adopted frame (R0=8.3kpc, V0=240km/s) via R_c = V0/Ω_p, not a second
- * independent measurement - confirmed by re-deriving it from their own
- * numbers (240/28.2 = 8.5106, matching their stated 8.51 exactly). This
- * project imports Ω_p directly, per Ruling 11 Erratum 2 / this session's
- * own P13 research (`galaxyForge-P13-PATTERN-SPEED-RESEARCH-2026-08-27
- * .md`) - never R_c, which would silently import a number computed in
- * Dias's own frame rather than this project's.
- */
-export const SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC = 28.2;
+ * `resonanceRatio`/`SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC`/`SOLAR_CIRCULAR_
+ * VELOCITY_KM_S`/`R_CR_MAIN_PC`/`ARM_TERMINUS_SHARED_PC` MOVED to just
+ * before `ArmDefinition`, Stage C (27 Aug 2026) - `ARMS`'s own termination
+ * fields need them defined before `ARMS` itself, a load-order requirement.
+ * `SPIRAL_PATTERN_SPEED_OUTER_KM_S_KPC` and `ARM_INNER_ATTACH_RADIUS_PC`
+ * immediately below have no such dependency and stay here, unmoved.
+ * ==========================================================================*/
 
 /**
  * Outer m=2 companion pattern speed - `derived`, NOT an independent

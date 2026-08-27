@@ -491,14 +491,20 @@ function armResponseFor(key: PopulationKey, params: GalaxyParameters): ArmRespon
 }
 
 /** 0 at/below `armStartInnerPc`, 1 at/above `armStartOuterPc` - patch S4's
- *  "inner-disc taper" (By-law S4), calibrated on the Wegg 2015 bar
- *  half-length: arms do not meaningfully extend into the barred inner disc.
- *  Reuses the same `smootherstep` the bar's own taper window already uses
- *  (Law 1 - one smooth-window primitive, not two). This is ALSO what keeps
- *  the arm contrast finite and well-behaved as R -> 0 (S4.7's own gate) -
- *  `spiralArms`'s own `MIN_ARM_R_PC` clamp guards the geometry itself, this
- *  taper is what makes the PHYSICS agree that near-zero R should carry no
- *  arm signal in the first place, not merely avoid a NaN. */
+ *  "inner-disc taper" (By-law S4). REVISED, Package 02/03 build plan Stage
+ *  C (27 Aug 2026, Ruling 5): `armStartOuterPc` now equals `spiralArms.
+ *  ARM_INNER_ATTACH_RADIUS_PC` exactly (Wegg, Gerhard & Portail 2015's own
+ *  bar-end radius, sourced) and `armStartInnerPc` sits only a narrow,
+ *  purely-numerical smoothing width below it - "arms begin at the bar end
+ *  at FULL amplitude, not ramped" (`03-ARM-TERMINATION.md` SS4/gate 6,
+ *  bundle-source), not the ~2kpc-wide physical-looking ramp this window
+ *  used to be. Reuses the same `smootherstep` the bar's own taper window
+ *  already uses (Law 1 - one smooth-window primitive, not two). This is
+ *  ALSO what keeps the arm contrast finite and well-behaved as R -> 0
+ *  (S4.7's own gate) - `spiralArms`'s own `MIN_ARM_R_PC` clamp guards the
+ *  geometry itself, this taper is what makes the PHYSICS agree that
+ *  near-zero R should carry no arm signal in the first place, not merely
+ *  avoid a NaN. */
 function armInnerTaper(R: number, params: GalaxyParameters): number {
   return smootherstep(params.armStartInnerPc, params.armStartOuterPc, R);
 }

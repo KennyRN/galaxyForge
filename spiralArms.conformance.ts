@@ -11,7 +11,12 @@ import {
   deriveArmContrasts, anchorArmCorrection, generateSeededArms, DRIMMEL_SPERGEL_K,
   rollArmClass, ARM_CLASS_PRIOR, assertArmFrameSanity,
   resonanceRatio, SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC, SPIRAL_PATTERN_SPEED_OUTER_KM_S_KPC,
-  ARM_INNER_ATTACH_RADIUS_PC,
+  ARM_INNER_ATTACH_RADIUS_PC, ARM_TERMINUS_SHARED_PC, ARM_COHORT_TERMINUS_FACTOR,
+  SOLAR_CIRCULAR_VELOCITY_KM_S, R_CR_MAIN_PC, type ArmDefinition,
+  cohortTerminusFactorFor, tipStartRatioFor, terminusEnvelope, widthNarrowingScale,
+  ARM_TIP_ARC_DEG, ARM_TIP_WIDTH_FLOOR, ARM_TIP_PROBABILITY,
+  MULTIPLE_ARM_TERMINUS_LO_PC, MULTIPLE_ARM_TERMINUS_HI_PC,
+  FLOCCULENT_TERMINUS_LO_PC, FLOCCULENT_TERMINUS_HI_PC, ARM_TERMINUS_SMOOTH_PC,
 } from './spiralArms';
 
 let failures = 0;
@@ -481,6 +486,200 @@ check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=491
     'near-degenerate ~0.15 a literal use of its own psi< branch would have produced (this is the ' +
     'regression check for the owner ruling documented in spiralArms.ts\'s own header)',
     !!norma && kappaOf(norma, norma.RrefPc) > 15 && kappaOf(norma, norma.RrefPc) < 35);
+}
+
+/* 15. Package 02/03 build plan, Stage C (27 Aug 2026) - the actual
+ * termination mechanism: the shared resonance terminus, per-cohort
+ * scaling, the Honig & Reid tip narrowing, and per-armClass rolling. ---- */
+{
+  const close4 = (a: number, b: number) => Math.abs(a - b) < 5e-5;
+
+  check('15a R_CR_MAIN_PC === SOLAR_CIRCULAR_VELOCITY_KM_S / SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC * 1000, live',
+    close4(R_CR_MAIN_PC, (SOLAR_CIRCULAR_VELOCITY_KM_S / SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC) * 1000));
+  check('15b ARM_TERMINUS_SHARED_PC === resonanceRatio(2,0,"outer") * R_CR_MAIN_PC, live, not a copied-in literal',
+    close4(ARM_TERMINUS_SHARED_PC, resonanceRatio(2, 0, 'outer') * R_CR_MAIN_PC));
+  check('15c ARM_TERMINUS_SHARED_PC lands in a physically sane band (10-16kpc) - not degenerate',
+    ARM_TERMINUS_SHARED_PC > 10000 && ARM_TERMINUS_SHARED_PC < 16000);
+  check('15d every ARMS entry carries terminusPc === ARM_TERMINUS_SHARED_PC exactly (one shared table-wide value)',
+    ARMS.every((a) => a.terminusPc === ARM_TERMINUS_SHARED_PC));
+
+  check('15e cohortTerminusFactorFor: strictly youngThin < midThin < oldThin (the star-formation-threshold ' +
+    'ordering, gated directly rather than merely reasoned about)',
+    ARM_COHORT_TERMINUS_FACTOR.youngThin < ARM_COHORT_TERMINUS_FACTOR.midThin &&
+    ARM_COHORT_TERMINUS_FACTOR.midThin < ARM_COHORT_TERMINUS_FACTOR.oldThin &&
+    ARM_COHORT_TERMINUS_FACTOR.oldThin === 1.00);
+  check('15f cohortTerminusFactorFor maps armFactor\'s own set values to the exact same tiers discTerm\'s ' +
+    '"cFull" selection already uses - one mapping, not two', (
+    cohortTerminusFactorFor('all') === ARM_COHORT_TERMINUS_FACTOR.youngThin &&
+    cohortTerminusFactorFor('majorMinor') === ARM_COHORT_TERMINUS_FACTOR.midThin &&
+    cohortTerminusFactorFor('major') === ARM_COHORT_TERMINUS_FACTOR.oldThin &&
+    cohortTerminusFactorFor('none') === 1
+  ));
+
+  // A synthetic termination-bearing arm, isolated from ARMS/seeded tables -
+  // exercises terminusEnvelope/widthNarrowingScale directly through the
+  // public armFactor surface, the same pattern gate 10a-10d already uses
+  // for the kink mechanism.
+  const termArm: ArmDefinition = { name: 'Test-term', tier: 'major', pitchDeg: 12, RrefPc: 6000, thetaRefDeg: 0, weight: 1, terminusPc: 10000 };
+  const tippedArm: ArmDefinition = { ...termArm, tipStartRatio: tipStartRatioFor(termArm.pitchDeg) };
+
+  check('15g terminusEnvelope: full strength (envelope=1) well inside the terminus',
+    close4(terminusEnvelope(termArm, 5000, 1), 1));
+  check('15h terminusEnvelope: EXACTLY 0 at and beyond the terminus',
+    terminusEnvelope(termArm, 10000, 1) === 0 && terminusEnvelope(termArm, 15000, 1) === 0);
+  check('15i terminusEnvelope: smooth (C1, no jump) approaching the terminus - a fine sweep never steps ' +
+    'by more than a proportional amount', (() => {
+    let worst = 0;
+    for (let R = 9000; R < 10000; R += 5) {
+      const d = Math.abs(terminusEnvelope(termArm, R, 1) - terminusEnvelope(termArm, R + 5, 1));
+      worst = Math.max(worst, d);
+    }
+    return worst < 0.02;   // 1000pc window, 5pc steps - no single 5pc step should move the envelope by 2%+
+  })());
+  check('15j armFactor with a terminus-bearing arm reproduces EXACTLY 1 at/beyond the terminus ' +
+    '(no residual arm signal past the true end)',
+    armFactor('major', 0.5, 10000, 0, DEFAULT_ARM_WIDTH, [termArm]) === 1 &&
+    armFactor('major', 0.5, 12000, 1.1, DEFAULT_ARM_WIDTH, [termArm]) === 1);
+  check('15k armFactor with a terminus-bearing arm DIFFERS from 1 well inside the terminus ' +
+    '(the arm still has a real effect short of its own end)',
+    armFactor('major', 0.5, 6000, 0, DEFAULT_ARM_WIDTH, [termArm]) !== 1);
+
+  check('15l per-cohort ordering through armFactor: at a radius between the young- and old-cohort-scaled ' +
+    'termini, the young cohort has already faded to 1 while the old cohort has not', (() => {
+    // termArm's own terminus is 10000; young factor 0.82 -> effective term 8200,
+    // old factor 1.00 -> effective term 10000. R=9000 sits strictly between.
+    const young = armFactor('all', 0.5, 9000, 0, DEFAULT_ARM_WIDTH, [termArm]);
+    const old = armFactor('major', 0.5, 9000, 0, DEFAULT_ARM_WIDTH, [termArm]);
+    return young === 1 && old !== 1;
+  })());
+
+  check('15m width narrowing ONLY applies for the young cohort (set==="all") - the SAME tipped arm ' +
+    'evaluated as "major" ignores tipStartRatio entirely, matching an untipped arm exactly', (() => {
+    const R = 9500;   // inside the tip window (tipStart < 9500 < 10000) for a 12deg-pitch, 31deg-arc tip
+    const asOld = armFactor('major', 0.5, R, 0.001, DEFAULT_ARM_WIDTH, [tippedArm]);
+    const asOldUntipped = armFactor('major', 0.5, R, 0.001, DEFAULT_ARM_WIDTH, [termArm]);
+    return asOld === asOldUntipped;
+  })());
+  check('15n the tip mechanism DOES apply for the young cohort, and measurably changes armFactor ' +
+    'relative to the same arm without a rolled tip - evaluated INSIDE the young cohort\'s own scaled ' +
+    'tip window (terminusPc x 0.82 x tipStartRatio to terminusPc x 0.82), not the "major" window ' +
+    '15m already checked', (() => {
+    const youngTerm = tippedArm.terminusPc! * ARM_COHORT_TERMINUS_FACTOR.youngThin;
+    const R = youngTerm * ((1 + tippedArm.tipStartRatio!) / 2);   // midpoint of the young cohort's own tip window
+    const asYoungTipped = armFactor('all', 0.5, R, 0.001, DEFAULT_ARM_WIDTH, [tippedArm]);
+    const asYoungUntipped = armFactor('all', 0.5, R, 0.001, DEFAULT_ARM_WIDTH, [termArm]);
+    return asYoungTipped !== asYoungUntipped;
+  })());
+
+  check('15o tipStartRatioFor is a pure ratio in (0,1), independent of the terminus radius itself ' +
+    '(exp(-arcRad*tan(pitch)), the same value for any terminusPc)',
+    tipStartRatioFor(12.43) > 0 && tipStartRatioFor(12.43) < 1 &&
+    close4(tipStartRatioFor(12.43), Math.exp(-((ARM_TIP_ARC_DEG * Math.PI) / 180) * Math.tan((12.43 * Math.PI) / 180))));
+  check('15p widthNarrowingScale: 1 (no narrowing) well before the tip start, ARM_TIP_WIDTH_FLOOR exactly ' +
+    'at/beyond the terminus, and its own midpoint lands inside the sourced 95% CI (0.44-0.80) - a sanity ' +
+    'anchor, not a claim of measured precision', (() => {
+    const term = tippedArm.terminusPc!, ratio = tippedArm.tipStartRatio!;
+    const tipStart = term * ratio;
+    const mid = (tipStart + term) / 2;
+    const atMid = widthNarrowingScale(tippedArm, mid, 1);
+    return widthNarrowingScale(tippedArm, tipStart - 1000, 1) === 1 &&
+      widthNarrowingScale(tippedArm, term, 1) === ARM_TIP_WIDTH_FLOOR &&
+      atMid > 0.44 && atMid < 0.80;
+  })());
+
+  check('15q numerical safety: BOTH multipleArm/flocculent terminus floors clear referenceRPc (8200pc) ' +
+    'even after the youngest cohort\'s own 0.82x scaling - load-bearing for anchorArmCorrection\'s own ' +
+    'self-consistency divide (patch S7), not merely a nice property', (
+    MULTIPLE_ARM_TERMINUS_LO_PC * ARM_COHORT_TERMINUS_FACTOR.youngThin > 8500 &&
+    FLOCCULENT_TERMINUS_LO_PC * ARM_COHORT_TERMINUS_FACTOR.youngThin > 8500 &&
+    ARM_TERMINUS_SHARED_PC * ARM_COHORT_TERMINUS_FACTOR.youngThin > 8500
+  ));
+
+  // -- per-armClass table rolling (withTermination, via generateSeededArms) --
+
+  check('15r generateSeededArms("grandDesign"): every arm in the table shares ONE terminus, exactly ' +
+    'ARM_TERMINUS_SHARED_PC, and never carries a tip', (() => {
+    const arms = generateSeededArms('gate-stagec-grand-1', 'grandDesign');
+    return arms.every((a) => a.terminusPc === ARM_TERMINUS_SHARED_PC && a.tipStartRatio === undefined);
+  })());
+
+  check('15s generateSeededArms("multipleArm"): per-arm termini are genuinely INDEPENDENT (vary within ' +
+    'one table, not one shared cut), each within the declared band', (() => {
+    for (let i = 0; i < 30; i++) {
+      const arms = generateSeededArms(`gate-stagec-multi-${i}`, 'multipleArm');
+      if (arms.some((a) => a.terminusPc === undefined ||
+        a.terminusPc < MULTIPLE_ARM_TERMINUS_LO_PC || a.terminusPc > MULTIPLE_ARM_TERMINUS_HI_PC)) return false;
+      const distinct = new Set(arms.map((a) => a.terminusPc)).size;
+      if (arms.length > 1 && distinct < 2) return false;   // vanishingly unlikely if genuinely independent draws
+    }
+    return true;
+  })());
+
+  check('15t generateSeededArms("multipleArm") tip incidence over a large sample lands near the sourced ' +
+    'ARM_TIP_PROBABILITY (0.40), within a coarse 15-point tolerance (small-n sanity check, not a ' +
+    'statistical test - matches gate 9c\'s own precedent)', (() => {
+    let tipped = 0, total = 0;
+    for (let i = 0; i < 400; i++) {
+      const arms = generateSeededArms(`gate-stagec-tip-freq-${i}`, 'multipleArm');
+      for (const a of arms) { total++; if (a.tipStartRatio !== undefined) tipped++; }
+    }
+    return Math.abs(tipped / total - ARM_TIP_PROBABILITY) < 0.15;
+  })());
+
+  check('15u generateSeededArms("flocculent"): per-arm termini vary, within its OWN (lower-ceiling) band, ' +
+    'and NEVER carries a tip (no borrowed Honig & Reid math)', (() => {
+    for (let i = 0; i < 30; i++) {
+      const arms = generateSeededArms(`gate-stagec-floc-${i}`, 'flocculent');
+      if (arms.some((a) => a.terminusPc === undefined ||
+        a.terminusPc < FLOCCULENT_TERMINUS_LO_PC || a.terminusPc > FLOCCULENT_TERMINUS_HI_PC)) return false;
+      if (arms.some((a) => a.tipStartRatio !== undefined)) return false;
+    }
+    return true;
+  })());
+
+  check('15v termination rolling is deterministic - the same (worldSeed, armClass) reproduces identical ' +
+    'terminusPc/tipStartRatio fields on repeat calls',
+    JSON.stringify(generateSeededArms('gate-stagec-det', 'multipleArm')) ===
+    JSON.stringify(generateSeededArms('gate-stagec-det', 'multipleArm')));
+
+  check('15w termination rolling does not perturb geometry - a "grandDesign" and "multipleArm" table for ' +
+    'the SAME worldSeed still share identical pitchDeg/RrefPc/thetaRefDeg/weight/kink fields on their BASE ' +
+    '(non-spur) arms (CHANNELS.armTermination is isolated from CHANNELS.seededArms, so the geometry ' +
+    '-building draws are unaffected by whichever termination policy runs afterward). Spur arms excluded - ' +
+    'the two classes\' own DIFFERENT spur chances (ARM_CLASS_SPUR) can legitimately make a spur appear for ' +
+    'one class and not the other from the same underlying draw, independent of termination entirely', (() => {
+    const grandBase = generateSeededArms('gate-stagec-geom-iso', 'grandDesign').filter((a) => a.tier !== 'spur');
+    const multiBase = generateSeededArms('gate-stagec-geom-iso', 'multipleArm').filter((a) => a.tier !== 'spur');
+    if (grandBase.length !== multiBase.length || grandBase.length === 0) return false;
+    return grandBase.every((g, i) => {
+      const m = multiBase[i]!;
+      return g.name === m.name && g.tier === m.tier && g.pitchDeg === m.pitchDeg && g.RrefPc === m.RrefPc &&
+        g.thetaRefDeg === m.thetaRefDeg && g.weight === m.weight &&
+        g.RkinkPc === m.RkinkPc && g.pitchOuterDeg === m.pitchOuterDeg;
+    });
+  })());
+
+  check('15x armFactor stays mean-preserving (azimuthal average 1) even with termination genuinely active - ' +
+    'a synthetic table with a MID-RANGE terminus, swept across radii both inside and beyond it', (() => {
+    let worst = 0;
+    for (const R of [4000, 6000, 8000, 9800, 10000, 10500, 12000]) {
+      const n = 2048;
+      let sum = 0;
+      for (let i = 0; i < n; i++) sum += armFactor('all', 0.5, R, (2 * Math.PI * i) / n, DEFAULT_ARM_WIDTH, [tippedArm]);
+      worst = Math.max(worst, Math.abs(sum / n - 1));
+    }
+    return worst < 1e-9;
+  })());
+  check('15y armFactor stays strictly positive with termination active, across the same sweep',
+    (() => {
+      let min = Infinity;
+      for (const R of [4000, 6000, 8000, 9800, 10000, 10500, 12000]) {
+        for (let i = 0; i < 360; i++) {
+          min = Math.min(min, armFactor('all', 0.5, R, (2 * Math.PI * i) / 360, DEFAULT_ARM_WIDTH, [tippedArm]));
+        }
+      }
+      return min > 0;
+    })());
 }
 
 /* --------------------------------- result ------------------------------------ */

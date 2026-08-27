@@ -29,9 +29,27 @@ full numeric verification) — a REAL generation-path shape break for
 `spiral`/`barredSpiral`, confirmed by the golden master gate failing
 against the pre-Stage-B fixture until re-cut. `genVersion` BUMP 13, own
 narrative in `genVersion.ts`; `verification/golden/gen13.json` is the
-fixture cut against it. Stages C (the actual termination mechanism, the
-big one) and D (extent ordering, Ruling 10) are designed but not yet
-built.
+fixture cut against it. **Stage C (the actual termination mechanism) is
+also done** — `ArmDefinition` gains optional `terminusPc`/`tipStartRatio`
+fields; `grandDesign`/`ARMS` share ONE resonance-based terminus
+(`ARM_TERMINUS_SHARED_PC`, OLR off a new sourced `SOLAR_CIRCULAR_
+VELOCITY_KM_S` + Stage A's own pattern speed); `multipleArm`/`flocculent`
+roll independent per-arm termini on the now-WIRED `CHANNELS.armTermination`,
+`multipleArm` also rolling a 40% chance of the sourced Honig & Reid tip
+narrowing; per-cohort scaling (Ruling 3) layers on top (young < mid < old,
+strictly ordered); the inner-attachment taper (Ruling 5) is narrowed to a
+purely-numerical smoothing window anchored exactly on `ARM_INNER_ATTACH_
+RADIUS_PC` (full amplitude AT the bar end, not ramped). `armFactor` did
+NOT need a widened signature in the end (an earlier stage's own plan note
+anticipated one - see `genVersion.ts`'s own bump-14 entry for why it
+turned out unnecessary, recorded honestly rather than forced through).
+`genVersion` BUMP 14; `verification/golden/gen14.json` is the fixture cut
+against it. Visually verified via a disposable ASCII density-field
+diagnostic before shipping (arms genuinely narrow to a visible end;
+inner-attachment contrast measured 0% below 4700pc, ramping to ~4.8% by
+5000pc). Stage D (extent ordering, Ruling 10) remains — designed but not
+yet built, and explicitly provisional pending Sun et al. 2024 regardless
+(see `FOLLOW-UP-AUDIT-2026-08-27.md`).
 
 ## Rulings
 
@@ -39,9 +57,9 @@ built.
 |---|---|---|
 | 1 | default palette | **answered 2026-08-27 — inferno (default), magma, viridis, greyscale.** Overrides the bundle's own PAL_ASTRO_DARK/PAL_TOPO_DARK proposal entirely. See `isophoteRenderer.ts`'s own doc comments for the anchor data and the "monotonic, not dark-bright-dark" consequence. |
 | 2 | export plate (clean vs. sector-marker) | **answered 2026-08-27 — clean, no sector marker.** Matches the package doc's own framing. |
-| 3 | termini scope (per-arm only, or per-arm and per-cohort) | **answered 2026-08-27 — per-arm AND per-cohort** ("the most accurate method"). Not yet implemented (P10). |
+| 3 | termini scope (per-arm only, or per-arm and per-cohort) | **answered AND IMPLEMENTED 2026-08-27 — per-arm AND per-cohort** ("the most accurate method"). Built as Package 02/03 build plan Stage C: `ARM_COHORT_TERMINUS_FACTOR` (youngThin=0.82, midThin=0.91, oldThin=1.00, strictly ordered, gated) scales whichever per-arm-class terminus mechanism applies. `genVersion` BUMP 14. |
 | 4 | *(not used — ten rulings are numbered 1–10, skipping none; see prompt text)* | — |
-| 5 | inner attachment: bar end or bar corotation | **answered 2026-08-27 — bar end.** Matches `AUDIT.md`'s own explicit recommendation. Not yet implemented (P7). |
+| 5 | inner attachment: bar end or bar corotation | **answered AND IMPLEMENTED 2026-08-27 — bar end.** Matches `AUDIT.md`'s own explicit recommendation. Built as Package 02/03 build plan Stage C: `armStartInnerPc`/`armStartOuterPc` narrowed from an ad hoc ~2kpc taper to a purely-numerical smoothing window anchored exactly on `ARM_INNER_ATTACH_RADIUS_PC` — full amplitude AT the bar end, not ramped. `genVersion` BUMP 14. |
 | 6 | plate contrast: demo artefact or real field property | **answered — demo artefact**, self-resolved from the codebase directly (`DRIMMEL_SPERGEL_K`, `ARM_CLASS_CONTRAST_TARGET_K`, `scale_bench.py` absent from repo). **Sharpened by P1's own gate 10, 27 Aug 2026 — see the P1 status row below: the isolated arm constant is not the defect, but the real field's TOTAL contrast (all populations summed) is measurably lower than what reads as visible structure through 17 bands with no display boost.** |
 | 7 | canonical units for angle/density quantities | **answered 2026-08-27 — degrees for azimuth/arc/pitch angle (radians math-only); km/s/kpc declared canonical for angular velocity; systems/pc² for surface density; systems/pc³ for volume density (already canonical pre-ruling).** See `units.ts`'s own Ruling-7 doc comments. |
 | 8 | cross-section width-gate collision + peak-vs-area reading | open — **owner asked this be deferred until P1/P7/P10 land, then handed to another agent for deeper research.** See the P13-style prompt this session owes for it. |
@@ -62,13 +80,13 @@ proposed but not yet formally adopted by the owner.
 | P2 | Extend the canonical units law | **done 2026-08-27.** Ruling 7 recorded; `units.ts` gained `degToRad`/`radToDeg`, `surfaceDensityPc2ToLy2`/`Ly2ToPc2`, gate 6 (structural, no other file hand-rolls a `Math.PI/180` conversion); fixed the one real violation gate 6 caught (`galaxyCreationModals.ts`'s angle slider); updated `StarForge-CONSOLIDATED-BUILD-BRIEF.md`'s canonical units table (new S4.6). 39/39 suites + 2 structural gates green, build clean, no genVersion bump (units.ts never participates; the slider fix is bit-for-bit identical math). Not yet deployed to the test vault — no user-visible behaviour changed. |
 | P3 | Sign-convention hardening | **done 2026-08-27.** `spiralArms.ts` gained exported `assertArmFrameSanity()` (bisects `thetaArmRad` to find Perseus's own theta=0 crossing, throws unless it lands within 0.5 kpc of the real ~10.07 kpc, not the mirrored ~7.81 kpc), plus a module-header discipline note. `spiralArms.conformance.ts` gained gate 11 (theta strictly decreases as R increases, swept for every arm in `ARMS`) and gate 12 (runs the assertion itself). 39/39 green, build clean, no genVersion bump. |
 | P4 | Grade corrections + By-law S markers | **reported, not edited, 2026-08-27 — see below.** All six regrades and both restorations P4 asks for turn out to already be present in the existing bundle-source errata; the one real defect (the "28 of 32" Font citation) was already caught and corrected by this session's own P13 research before P4 was even read. Per the bundle's own P0 rule ("if you find an error in a document, report it, do not edit it"), `bundle-source/*.md` was left untouched — see the P4 section below for the full accounting and exactly where each item already lives. |
-| P5 | Cross-section width-gate collision | not started — blocked on ruling 8 |
-| P6 | Tip zero-closure contradiction | not started — ruling recommended-as-read in the erratum |
-| P7 | Inner attachment | not started — blocked on ruling 5 |
-| P8 | Interarm floor derived from A₂ | not started — do with P5 |
-| P9 | `armFactor` signature amendment | not started — do before P5–P8 |
-| P10 | Package 02 extent re-sourcing | not started — blocked on rulings 3, 9, 10 |
-| P11 | Rebuild the gate set | not started — after P1–P10 |
+| P5 | Cross-section width-gate collision | not started — blocked on ruling 8 (the two-component core+skirt cross-section is explicitly out of scope for the Package 02/03 build plan, per that plan's own "explicitly not in this plan" section — ships core-width-only for now) |
+| P6 | Tip zero-closure contradiction | **done, folded into Package 02/03 build plan Stage C, 2026-08-27.** Resolved exactly as the erratum's own recommended reading: over the terminal arc, width narrows toward the sourced ratio and amplitude fades to zero together, continuously — not a discontinuous cutoff at the ratio. `genVersion` BUMP 14. |
+| P7 | Inner attachment | **done, folded into Package 02/03 build plan Stage C, 2026-08-27** — see Ruling 5's own updated row above. |
+| P8 | Interarm floor derived from A₂ | not started — this is package 03's own cross-section §1.3, entangled with the same P5/ruling-8 two-component-width question, so deferred alongside it |
+| P9 | `armFactor` signature amendment | **resolved WITHOUT a signature amendment, Package 02/03 build plan Stage C, 2026-08-27** — building it for real found `armFactor` already receives everything termination needs (`set`, already mapped to cohort; each arm's own new `terminusPc`/`tipStartRatio` fields) — see `genVersion.ts`'s own bump-14 entry, "a plan that didn't survive contact with implementation, stated honestly". The PRNG-channel half of this prompt's own concern (`CHANNELS.armTermination`) is real and done — registered Stage A, wired Stage C. |
+| P10 | Package 02 extent re-sourcing | **partially done** — the resonance-based terminus half (Stage C) is built; the `tracedSpanDeg`-style relative-ordering half (Ruling 10) is Stage D, not yet built, and explicitly provisional pending Sun et al. 2024 regardless. |
+| P11 | Rebuild the gate set | not started — after P1–P10 (Stage D still open) |
 | P12 | Literature verification | **in progress**, well beyond the original prompt's scope — see `galaxyForge-CITATION-VERIFICATION-2026-08-26.md`, the P13 follow-on chain, and `FOLLOW-UP-AUDIT-2026-08-27.md` for what's still open |
 
 ## P4 accounting (report, not edit — see P0's own rule)

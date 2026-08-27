@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { makeDefaultGalaxyParameters, assertGalaxyParameters, anchorArmCorrectionFor, DEFAULT_GALAXY_PARAMETERS, type GalaxyParameters } from './galaxyParameters';
 import { createSpiralModel, createEllipticalModel, createLenticularModel } from './galaxyModel';
-import { armFactor } from './spiralArms';
+import { armFactor, ARM_INNER_ATTACH_RADIUS_PC } from './spiralArms';
 
 const noopUpsilon = () => 1;
 
@@ -74,6 +74,23 @@ function check(name: string, cond: boolean) {
   check('GATE 27: a negative nLocalPerPc3 also throws (not just zero)', (() => {
     try { assertGalaxyParameters(negativeNLocal); return false; } catch { return true; }
   })());
+}
+
+/* ------------------------- STAGE C: inner attachment ---------------------------
+ * Package 02/03 build plan, Stage C (27 Aug 2026, Ruling 5) - "arms attach
+ * at the bar end at FULL amplitude, not ramped" (`03-ARM-TERMINATION.md`
+ * SS4/gate 6). `armStartOuterPc` must equal `ARM_INNER_ATTACH_RADIUS_PC`
+ * EXACTLY (full amplitude begins there, not somewhere beyond it); the old
+ * ~2kpc-wide taper (3500-5500) is gone, replaced by a narrow numerical
+ * smoothing margin only. */
+{
+  const p = makeDefaultGalaxyParameters('gate-stagec-attach-seed');
+  check('STAGE C: armStartOuterPc equals ARM_INNER_ATTACH_RADIUS_PC exactly (full amplitude AT the bar end)',
+    p.armStartOuterPc === ARM_INNER_ATTACH_RADIUS_PC);
+  check('STAGE C: armStartInnerPc sits within 500pc below armStartOuterPc - a narrow numerical smoothing ' +
+    'margin, not the old ~2kpc physical-looking taper', (
+    p.armStartOuterPc - p.armStartInnerPc > 0 && p.armStartOuterPc - p.armStartInnerPc <= 500
+  ));
 }
 
 /* ------------------------------ GATE 19 ---------------------------------------
