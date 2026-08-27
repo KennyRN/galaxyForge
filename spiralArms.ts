@@ -9,7 +9,7 @@
  * at all when nothing else here does.
  *
  * -- PROVENANCE ---------------------------------------------------------------
- * ARM TABLE. Reid et al. 2019, ApJ 885, 131: five named arms (pitch angle,
+ * ARM TABLE. Reid et al. 2019, ApJ 885, 131: six named arms (pitch angle,
  * reference radius at the Sun-Galactic-centre line, tier) from VLBI maser
  * parallaxes - `sourced`, transcribed from `patches/galaxyForge-SPIRAL-
  * PATCH-v2.3-parameter-schema.md` S4, which already carries this exact
@@ -60,23 +60,50 @@
  *    0.3096/0.4335/0.6193 reproduction (confirmed by trying it). Landing
  *    it needs the contrast bisection solve re-verified under the kinked
  *    geometry, not just a field assignment.
- *  - Norma-Outer: this module's single entry merges Table 2's separate
- *    Norma (`R_kink=4.46kpc`) and Outer (`R_kink=12.24kpc`) rows; `RrefPc`
- *    (12289) sits within 49pc of Outer's own `R_kink` (12240), so Outer -
- *    not Norma - is almost certainly what this entry's constants were
- *    originally fit to (`psi<=3.0+/-4.4`, `psi>=9.4+/-4.0`), but which
- *    segment's data the ORIGINAL, unrecoverable `derive_arm_constants_v3.py`
- *    actually used for this composite arm is not independently confirmable
- *    - and it shares Perseus's own solar-circle-anchor problem regardless
- *    (confirmed by trying it: same contrast-gate breakage).
+ *  - Norma / Outer: SPLIT into two separate ARMS entries (Package 02/03
+ *    build plan, Stage B, 27 Aug 2026) - this module's single merged
+ *    `Norma-Outer` entry used to conflate Table 2's separate Norma
+ *    (`R_kink=4.46kpc`) and Outer (`R_kink=12.24kpc`) rows under one
+ *    `RrefPc`/`weight`; the two are not contiguous in beta (source pack
+ *    S3's own "Norma-Outer caveat") and Xu et al. 2023 treats them as
+ *    unrelated arms, so the merge was never more than a convenient
+ *    approximation. `Outer`'s entry (`RrefPc=12289`, `pitchDeg=12.43`) is
+ *    the OLD merged entry's own numbers, unchanged - the header's own prior
+ *    analysis already established `RrefPc` sits within 49pc of Outer's own
+ *    `R_kink` (12240), so Outer's data is almost certainly what these
+ *    constants were originally fit to. `Norma`'s entry is NEW: its own
+ *    Table-2 `R_kink` (4460pc) is real and well-determined (N=11
+ *    detections, +/-0.19kpc), but its own near-Sun pitch branch (`psi< =
+ *    -1.0 +/- 3.3 deg`) is statistically indistinguishable from zero and
+ *    COLLAPSES `kappaOf` toward zero if used directly - verified
+ *    numerically before writing anything, not assumed: kappa(R=4780pc,
+ *    pitch=1deg) ~ 0.15, against this table's own established 18.8-31.0
+ *    range, meaning the arm would render as a near-invisible ripple
+ *    spanning ~150deg of azimuth - the exact same near-tangential failure
+ *    mode already rejected for Sagittarius-Carina's own deferred outer
+ *    branch below. Owner ruling (27 Aug 2026): reuse `Outer`'s
+ *    already-verified `pitchDeg=12.43` rather than Norma's own degenerate
+ *    branch fit, and project Norma's real `R_kink` out to this table's
+ *    beta=0 anchor using THAT pitch (R(0) = 4460 * exp(-(0 - 18deg) *
+ *    tan(12.43deg)) = 4780pc, kappa(4780, 12.43deg) = 22.97 - safely inside
+ *    the existing range). Graded `calibrated` for Norma's `pitchDeg`
+ *    (reused, not independently sourced per-arm - Table 2 supplies no safe
+ *    single pitch for this arm) and `sourced` for its `RrefPc` (Table 2's
+ *    own `R_kink`, projected with a documented, verified formula, not
+ *    invented). Neither new entry carries its own real Table-2 kink
+ *    (`RkinkPc`/`pitchOuterDeg` stay unset on both) - the underlying
+ *    deferred-kink reasons below are UNCHANGED by the split (Outer still
+ *    shares Perseus's own solar-circle-anchor problem; Norma's own branch
+ *    fit is the degenerate one just described).
  *  - Local: Table 2 gives `psi< = psi> = 11.4 +/- 1.9 deg` for this arm -
  *    "if psi<=psi>, only a single pitch angle was solved for" (Table 2's
  *    own note). The paper's own fit found NO real kink here; leaving
  *    `RkinkPc`/`pitchOuterDeg` unset on Local is the sourced answer, not
  *    an omission.
  *
- * Landing Sagittarius-Carina/Perseus/Norma-Outer is the remaining step -
- * each needs the specific gate work named above, not a blind field set.
+ * Landing Sagittarius-Carina/Perseus/Norma/Outer's own real per-arm kinks is
+ * the remaining step - each needs the specific gate work named above, not a
+ * blind field set.
  *
  * SEEDED ARMS NOW KINK TOO (25 Aug 2026, genVersion BUMP 11, item 3's own
  * fix - a direct user report: "in normal spiral galaxy the arms are still
@@ -169,9 +196,11 @@
  * Rounding must happen ONCE, after every multiplier is applied - fixed below.
  *
  * ARM RESPONSE. Which arm tiers each disc population "sees" -
- * `youngThin: all 5 arms, midThin: major+minor (4), oldThin: major only (2),
+ * `youngThin: all 6 arms, midThin: major+minor (5), oldThin: major only (2),
  * thick/halo: none` - `calibrated`, the patch's own By-law S3 choice
- * (younger, dynamically colder populations track the spiral pattern more
+ * (counts updated for the Norma/Outer split, Package 02/03 build plan Stage
+ * B, 27 Aug 2026 - 'major' is unaffected, still Scutum-Centaurus+Perseus;
+ * younger, dynamically colder populations track the spiral pattern more
  * tightly; this is qualitatively well-established in Milky Way population
  * studies, the specific tier cutoffs are the patch author's own judgement).
  *
@@ -210,27 +239,31 @@ export interface ArmDefinition {
    *  `pitchOuterDeg` beyond galactocentric radius `RkinkPc`, continuous at
    *  the kink. Absent for every arm this module currently ships (`ARMS`,
    *  `generateSeededArms`) - Reid et al. 2019's own Table 2 gives real
-   *  per-arm kink radii/outer pitch angles for four of the five arms
-   *  (Local's own fit found no kink), but only Scutum-Centaurus's is wired
-   *  into `ARMS` so far - see the module header's "KINK UPGRADE PATH"
-   *  section for the other three, sourced but deferred for a specific,
-   *  documented reason each. See `pitchDegAt`'s own header. */
+   *  per-arm kink radii/outer pitch angles for five of the six arms this
+   *  table now carries (Local's own fit found no kink), but only Scutum
+   *  -Centaurus's is wired into `ARMS` so far - see the module header's
+   *  "KINK UPGRADE PATH" section for the other four, sourced but deferred
+   *  for a specific, documented reason each. See `pitchDegAt`'s own header. */
   readonly RkinkPc?: number;
   readonly pitchOuterDeg?: number;
 }
 
 /** Reid et al. 2019, ApJ 885, 131 - sourced, transcribed from the patch
- *  schema (patch v2.3 S4). `pitchDeg` is a positive magnitude; the sign is
- *  carried entirely by `thetaArm`'s formula (patch v2.2 S2's own ruling).
+ *  schema (patch v2.3 S4), with `Norma-Outer` split into its own two Table-2
+ *  rows (Package 02/03 build plan, Stage B, 27 Aug 2026 - see the module
+ *  header's "KINK UPGRADE PATH" section for the split's own reasoning and
+ *  provenance). `pitchDeg` is a positive magnitude; the sign is carried
+ *  entirely by `thetaArm`'s formula (patch v2.2 S2's own ruling).
  *  Scutum-Centaurus's `RkinkPc`/`pitchOuterDeg` are Table 2's own R_kink/
  *  psi> for that arm - see the module header for the verification and why
- *  the other four arms don't (yet) carry the same fields. */
+ *  the other five arms don't (yet) carry the same fields. */
 export const ARMS: readonly ArmDefinition[] = [
+  { name: 'Norma',              tier: 'minor', pitchDeg: 12.43, RrefPc: 4780,  thetaRefDeg: 0, weight: 0.55 },
   { name: 'Scutum-Centaurus',   tier: 'major', pitchDeg: 12.04, RrefPc: 5493,  thetaRefDeg: 0, weight: 1.00, RkinkPc: 4910, pitchOuterDeg: 12.1 },
   { name: 'Sagittarius-Carina', tier: 'minor', pitchDeg: 12.07, RrefPc: 6878,  thetaRefDeg: 0, weight: 0.55 },
   { name: 'Local',              tier: 'spur',  pitchDeg: 12.43, RrefPc: 8719,  thetaRefDeg: 0, weight: 0.35 },
   { name: 'Perseus',            tier: 'major', pitchDeg: 12.07, RrefPc: 10470, thetaRefDeg: 0, weight: 1.00 },
-  { name: 'Norma-Outer',        tier: 'minor', pitchDeg: 12.43, RrefPc: 12289, thetaRefDeg: 0, weight: 0.55 },
+  { name: 'Outer',              tier: 'minor', pitchDeg: 12.43, RrefPc: 12289, thetaRefDeg: 0, weight: 0.55 },
 ];
 
 /**
@@ -269,7 +302,7 @@ export const ARMS: readonly ArmDefinition[] = [
  *    jitter each, so the result is not perfectly, suspiciously regular.
  *  - WEIGHT: the first two arms are 'major' (weight 1.00, matching `ARMS`'s
  *    own convention); any further base arms are 'minor' (weight uniform in
- *    [0.45, 0.65) - `ARMS`'s own Sagittarius-Carina/Norma-Outer both sit at
+ *    [0.45, 0.65) - `ARMS`'s own Sagittarius-Carina/Norma/Outer all sit at
  *    0.55, inside this band).
  *  - SPUR: a further, independent 45% chance of ONE extra weak 'spur' arm
  *    (weight 0.35, matching `ARMS`'s own Local arm), inserted at a random
@@ -391,7 +424,7 @@ export function generateSeededArms(worldSeed: string, armClass: ArmClass = 'mult
  * genVersion BUMP 11 - a direct user report: "in normal spiral galaxy the
  * arms are still perfect, there's no kinks or brokenness"). `calibrated`,
  * not sourced: real per-arm kink data (Reid et al. 2019 Table 2) exists
- * only for the five NAMED Milky Way arms (`ARMS`'s own "KINK UPGRADE PATH"
+ * only for the six NAMED Milky Way arms (`ARMS`'s own "KINK UPGRADE PATH"
  * section) - it has nothing to say about a procedurally seeded arm's own
  * geometry. Reid's own table DID find a genuine kink in 4 of its 5 real
  * arms (only Local's own fit found none), so "most arms kink" is the
@@ -495,7 +528,10 @@ export interface ArmWidthParams {
   readonly slopePcPerKpc: number;
   readonly r0Kpc: number;
   /** Multiplier on the width relation, HARD CEILING 1.02 (patch S4/gate 27) -
-   *  above it Perseus merges with Norma-Outer at the inner disc edge. */
+   *  above it Perseus merges with Outer at the inner disc edge (the arm this
+   *  project's own `Norma-Outer` entry split into, Package 02/03 build plan
+   *  Stage B, 27 Aug 2026 - Norma's own RrefPc sits nowhere near Perseus's,
+   *  so it is Outer specifically this ceiling protects against). */
   readonly broadening: number;
 }
 
@@ -711,7 +747,7 @@ export function armRidge(a: ArmDefinition, R_pc: number, theta_rad: number, w: A
  * roughly 1 in 4 tested galaxies, after bump 11's depth increase had
  * already landed). Root-caused, not guessed: this comment originally
  * claimed `RrefPc` was "already distinct per arm in every table this
- * project builds" - true for `ARMS` (five different RrefPc values, one
+ * project builds" - true for `ARMS` (six different RrefPc values, one
  * shared thetaRefDeg=0), but FALSE for `generateSeededArms`, which gives
  * EVERY arm the identical `R0_SEEDED_REF_PC` and instead varies
  * `thetaRefDeg` per arm - the exact opposite pairing, never checked against
@@ -728,7 +764,7 @@ export function armRidge(a: ArmDefinition, R_pc: number, theta_rad: number, w: A
  * construction - `evenSpacingDeg` alone already separates every arm before
  * jitter) decorrelates every seeded arm's own phase from every other arm's,
  * independent of whether the table's `RrefPc` values happen to vary. `ARMS`
- * itself is UNCHANGED by this - `thetaRefDeg` is 0 for all five of its
+ * itself is UNCHANGED by this - `thetaRefDeg` is 0 for all six of its
  * entries, contributing nothing to the fold, so its own already-working
  * RrefPc-driven phase spread is reproduced bit-for-bit.
  */
@@ -1102,8 +1138,8 @@ import type { GlossaryEntry } from './types';
 export const glossary: GlossaryEntry[] = [
   {
     term: 'Named spiral arms (Reid 2019)', status: 'sourced',
-    short: 'The five real spiral arms of the Milky Way, each with its own pitch angle and radius.',
-    long: 'Scutum-Centaurus, Sagittarius-Carina, Local (spur), Perseus and Norma-Outer, from VLBI maser parallax fits - the same source and figures patch v2.3 transcribes into its parameter schema.',
+    short: 'The six real spiral arms of the Milky Way, each with its own pitch angle and radius.',
+    long: 'Scutum-Centaurus, Sagittarius-Carina, Local (spur), Perseus, Norma and Outer, from VLBI maser parallax fits - the same source and figures patch v2.3 transcribes into its parameter schema. Norma and Outer were split from one merged table entry into Table 2\'s own two separate rows, Package 02/03 build plan Stage B, 27 Aug 2026.',
     source: 'Reid et al. 2019, ApJ 885, 131',
   },
   {

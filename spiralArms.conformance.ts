@@ -295,8 +295,8 @@ check('9g along-arm modulation preserves the mean-zero invariant at fixed R - ar
 /* -- kink upgrade path (RkinkPc/pitchOuterDeg, wired 24-25 Aug 2026) ----------- */
 
 check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=4910, ' +
-  'pitchOuterDeg=12.1); the other four ARMS entries stay unset - sourced-but-deferred ' +
-  '(Sgr-Car/Perseus/Norma-Outer) or genuinely kink-free (Local), per the module header', (() => {
+  'pitchOuterDeg=12.1); the other five ARMS entries stay unset - sourced-but-deferred ' +
+  '(Sgr-Car/Perseus/Norma/Outer) or genuinely kink-free (Local), per the module header', (() => {
   const sc = ARMS.find((a) => a.name === 'Scutum-Centaurus')!;
   const others = ARMS.filter((a) => a.name !== 'Scutum-Centaurus');
   return sc.RkinkPc === 4910 && sc.pitchOuterDeg === 12.1 &&
@@ -429,6 +429,58 @@ check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=491
     SPIRAL_PATTERN_SPEED_OUTER_KM_S_KPC < SPIRAL_PATTERN_SPEED_MAIN_KM_S_KPC);
   check('13i ARM_INNER_ATTACH_RADIUS_PC matches Wegg/Gerhard/Portail 2015\'s own long-bar half-length (5000pc)',
     ARM_INNER_ATTACH_RADIUS_PC === 5000);
+}
+
+/* 14. Package 02/03 build plan, Stage B (27 Aug 2026) - the Norma-Outer
+ * split. Outer keeps the OLD merged entry's own numbers unchanged; Norma is
+ * a new entry, its pitch reused from Outer/Local's own already-verified
+ * 12.43deg (owner ruling, see spiralArms.ts's own header for the
+ * near-degenerate branch this avoided) and its RrefPc newly derived from
+ * Table 2's own real R_kink=4460pc, projected to this table's beta=0
+ * anchor. Because Norma reuses an EXISTING pitch value rather than
+ * introducing a new one, the split must leave the table's global kappa
+ * range completely unchanged - verified directly below, not assumed. ---- */
+{
+  const norma = ARMS.find((a) => a.name === 'Norma');
+  const outer = ARMS.find((a) => a.name === 'Outer');
+  const mergedNameGone = ARMS.find((a) => a.name === 'Norma-Outer');
+
+  check('14a ARMS now carries six arms (Norma-Outer split into two)', ARMS.length === 6);
+  check('14b the old merged "Norma-Outer" name is gone; "Norma" and "Outer" both exist', (
+    mergedNameGone === undefined && norma !== undefined && outer !== undefined
+  ));
+  check('14c Outer keeps the OLD merged entry\'s own numbers exactly (pitchDeg=12.43, RrefPc=12289, ' +
+    'weight=0.55, tier=minor) - unchanged, only renamed', !!outer &&
+    outer.pitchDeg === 12.43 && outer.RrefPc === 12289 && outer.weight === 0.55 && outer.tier === 'minor' &&
+    outer.RkinkPc === undefined && outer.pitchOuterDeg === undefined);
+  check('14d Norma is a new entry: pitchDeg=12.43 (REUSED from Outer/Local, owner ruling), ' +
+    'RrefPc=4780 (Table 2\'s own R_kink=4460pc projected to beta=0 with that pitch), weight=0.55, ' +
+    'tier=minor, no kink fields', !!norma &&
+    norma.pitchDeg === 12.43 && norma.RrefPc === 4780 && norma.weight === 0.55 && norma.tier === 'minor' &&
+    norma.RkinkPc === undefined && norma.pitchOuterDeg === undefined);
+  check('14e Norma\'s own RrefPc reproduces the documented projection formula exactly - ' +
+    'R_kink * exp(-(0 - beta_kink_rad) * tan(pitch)), beta_kink=18deg, R_kink=4460pc, pitch=12.43deg', (() => {
+    const betaKinkRad = (18 * Math.PI) / 180;
+    const expected = 4460 * Math.exp(-(0 - betaKinkRad) * Math.tan((12.43 * Math.PI) / 180));
+    return close(norma!.RrefPc, expected, 1);
+  })());
+  check('14f the split leaves the table\'s global kappa range EXACTLY unchanged (18.8433 to 30.9951, ' +
+    'same as before Stage B) - Norma reuses an existing pitch value rather than introducing a new one, ' +
+    'so it contributes no new kappa(R) curve to the sweep', (() => {
+    let min = Infinity, max = -Infinity;
+    for (const a of ARMS) {
+      for (let R = 3500; R <= 16000; R += 25) {
+        const k = kappaOf(a, R);
+        if (k < min) min = k;
+        if (k > max) max = k;
+      }
+    }
+    return close(min, 18.8433, 5e-4) && close(max, 30.9951, 5e-4);
+  })());
+  check('14g Norma\'s own kappa at its RrefPc sits safely inside the table\'s existing range - NOT the ' +
+    'near-degenerate ~0.15 a literal use of its own psi< branch would have produced (this is the ' +
+    'regression check for the owner ruling documented in spiralArms.ts\'s own header)',
+    !!norma && kappaOf(norma, norma.RrefPc) > 15 && kappaOf(norma, norma.RrefPc) < 35);
 }
 
 /* --------------------------------- result ------------------------------------ */

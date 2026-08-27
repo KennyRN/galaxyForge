@@ -406,7 +406,8 @@ export function assertGalaxyParameters(params: GalaxyParameters): void {
   if (params.armWidth.broadening > 1.02) {
     throw new Error(
       `galaxyParameters: armWidth.broadening (${params.armWidth.broadening}) exceeds the hard ceiling 1.02 - ` +
-      `above it Perseus merges with Norma-Outer at the inner disc edge (patch v2.3 S4).`,
+      `above it Perseus merges with Outer at the inner disc edge (patch v2.3 S4; Outer is the arm ` +
+      `the project's own Norma-Outer table entry split into, Package 02/03 build plan Stage B).`,
     );
   }
   if (params.complexTier.cellSizePc < 8 * params.complexTier.sigmaComplexPc) {

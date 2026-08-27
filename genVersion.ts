@@ -285,5 +285,52 @@
  * -tangential kappaOf-collapse risk.
  *
  * `verification/golden/gen12.json` is the fixture cut against THIS version.
+ *
+ * BUMP 13, 27 Aug 2026 (Package 02/03 build plan, Stage B - the Norma-Outer
+ * split, Ruling 9). `spiralArms.ts`'s `ARMS` table used to merge Reid et al.
+ * 2019 Table 2's two separate Norma (`R_kink=4.46kpc`) and Outer
+ * (`R_kink=12.24kpc`) rows into one entry, `'Norma-Outer'`; the two segments
+ * are not contiguous in beta (source pack S3's own "Norma-Outer caveat") and
+ * Xu et al. 2023 treats them as unrelated arms, so the merge was never more
+ * than a convenient approximation this project's own arm-extent work
+ * (Stages C/D, still to come) needs undone. `ARMS` now carries SIX entries,
+ * not five: `'Outer'` keeps the old merged entry's own numbers unchanged
+ * (`pitchDeg=12.43`, `RrefPc=12289`); `'Norma'` is new (`RrefPc=4780`).
+ *
+ * Norma's own pitch needed an owner ruling, not a blind Table-2 transcribe:
+ * its real near-Sun branch fit (`psi< = -1.0 +/- 3.3 deg`) is statistically
+ * indistinguishable from zero and COLLAPSES `kappaOf` toward zero if used
+ * directly - verified numerically before writing anything (kappa ~ 0.15 at
+ * its own RrefPc, against this table's established 18.8-31.0 range), the
+ * exact near-tangential failure mode already rejected for Sagittarius
+ * -Carina's own deferred outer branch. Ruled (27 Aug 2026): reuse Outer/
+ * Local's own already-verified `pitchDeg=12.43` for Norma too, and project
+ * its real, well-determined `R_kink` (4460pc, N=11, +/-0.19kpc) out to this
+ * table's beta=0 anchor using THAT pitch (kappa=22.97 at the result -
+ * safely inside the existing range). See `spiralArms.ts`'s own header,
+ * "KINK UPGRADE PATH", for the full derivation and grading.
+ *
+ * CONFIRMED a real generation-path change for `spiral`/`barredSpiral`, not
+ * cosmetic: `armFactor`/`armContrastRatio`/`deriveArmContrasts` all iterate
+ * `ARMS` in full for the `'majorMinor'`/`'all'` response sets (midThin/
+ * youngThin populations), which now sum over 5/6 arms instead of 4/5 - the
+ * 'major' set alone (oldThin's own contrast target) is UNCHANGED, still
+ * exactly Scutum-Centaurus + Perseus, so `deriveArmContrasts`'s stored
+ * 0.3096/0.4335/0.6193 figures are untouched, but the ACTUAL midThin/
+ * youngThin density field for every 'Milky Way Analogue' galaxy moves
+ * wherever Norma's new ridge falls (R~3.5-8kpc, its own von Mises spread).
+ * The global kappa range (18.8433-30.9951) is UNCHANGED - Norma reuses an
+ * existing pitch value rather than introducing a new one, confirmed
+ * directly (gate 14f, `spiralArms.conformance.ts`), so nothing about arm
+ * SHARPNESS moves, only WHERE a sixth ridge sits. Confirmed empirically,
+ * not assumed: re-running the suite against the still-committed
+ * `gen12.json` fails placement/remnants/systemCore byte-identity for both
+ * `spiral` and `barredSpiral` at their own reference cells.
+ * `verification/golden/gen13.json` is the fixture cut against THIS version.
+ *
+ * NOT bumped again by anything built in this same pass (Stage A's own
+ * additions - `resonanceRatio`, the pattern-speed constants, the bar
+ * -attachment radius - remain unwired and therefore bump-free, per their
+ * own header note).
  */
-export const CURRENT_GEN_VERSION = 12;
+export const CURRENT_GEN_VERSION = 13;

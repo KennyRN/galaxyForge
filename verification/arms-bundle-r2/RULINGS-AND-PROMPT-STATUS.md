@@ -19,9 +19,19 @@ individual prompts specify on their own. See
 27 Aug 2026) for the four-stage build this unblocks — **Stage A (pure
 foundations, `resonanceRatio`, the pattern-speed constants, the bar
 -attachment radius, the `armTermination` PRNG channel registration) is
-done**, committed, gated. Stages B (ARMS table schema change, Ruling 9),
-C (the actual termination mechanism, the big one), and D (extent
-ordering, Ruling 10) are designed but not yet built.
+done**, committed, gated, genVersion-BUMP-FREE (nothing wired into the
+generation path yet). **Stage B (ARMS table schema change, Ruling 9) is
+also done** — `Norma-Outer`'s single merged entry split into Table 2's
+own two real rows, `Norma` and `Outer`; Norma's own near-Sun pitch branch
+turned out to be near-degenerate (owner ruling: reuse Outer/Local's
+already-verified pitch instead, see `spiralArms.ts`'s own header for the
+full numeric verification) — a REAL generation-path shape break for
+`spiral`/`barredSpiral`, confirmed by the golden master gate failing
+against the pre-Stage-B fixture until re-cut. `genVersion` BUMP 13, own
+narrative in `genVersion.ts`; `verification/golden/gen13.json` is the
+fixture cut against it. Stages C (the actual termination mechanism, the
+big one) and D (extent ordering, Ruling 10) are designed but not yet
+built.
 
 ## Rulings
 
@@ -35,7 +45,7 @@ ordering, Ruling 10) are designed but not yet built.
 | 6 | plate contrast: demo artefact or real field property | **answered — demo artefact**, self-resolved from the codebase directly (`DRIMMEL_SPERGEL_K`, `ARM_CLASS_CONTRAST_TARGET_K`, `scale_bench.py` absent from repo). **Sharpened by P1's own gate 10, 27 Aug 2026 — see the P1 status row below: the isolated arm constant is not the defect, but the real field's TOTAL contrast (all populations summed) is measurably lower than what reads as visible structure through 17 bands with no display boost.** |
 | 7 | canonical units for angle/density quantities | **answered 2026-08-27 — degrees for azimuth/arc/pitch angle (radians math-only); km/s/kpc declared canonical for angular velocity; systems/pc² for surface density; systems/pc³ for volume density (already canonical pre-ruling).** See `units.ts`'s own Ruling-7 doc comments. |
 | 8 | cross-section width-gate collision + peak-vs-area reading | open — **owner asked this be deferred until P1/P7/P10 land, then handed to another agent for deeper research.** See the P13-style prompt this session owes for it. |
-| 9 | Norma–Outer: one arm or two | **answered 2026-08-27 — two separate arms.** Matches Reid 2019 Table 2's own row structure (confirmed by this session's P13 research) and Xu et al. 2023. Not yet implemented (P10) — note this means a real schema change to the shipped `ARMS` table (currently one merged `Norma-Outer` entry), a shape break in its own right. |
+| 9 | Norma–Outer: one arm or two | **answered AND IMPLEMENTED 2026-08-27 — two separate arms.** Matches Reid 2019 Table 2's own row structure (confirmed by this session's P13 research) and Xu et al. 2023. Built as Package 02/03 build plan Stage B: `ARMS` now carries `Norma`/`Outer` as separate entries, `genVersion` BUMP 13. Norma's own real Table-2 pitch branch turned out near-degenerate (kappa-collapsing); a further owner ruling settled it reuses Outer/Local's own already-verified pitch instead — see `spiralArms.ts`'s own header for the full numeric verification and grading. |
 | 10 | extent source (Sun 2024 / Hou & Han 2014 / Drimmel 2025 / Reid β spans) | **answered 2026-08-27 — retain Reid β spans, selection function documented, as an INTERIM position**, pending Sun et al. 2024's body being read (still only abstract-level per P13). Not yet implemented (P10). **Owner asked this be revisited once P10 lands, to chase the other agent for Sun 2024's body properly.** |
 
 Separately, **Ruling 11** (not part of the original ten — raised this
