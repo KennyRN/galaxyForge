@@ -1,9 +1,13 @@
 # Follow-up audit note — arms bundle R2, pattern-speed citations
 
-**Raised 2026-08-27. Not urgent — none of this blocks Ruling 11's design
-being adopted.** It only sharpens numbers that are already reasonable
-placeholders. Pick this up whenever a future audit pass has spare research
-capacity; nothing here needs an owner decision, only more reading.
+**Raised 2026-08-27. Originally not urgent — none of this blocked Ruling
+11's design being adopted.** Item 4 has since changed status: the Package
+02/03 build plan's own Stage D (extent ordering) is now genuinely blocked
+on it, not merely sharpened by it — see `PROMPT-RULING-10-extent-ordering
+-research.md` (drafted 27 Aug 2026, ready to send), which bundles item 4
+as its primary ask and items 2/3 below as optional carry-alongs. Items 1
+and 5 remain genuinely low-priority; pick those up whenever a future
+audit pass has spare capacity.
 
 ## What's still open
 
@@ -27,15 +31,22 @@ reasoning chain:
    Would promote the 2–10% strong/weak criterion out of `calibrated
    (secondary)` and settle whether the barred-host corotation/OLR
    alternative (vs. 4:1) applies to `grandDesign`/`ARMS`.
-4. **Sun et al. 2024 body** (ApJL) — the R ≈ 22 kpc arm extent is
-   load-bearing for whichever ruling ends up governing outer-disc arm
-   extent (Ruling 10), currently abstract-level only. **Promoted in
-   priority 27 Aug 2026** — Ruling 10 has since been formally recorded
-   (retain Reid β spans as an interim position, selection function
-   documented) specifically *because* this item was still open; the owner
-   has asked to revisit Ruling 10 once this is read, to replace the
-   interim position with Sun 2024's own arc-length approach if it holds
-   up. This is now the single most consequential item on this list.
+4. **Sun et al. 2024 body** (ApJL, DOI `10.3847/2041-8213/ad9605`) — the
+   R ≈ 22 kpc arm extent is load-bearing for whichever ruling ends up
+   governing outer-disc arm extent (Ruling 10), currently abstract-level
+   only. **Promoted in priority 27 Aug 2026** — Ruling 10 has since been
+   formally recorded (retain Reid β spans as an interim position,
+   selection function documented) specifically *because* this item was
+   still open; the owner has asked to revisit Ruling 10 once this is
+   read, to replace the interim position with Sun 2024's own arc-length
+   approach if it holds up. **Promoted again 27 Aug 2026, same day**: the
+   Package 02/03 build plan's Stage D (arm extent ordering, the last
+   remaining stage) is now formally blocked on this item specifically,
+   not merely improved by it — see `PROMPT-RULING-10-extent-ordering
+   -research.md` for the full research ask (per-arm mapping, sample
+   honesty, whether the shared Stage-C terminus itself needs
+   reconsideration). This is the single most consequential item on this
+   list.
 5. **Dias et al. 2019 body** (MNRAS 486, 5726) — lowest priority; the
    abstract already states the adopted frame explicitly and the arithmetic
    closes cleanly, so this is a confirmation pass, not a correction hunt.
@@ -48,8 +59,10 @@ information.
 
 ## Where to resume
 
-Start from `RULING-11-PROPOSAL-pattern-speed-architecture.md`'s Erratum 3
-(the most recent one) for the current state of the design, then work down
-this list. If a future pass closes any of items 1–5, add a new dated
-erratum to the ruling file (prepend, don't rewrite) rather than editing
-this note or the ruling's existing body.
+For item 4 (Stage D's own blocker), send `PROMPT-RULING-10-extent
+-ordering-research.md` as-is — it is the ready-to-send research request.
+For items 1/2/3/5, start from `RULING-11-PROPOSAL-pattern-speed
+-architecture.md`'s Erratum 3 (the most recent one) for the current state
+of the design, then work down this list. If a future pass closes any of
+items 1–5, add a new dated erratum to the ruling file (prepend, don't
+rewrite) rather than editing this note or the ruling's existing body.
