@@ -16,6 +16,7 @@ import {
   computeSolarAnchorSystemsPerPc2, computeDensityDisplayField, interpolatePaletteFromAnchors,
   interpolatedBandColor,
   ISOPHOTE_CELL_SIZE_PC, ISOPHOTE_SIGMA_MIN, ISOPHOTE_BANDS, ISOPHOTE_PALETTES,
+  ISOPHOTE_BREAK_RADIUS_FRACTION,
 } from './isophoteRenderer';
 import { createSpiralModel, R0_PC, type GalaxyModel } from './galaxyModel';
 import { DEFAULT_GALAXY_PARAMETERS } from './galaxyParameters';
@@ -365,6 +366,47 @@ function check(name: string, cond: boolean): void {
     const a = computeDensityDisplayField(model, { x: 0, y: 0, z: 0 }, 2000, 4000, undefined);
     const b = computeDensityDisplayField(model, { x: 0, y: 0, z: 0 }, 2000, 4000, undefined, undefined, undefined);
     return a.res.nx === b.res.nx && a.res.ny === b.res.ny && a.res.nx === isophoteGridRes(2000).nx;
+  })());
+}
+
+/* 13. ISOPHOTE_BREAK_RADIUS_FRACTION (28 Aug 2026, a direct user finding:
+ *     "the outer limits... looks like a perfectly round circle") - exported
+ *     specifically so `galaxyCreationModals.ts`'s own arm-terminus-aware
+ *     framing can divide by the SAME constant `applyOuterBreak` uses
+ *     internally, rather than a second hardcoded 0.80 that could silently
+ *     drift out of sync with this one. This gate proves the export IS that
+ *     internal value, not just a plausible-looking duplicate - by finding
+ *     where `applyOuterBreak`'s own output actually starts falling below
+ *     the untouched input (empirically, not by re-reading the source) and
+ *     checking it lands at the exported fraction of halfWidthPc. --------- */
+{
+  check('13a ISOPHOTE_BREAK_RADIUS_FRACTION is exported, finite, and inside (0, 1)',
+    Number.isFinite(ISOPHOTE_BREAK_RADIUS_FRACTION) && ISOPHOTE_BREAK_RADIUS_FRACTION > 0 && ISOPHOTE_BREAK_RADIUS_FRACTION < 1);
+
+  check('13b applyOuterBreak leaves every cell untouched strictly inside the exported fraction of halfWidthPc', (() => {
+    const halfWidthPc = 20000;
+    const nx = 200, ny = 200;
+    const flat = new Float64Array(nx * ny).fill(1);
+    const broken = applyOuterBreak(flat, nx, ny, halfWidthPc);
+    // Sample along +x, one cell short of the break radius - every such
+    // cell should be exactly 1 (untouched), confirming the break truly
+    // starts AT the exported fraction, not measurably before it.
+    const cellPc = (2 * halfWidthPc) / nx;
+    const ixJustInside = Math.floor((ISOPHOTE_BREAK_RADIUS_FRACTION * halfWidthPc - cellPc) / cellPc + nx / 2);
+    const iy = ny / 2;
+    return broken[ixJustInside + nx * iy] === 1;
+  })());
+
+  check('13c applyOuterBreak has measurably reduced density well past the exported fraction of halfWidthPc', (() => {
+    const halfWidthPc = 20000;
+    const nx = 200, ny = 200;
+    const flat = new Float64Array(nx * ny).fill(1);
+    const broken = applyOuterBreak(flat, nx, ny, halfWidthPc);
+    const cellPc = (2 * halfWidthPc) / nx;
+    // Well past the break, at +10% of halfWidthPc beyond the break radius.
+    const ixPastBreak = Math.floor((ISOPHOTE_BREAK_RADIUS_FRACTION * halfWidthPc + 0.10 * halfWidthPc) / cellPc + nx / 2);
+    const iy = ny / 2;
+    return broken[ixPastBreak + nx * iy]! < 1;
   })());
 }
 

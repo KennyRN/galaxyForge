@@ -56,6 +56,7 @@ import { generateSeededArms, rollArmClass, ARMS, type ArmDefinition } from './sp
 import { degToRad, radToDeg } from './units';
 import {
   computeDensityDisplayField, paintDensityField, drawIsophoteLegend, complexCentresForOverview,
+  ISOPHOTE_BREAK_RADIUS_FRACTION,
   type DensityDisplayField, type IsophotePalette,
 } from './isophoteRenderer';
 import { generateSector, assembleSector } from './sectorFootprint';
@@ -628,6 +629,57 @@ function computeR90Pc(model: GalaxyModel, thicknessPc: number, previewScale: num
 }
 
 /**
+ * The furthest any arm in `params.arms` actually reaches, in the MODEL's
+ * own (unscaled) coordinate frame - the `oldThin` cohort's termination
+ * radius (`ARM_COHORT_TERMINUS_FACTOR.oldThin === 1`, `spiralArms.ts`'s own
+ * header), since that cohort's own factor is 1 and every other cohort
+ * terminates strictly inside it. Returns 0 for an arm table with no
+ * `terminusPc` set at all (there is none today, but a future arm table
+ * omitting it degrades to "no arm-based constraint" rather than throwing,
+ * same discipline `terminusEnvelope`'s own `undefined` branch already
+ * uses). NOT scaled by `previewScale` here - the one caller,
+ * `framingHalfWidthPcFor`, applies that itself, at the same point it
+ * already scales `computeR90Pc`'s own result, so the two stay comparable.
+ */
+function armExtentPc(params: GalaxyParameters): number {
+  return params.arms.reduce((max, a) => Math.max(max, a.terminusPc ?? 0), 0);
+}
+
+/**
+ * Preview half-width (28 Aug 2026, a direct user finding: "the outer
+ * limits of a spiral galaxy looks like a perfectly round circle") -
+ * R90-based framing alone answers "how far does this galaxy's TOTAL
+ * light reach", a purely axisymmetric question that has no relationship
+ * to where the ARMS themselves stop (Stage C's own resonance-based
+ * termination, `ARM_TERMINUS_SHARED_PC` and its seeded-class siblings).
+ * Measured directly (hands-on diagnostic, this session): for a Standard
+ * -scale seeded spiral, R90 framing reaches ~19 100pc while every arm's
+ * own amplitude is already EXACTLY zero (0.000x azimuthal contrast,
+ * sampled directly) from ~13 860pc outward - a genuinely featureless,
+ * perfectly circular ring spanning 27% of the visible radius, well
+ * before `applyOuterBreak`'s own fade even begins.
+ *
+ * Fixed by taking whichever of R90-based and arm-extent-based framing is
+ * SMALLER, for spiral/barredSpiral only (elliptical/lenticular/any arm
+ * -free table keep pure R90 framing, unchanged) - never enlarges the
+ * frame past what R90 alone would already have chosen (a compact galaxy
+ * stays compact), but caps it at just past the last arm's own terminus
+ * when that would otherwise be the tighter constraint (the overwhelmingly
+ * common case in practice). The divisor is
+ * `ISOPHOTE_BREAK_RADIUS_FRACTION` - the SAME constant `applyOuterBreak`
+ * itself uses (imported, not re-hardcoded) - chosen so that the outer
+ * break's own fade begins almost exactly where the arms already reached
+ * zero, rather than adding a second, independent bald ring on top of it.
+ */
+function framingHalfWidthPcFor(model: GalaxyModel, params: GalaxyParameters, thicknessPc: number, previewScale: number): number {
+  const r90HalfWidthPc = R90_MARGIN * computeR90Pc(model, thicknessPc, previewScale);
+  if (model.morphology !== 'spiral' && model.morphology !== 'barredSpiral') return r90HalfWidthPc;
+  const armExtent = armExtentPc(params) * previewScale;
+  if (!(armExtent > 0)) return r90HalfWidthPc;
+  return Math.min(r90HalfWidthPc, armExtent / ISOPHOTE_BREAK_RADIUS_FRACTION);
+}
+
+/**
  * The edge-on view's own vertical half-extent (16 Aug 2026, a direct user
  * follow-up: "I can see no stars in the halo at all"). Previously
  * `Math.max(thickness * 3, 400)` - since `thickness` is the 5/10/15 pc slab
@@ -1184,7 +1236,7 @@ export class GalaxyScreen1Modal extends Modal {
     await nextPaint();
     const previewScale = previewScaleFor(model, params);
     const thicknessPc = GALAXY_OVERVIEW_THICKNESS_BASE_PC * previewScale;
-    const halfWidthPc = R90_MARGIN * computeR90Pc(model, thicknessPc, previewScale);
+    const halfWidthPc = framingHalfWidthPcFor(model, params, thicknessPc, previewScale);
     const field = computeDensityDisplayField(
       model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc,
       { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
@@ -1447,7 +1499,7 @@ export class GalaxyScreen2Modal extends Modal {
     const overlay = showBusyOverlay(this.mapPane, 'Rendering preview…');
     await nextPaint();
     const thicknessPc = GALAXY_OVERVIEW_THICKNESS_BASE_PC * this.previewScale;
-    const halfWidthPc = R90_MARGIN * computeR90Pc(this.model, thicknessPc, this.previewScale);
+    const halfWidthPc = framingHalfWidthPcFor(this.model, this.params, thicknessPc, this.previewScale);
     this.galaxyOverview = computeDensityDisplayField(
       this.model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc,
       { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },

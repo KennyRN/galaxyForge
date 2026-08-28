@@ -336,8 +336,16 @@ export function smoothGrid1Cell(values: Float64Array, nx: number, ny: number): F
  *  absolute figure, so the truncation always lands inside frame, at any
  *  scale. Display-side only (S6: "if wired into the field `placement`
  *  reads, it becomes a shape break") - applied here, after the raw
- *  surface density is sampled, never touching the generated field. */
-const ISOPHOTE_BREAK_RADIUS_FRACTION = 0.80;
+ *  surface density is sampled, never touching the generated field.
+ *
+ *  `ISOPHOTE_BREAK_RADIUS_FRACTION` EXPORTED (28 Aug 2026, a direct user
+ *  finding: "the outer limits... looks like a perfectly round circle") -
+ *  `galaxyCreationModals.ts`'s own framing now derives `halfWidthPc` for
+ *  arm-bearing morphologies from the arm class's own termination radius
+ *  (Stage C) rather than R90 alone, specifically so THIS fraction of that
+ *  frame lands at the real arm terminus - the caller needs the same
+ *  constant, not a second hardcoded 0.80 that could drift out of sync. */
+export const ISOPHOTE_BREAK_RADIUS_FRACTION = 0.80;
 const ISOPHOTE_BREAK_SCALE_FRACTION = 0.15;
 export function applyOuterBreak(values: Float64Array, nx: number, ny: number, halfWidthPc: number): Float64Array {
   const breakRPc = ISOPHOTE_BREAK_RADIUS_FRACTION * halfWidthPc;
