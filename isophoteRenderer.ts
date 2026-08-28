@@ -253,13 +253,50 @@ export function interpolatedBandColor(
   return [r0 + (r1 - r0) * t, g0 + (g1 - g0) * t, b0 + (b1 - b0) * t];
 }
 
-/** Grid dimension is DERIVED from the frame extent and the fixed cell
- *  size (erratum 1.1/1.2's fix for gate 1 and gate 3) - `ceil(frameExtent
- *  / cellSizePc)`. A 26 kpc frame (halfWidthPc=13000) gives ceil(26000/65)
- *  = 400, matching the package doc's own worked example exactly. */
-export function isophoteGridRes(halfWidthPc: number): { nx: number; ny: number } {
+/**
+ * Grid dimension is DERIVED from the frame extent and the fixed cell
+ * size (erratum 1.1/1.2's fix for gate 1 and gate 3) - `ceil(frameExtent
+ * / cellSizePc)`. A 26 kpc frame (halfWidthPc=13000) gives ceil(26000/65)
+ * = 400, matching the package doc's own worked example exactly.
+ *
+ * `maxCellsPerAxis` (28 Aug 2026, hands-on found - "should be quicker,
+ * takes about the same time") is OPTIONAL and, omitted, reproduces this
+ * exact formula with NO cap at all - every existing caller (every
+ * conformance gate, gate 1's own 400x400 worked-example check included)
+ * is completely unaffected. When supplied, it CAPS the derived dimension
+ * (never raises it - a frame small enough to stay under the cap already
+ * gets its full, uncompromised 65pc cells either way).
+ *
+ * WHY A CAP EXISTS AT ALL, stated plainly: for a real "Standard"-scale
+ * Milky-Way-Analogue (R90 ~ 10.6kpc, `galaxyCreationModals.ts`'s own
+ * R90_MARGIN=1.8 framing), the derived grid is 588x588 = 345,744 cells -
+ * 8.6x the OLD (pre-P1) fixed 200x200 preview grid - and each cell's own
+ * 5-sample vertical Simpson quadrature makes this a genuinely expensive
+ * computation: measured directly (disposable diagnostic script, this
+ * session), ~17.5 SECONDS for that one case, fully synchronous, freezing
+ * the whole modal. Even the package doc's own 400x400 worked example
+ * measures ~8s at this project's own per-cell cost - the spec's
+ * reference case is ALREADY too slow for an interactive, slider-driven
+ * preview, not merely the large-galaxy edge case.
+ *
+ * THE ABSOLUTE, FIXED-CELL-SIZE INVARIANT ITSELF IS NOT WEAKENED - it is
+ * SCOPED. `isophoteGridRes`/`computeDensityDisplayField` called with NO
+ * cap (as every gate does, and as any future precise/exportable plate
+ * should) still produce the exact, uncompromised, erratum-1.1/1.2-correct
+ * 65pc-cell field - identical physical resolution regardless of frame
+ * extent, exactly as that erratum requires. The cap is an EXPLICIT, only
+ * ever opted-into-by-the-caller relaxation for the live, transient,
+ * never-saved interactive preview canvas specifically
+ * (`galaxyCreationModals.ts`'s own call sites pass one; nothing else
+ * does) - the caller's own choice to trade some absolute resolution for
+ * responsiveness while a user is actively dragging a slider, stated
+ * honestly rather than silently baked into the one function every
+ * caller shares.
+ */
+export function isophoteGridRes(halfWidthPc: number, maxCellsPerAxis?: number): { nx: number; ny: number } {
   const n = Math.max(1, Math.ceil((2 * halfWidthPc) / ISOPHOTE_CELL_SIZE_PC));
-  return { nx: n, ny: n };
+  const capped = maxCellsPerAxis !== undefined ? Math.min(n, maxCellsPerAxis) : n;
+  return { nx: capped, ny: capped };
 }
 
 /** 5-tap separable Gaussian, sigma = 1 CELL (S4: "smooth on the grid at
@@ -466,14 +503,23 @@ export interface DensityDisplayField {
  *  01-G10 needs the DECODED plate to reproduce the model's own sourced A2
  *  directly; an artificial contrast boost would break that gate's whole
  *  premise by inflating the measured contrast past what the field itself
- *  actually carries. */
+ *  actually carries.
+ *
+ *  `previewMaxCellsPerAxis` (28 Aug 2026, OPTIONAL, no default - omitted
+ *  reproduces the exact prior signature and behaviour bit-for-bit) is a
+ *  straight pass-through to `isophoteGridRes`'s own new cap parameter -
+ *  see that function's own header for the full reasoning (a real,
+ *  measured ~17.5s freeze on a Standard-scale Milky-Way-Analogue preview,
+ *  and why the fix is scoped to the CALLER's own choice rather than
+ *  weakening the function's default, uncapped behaviour). */
 export function computeDensityDisplayField(
   model: GalaxyModel, centrePc: { x: number; y: number; z: number },
   halfWidthPc: number, thicknessPc: number,
   complexOverlay?: { readonly worldSeed: string; readonly complexTier: ComplexTierParams },
   palette: IsophotePalette = ISOPHOTE_DEFAULT_PALETTE,
+  previewMaxCellsPerAxis?: number,
 ): DensityDisplayField {
-  const res = isophoteGridRes(halfWidthPc);
+  const res = isophoteGridRes(halfWidthPc, previewMaxCellsPerAxis);
   const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
   const surface = projectSlab(fieldFromModel(model), region, res);
   const smoothed = smoothGrid1Cell(surface.values, res.nx, res.ny);

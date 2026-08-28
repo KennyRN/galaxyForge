@@ -535,8 +535,48 @@ const R90_TARGET_FRACTION = 0.9;
  *  cheap by design: this runs once per model change, alongside (and at
  *  comparable but not dominant cost to) the real `GALAXY_OVERVIEW_RES`
  *  field computation it precedes, purely to PLACE a framing radius, not to
- *  reproduce a gated science quantity. */
-const R90_SEARCH_RES = { nx: 80, ny: 80 };
+ *  reproduce a gated science quantity.
+ *
+ *  REDUCED 80x80 -> 48x48, 28 Aug 2026 (hands-on found - "should be
+ *  quicker, takes about the same time"): measured directly at 80x80, this
+ *  search alone cost ~1-1.2s EVERY render, on top of the main field
+ *  below - real cost for something whose own doc comment already called
+ *  it "coarse... not the real display grid". A radial CDF used only to
+ *  place a framing radius (R90_MARGIN already adds 80% headroom on top)
+ *  does not need fine angular/radial resolution - 48 bins is still ample
+ *  for a smooth, monotonic cumulative profile. See
+ *  `ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS`'s own header, immediately below,
+ *  for the main field's own (larger) share of the same finding. */
+const R90_SEARCH_RES = { nx: 48, ny: 48 };
+/**
+ * Caps the MAIN preview field's own grid resolution (28 Aug 2026,
+ * hands-on found - "should be quicker, takes about the same time").
+ * Measured directly, disposable diagnostic script: a real Standard-scale
+ * Milky-Way-Analogue's own R90-derived frame (halfWidthPc ~ 19,100pc)
+ * derives to 588x588 = 345,744 cells at the isophote's own uncapped 65pc
+ * cell size - 8.6x the OLD (pre-P1) fixed 200x200 preview grid - and
+ * measured ~17.5 SECONDS to compute, fully synchronous, freezing the
+ * whole modal. Even the package doc's own 400x400 worked example (a
+ * 26kpc frame) measures ~8s at this project's own per-cell cost - the
+ * spec's own reference case is already too slow for an interactive,
+ * slider-driven preview, not merely this large-galaxy edge case.
+ *
+ * 220 chosen empirically (same diagnostic script) to land the worst
+ * -case (MW-Analogue) preview around ~2-2.5s, comparable to what the OLD
+ * fixed-200x200 renderer itself delivered - a real fix, not a token
+ * reduction, while staying close enough to 200 that this is recognisably
+ * "restore roughly the old interactive budget", not an arbitrary number.
+ *
+ * DOES NOT WEAKEN THE ABSOLUTE, FIXED-CELL-SIZE INVARIANT ITSELF - see
+ * `isophoteGridRes`'s own header (`isophoteRenderer.ts`) for the full
+ * reasoning: this cap is this FILE's own explicit opt-in for the live,
+ * transient, never-saved preview canvas specifically. Every conformance
+ * gate, and any future precise/exportable plate, calls the same
+ * functions with NO cap and gets the full, uncompromised 65pc-cell
+ * field, exactly as the package spec requires - unaffected by this
+ * constant's existence.
+ */
+const ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS = 220;
 /** Generous, not physics - 3x the old fixed 20000pc window, which the
  *  patch's own root-cause analysis (S1.3) already measured as containing a
  *  Standard-scale spiral's own R90 comfortably (~10 100pc, well under half
@@ -1148,6 +1188,7 @@ export class GalaxyScreen1Modal extends Modal {
     const field = computeDensityDisplayField(
       model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc,
       { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
+      undefined, ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS,
     );
     hideBusyOverlay(overlay);   // ALWAYS remove the overlay THIS call created - never racy
     if (this.busyOverlay === overlay) this.busyOverlay = null;
@@ -1410,6 +1451,7 @@ export class GalaxyScreen2Modal extends Modal {
     this.galaxyOverview = computeDensityDisplayField(
       this.model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc,
       { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },
+      undefined, ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS,
     );
     hideBusyOverlay(overlay);
     this.draft = reconcileSizeFields(this.model, this.draft);

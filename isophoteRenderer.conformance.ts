@@ -309,6 +309,65 @@ function check(name: string, cond: boolean): void {
   })());
 }
 
+/* 12. isophoteGridRes/computeDensityDisplayField's own optional
+ * `maxCellsPerAxis`/`previewMaxCellsPerAxis` cap (28 Aug 2026, hands-on
+ * found - "should be quicker, takes about the same time", a real ~17.5s
+ * synchronous freeze measured for a Standard-scale Milky-Way-Analogue
+ * preview). The absolute, fixed-cell-size invariant gate 1 above tests is
+ * UNTOUCHED (it never passes a cap) - these gates are specifically about
+ * the cap itself behaving correctly wherever a caller opts into it. ---- */
+{
+  check('12a omitting the cap reproduces the EXACT prior, uncapped resolution - gate 1\'s own 400x400 ' +
+    'worked example is unaffected by this parameter existing at all',
+    isophoteGridRes(13000).nx === 400 && isophoteGridRes(13000, undefined).nx === 400);
+
+  check('12b the cap genuinely BOUNDS resolution when the native (uncapped) size would exceed it - a huge ' +
+    'frame capped at 220 gives exactly 220, not its own much larger native size',
+    isophoteGridRes(1000000, 220).nx === 220 && isophoteGridRes(1000000, 220).ny === 220 &&
+    isophoteGridRes(1000000).nx > 220);   // confirms the uncapped size really would have been bigger
+
+  check('12c the cap has NO EFFECT when the native resolution is already at or below it - a small frame\'s ' +
+    'own full, uncompromised 65pc-cell resolution is reproduced exactly, capped or not',
+    (() => {
+      const smallHalfWidth = 5000;   // native = ceil(10000/65) = 154, well under a 220 cap
+      const uncapped = isophoteGridRes(smallHalfWidth);
+      const capped = isophoteGridRes(smallHalfWidth, 220);
+      return uncapped.nx < 220 && capped.nx === uncapped.nx && capped.ny === uncapped.ny;
+    })());
+
+  check('12d the cap only ever REDUCES resolution, never raises it, for any halfWidthPc - swept across a ' +
+    'wide range, capped is always <= uncapped', (() => {
+    for (let hw = 1000; hw <= 200000; hw += 7331) {   // odd step, avoids accidentally hitting only round numbers
+      const uncapped = isophoteGridRes(hw);
+      const capped = isophoteGridRes(hw, 220);
+      if (capped.nx > uncapped.nx) return false;
+    }
+    return true;
+  })());
+
+  check('12e computeDensityDisplayField\'s own previewMaxCellsPerAxis genuinely reaches the field\'s res - ' +
+    'not merely accepted and ignored', (() => {
+    const model = createSpiralModel(false);
+    const halfWidthPc = 100000;   // native = ceil(200000/65) = 3077, comfortably above any sane cap
+    const capped = computeDensityDisplayField(model, { x: 0, y: 0, z: 0 }, halfWidthPc, 4000, undefined, undefined, 220);
+    return capped.res.nx === 220 && capped.res.ny === 220;
+  })());
+
+  check('12f omitting computeDensityDisplayField\'s new trailing parameter reproduces the EXACT same ' +
+    'resolution as before this change - every existing call site\'s own framing is unaffected. (Not a ' +
+    'bit-for-bit sigma comparison - applyRadialGranularity draws its own Math.random() per call, a ' +
+    'pre-existing, unrelated non-determinism this parameter does not touch either way.)', (() => {
+    const model = createSpiralModel(false);
+    // Small halfWidthPc deliberately - native res = ceil(4000/65) = 62, more
+    // than enough to prove the parameter is a true no-op when omitted or
+    // explicitly undefined, without paying a large uncapped grid's own
+    // real cost twice in one gate.
+    const a = computeDensityDisplayField(model, { x: 0, y: 0, z: 0 }, 2000, 4000, undefined);
+    const b = computeDensityDisplayField(model, { x: 0, y: 0, z: 0 }, 2000, 4000, undefined, undefined, undefined);
+    return a.res.nx === b.res.nx && a.res.ny === b.res.ny && a.res.nx === isophoteGridRes(2000).nx;
+  })());
+}
+
 /* Status notes for the package doc's remaining gates, not faked here:
  * - Gate 5 (units labelled "systems" never "stars"): the legend caption
  *   drawn by `drawIsophoteLegend` says "systems/pc^2" throughout - checked
