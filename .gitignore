@@ -4,6 +4,13 @@ build/
 dist/
 main.js
 
+# Obsidian vault runtime state - present here because the vault's own
+# .obsidian/plugins/starforge/ is a symlink to this repo's root (28 Aug
+# 2026), so Obsidian writes these directly alongside the source. Per-vault
+# settings/hot-reload marker, not plugin source - never committed.
+data.json
+.hotreload
+
 # reyle_anchor.py writes to the CWD it's run from. A repo-root stray copy is
 # ignored; the tracked provenance record lives at verification/reyle_anchor_result.json
 # (committed deliberately - see CHANGELOG.md, 15 August 2026).
