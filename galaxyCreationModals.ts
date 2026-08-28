@@ -576,8 +576,43 @@ const R90_SEARCH_RES = { nx: 48, ny: 48 };
  * functions with NO cap and gets the full, uncompromised 65pc-cell
  * field, exactly as the package spec requires - unaffected by this
  * constant's existence.
+ *
+ * 220 -> 100, ALONGSIDE `ISOPHOTE_PREVIEW_Z_SAMPLES` (28 Aug 2026, a
+ * direct hands-on follow-up report: "still 20+ seconds" even after the
+ * 220 cap shipped). In-session instrumentation on the reporting machine
+ * traced this to raw per-call cost, not a pipeline defect: the identical
+ * `model.densityAt` call measured ~105us/call there against this
+ * project's own ~5.2us/call reference figure - a genuine ~20x gap in the
+ * SAME code on the SAME hardware (Rosetta translation, a monkey-patched
+ * Math builtin, and DevTools overhead were all checked directly and
+ * ruled out; the cause is some other property of Obsidian's own
+ * execution context this project has no way to fix from inside a
+ * plugin). Since the per-operation cost cannot be trusted to match this
+ * project's own reference machine, the fix is to cut how many operations
+ * the live preview needs, further and on two independent axes at once
+ * (grid cells AND z-samples per cell) rather than assume 220 alone still
+ * lands in budget everywhere. 100 x 100 x `ISOPHOTE_PREVIEW_Z_SAMPLES`
+ * keeps the worst-case preview under ~3s even at that reporting
+ * machine's own measured (much slower than expected) per-call cost.
  */
-const ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS = 220;
+const ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS = 100;
+/**
+ * Z-quadrature samples for the LIVE PREVIEW field only (28 Aug 2026, same
+ * follow-up as the cap reduction immediately above) - a straight pass
+ * -through to `projectSlab`'s own `opts.zSamples` via `computeDensity
+ * DisplayField`'s new `previewZSamples` parameter. `Z_SAMPLES=5`
+ * (`densityMap.ts`) exists for `expectedSystemCount` - a number the user
+ * reads and relies on, where a ~1% z-integral bias would be a real,
+ * silently-wrong figure. The preview's OWN field is not that number: it
+ * gets smoothed (`smoothGrid1Cell`), broken (`applyOuterBreak`), radially
+ * jittered (`applyRadialGranularity`) and hard-quantised into 17 bands
+ * before a viewer ever sees it - a coarser z-integral is completely
+ * invisible in that final plate. 3 (the minimum Simpson allows, still
+ * placing a node exactly on the z=0 cusp `Z_SAMPLES`'s own header
+ * describes) cuts this axis's own share of the cost by 40% on top of the
+ * grid-cell reduction above, independent of it.
+ */
+const ISOPHOTE_PREVIEW_Z_SAMPLES = 3;
 /** Generous, not physics - 3x the old fixed 20000pc window, which the
  *  patch's own root-cause analysis (S1.3) already measured as containing a
  *  Standard-scale spiral's own R90 comfortably (~10 100pc, well under half
@@ -602,7 +637,11 @@ function r90SearchHalfWidthPc(previewScale: number): number {
 function computeR90Pc(model: GalaxyModel, thicknessPc: number, previewScale: number): number {
   const halfWidth = r90SearchHalfWidthPc(previewScale);
   const region: SlabRegionPc = { centre: GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc: halfWidth, halfDepthPc: halfWidth, thicknessPc };
-  const surface = projectSlab(fieldFromModel(model), region, R90_SEARCH_RES);
+  // zSamples: 3 (28 Aug 2026, same hands-on follow-up as ISOPHOTE_PREVIEW_
+  // Z_SAMPLES's own header) - this search was ALREADY documented as
+  // "coarse... not the real display grid", placing a framing radius only,
+  // never claiming Z_SAMPLES=5's own expectedSystemCount-grade precision.
+  const surface = projectSlab(fieldFromModel(model), region, R90_SEARCH_RES, { zSamples: 3 });
   const { nx, ny } = R90_SEARCH_RES;
   const cellPc = (2 * halfWidth) / nx;   // square cells (nx === ny)
   const nBins = nx;
@@ -1240,7 +1279,7 @@ export class GalaxyScreen1Modal extends Modal {
     const field = computeDensityDisplayField(
       model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc,
       { worldSeed: this.draft.worldSeed, complexTier: params.complexTier },
-      undefined, ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS,
+      undefined, ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS, ISOPHOTE_PREVIEW_Z_SAMPLES,
     );
     hideBusyOverlay(overlay);   // ALWAYS remove the overlay THIS call created - never racy
     if (this.busyOverlay === overlay) this.busyOverlay = null;
@@ -1503,7 +1542,7 @@ export class GalaxyScreen2Modal extends Modal {
     this.galaxyOverview = computeDensityDisplayField(
       this.model, GALAXY_OVERVIEW_CENTRE_PC, halfWidthPc, thicknessPc,
       { worldSeed: this.screen1.worldSeed, complexTier: this.params.complexTier },
-      undefined, ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS,
+      undefined, ISOPHOTE_PREVIEW_MAX_CELLS_PER_AXIS, ISOPHOTE_PREVIEW_Z_SAMPLES,
     );
     hideBusyOverlay(overlay);
     this.draft = reconcileSizeFields(this.model, this.draft);

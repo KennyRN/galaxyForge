@@ -344,9 +344,33 @@ export function smoothGrid1Cell(values: Float64Array, nx: number, ny: number): F
  *  arm-bearing morphologies from the arm class's own termination radius
  *  (Stage C) rather than R90 alone, specifically so THIS fraction of that
  *  frame lands at the real arm terminus - the caller needs the same
- *  constant, not a second hardcoded 0.80 that could drift out of sync. */
+ *  constant, not a second hardcoded 0.80 that could drift out of sync.
+ *
+ *  `ISOPHOTE_BREAK_SCALE_FRACTION` 0.15 -> 0.04 (28 Aug 2026, same finding,
+ *  continued: moving the break RADIUS closer to the arm terminus did not
+ *  fix the complaint, confirmed by actually rendering the field to a PNG
+ *  and looking at it (disposable diagnostic, this session - the exact
+ *  lesson this package's own plan already names: "a termination mechanism
+ *  is exactly the kind of thing that can pass every numeric gate while
+ *  still looking wrong rendered"). At 0.15, `hOutPc` is so wide that
+ *  brightness only decays to ~26% of its break-radius value BY THE FRAME
+ *  EDGE - the whole square stays visibly lit, never reaching background,
+ *  which reads as "a filled circle" regardless of where the break radius
+ *  itself sits. 0.04 is DERIVED, not tuned by eye: the margin beyond the
+ *  break is `(1 - ISOPHOTE_BREAK_RADIUS_FRACTION) x halfWidthPc` = 0.20 x
+ *  halfWidthPc; five e-foldings (`exp(-5) ~ 0.7%`, imperceptible against
+ *  this palette) fit inside that margin at `hOutPc = 0.20/5 = 0.04 x
+ *  halfWidthPc`. Verified visually (same diagnostic, swept 0.15/0.06/0.03)
+ *  - a genuinely crisp fade to background by the frame edge, arms fully
+ *  intact. Still leaves an OVERALL shape that reads as circular, though -
+ *  see that same diagnostic's own finding, reported back to the owner
+ *  rather than acted on unilaterally: the smooth axisymmetric bulge+disc
+ *  term dominates the arm's own contrast at every radius in this field, so
+ *  no outer-edge convention can make the SHAPE itself look arm-defined;
+ *  that would be a `armContrast`/`DRIMMEL_SPERGEL_K` calibration question,
+ *  not a display one, and out of scope for a display-only fix. */
 export const ISOPHOTE_BREAK_RADIUS_FRACTION = 0.80;
-const ISOPHOTE_BREAK_SCALE_FRACTION = 0.15;
+const ISOPHOTE_BREAK_SCALE_FRACTION = 0.04;
 export function applyOuterBreak(values: Float64Array, nx: number, ny: number, halfWidthPc: number): Float64Array {
   const breakRPc = ISOPHOTE_BREAK_RADIUS_FRACTION * halfWidthPc;
   const hOutPc = ISOPHOTE_BREAK_SCALE_FRACTION * halfWidthPc;
@@ -519,17 +543,34 @@ export interface DensityDisplayField {
  *  see that function's own header for the full reasoning (a real,
  *  measured ~17.5s freeze on a Standard-scale Milky-Way-Analogue preview,
  *  and why the fix is scoped to the CALLER's own choice rather than
- *  weakening the function's default, uncapped behaviour). */
+ *  weakening the function's default, uncapped behaviour).
+ *
+ *  `previewZSamples` (28 Aug 2026, OPTIONAL, no default - omitted
+ *  reproduces the exact prior behaviour bit-for-bit) - a straight pass
+ *  -through to `projectSlab`'s own `opts.zSamples`, second independent
+ *  lever alongside `previewMaxCellsPerAxis`. Follow-up to that same fix -
+ *  a direct hands-on report ("still 20+ seconds") plus in-session
+ *  instrumentation traced the remainder to raw per-call cost of
+ *  `model.densityAt` on that machine measuring ~20x this project's own
+ *  reference figures (Rosetta, a monkey-patched Math builtin, and DevTools
+ *  overhead all checked and ruled out directly - genuinely just a much
+ *  slower execution context for this arithmetic, not a bug in the
+ *  pipeline). `Z_SAMPLES=5`'s own header explains why FIVE samples matter
+ *  for `expectedSystemCount` - a number the user reads and relies on -
+ *  but that precision is wasted on a display field that gets smoothed,
+ *  broken, granularity-jittered AND 17-band posterized immediately
+ *  afterward; a coarser z-integral is invisible in the final plate. */
 export function computeDensityDisplayField(
   model: GalaxyModel, centrePc: { x: number; y: number; z: number },
   halfWidthPc: number, thicknessPc: number,
   complexOverlay?: { readonly worldSeed: string; readonly complexTier: ComplexTierParams },
   palette: IsophotePalette = ISOPHOTE_DEFAULT_PALETTE,
   previewMaxCellsPerAxis?: number,
+  previewZSamples?: number,
 ): DensityDisplayField {
   const res = isophoteGridRes(halfWidthPc, previewMaxCellsPerAxis);
   const region: SlabRegionPc = { centre: centrePc, halfWidthPc, halfDepthPc: halfWidthPc, thicknessPc };
-  const surface = projectSlab(fieldFromModel(model), region, res);
+  const surface = projectSlab(fieldFromModel(model), region, res, previewZSamples !== undefined ? { zSamples: previewZSamples } : {});
   const smoothed = smoothGrid1Cell(surface.values, res.nx, res.ny);
   const broken = applyOuterBreak(smoothed, res.nx, res.ny, halfWidthPc);
   const sigma = applyRadialGranularity(broken, res.nx, res.ny, halfWidthPc);
