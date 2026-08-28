@@ -167,6 +167,16 @@ export const ISOPHOTE_SIGMA_MIN = 0.25;
 export const ISOPHOTE_BANDS = 17;
 const ISOPHOTE_BG_HEX = '050710';
 
+/** `log2(sigma/SIGMA_MIN)`, continuous - UNCLAMPED, un-floored. The one
+ *  shared formula `isophoteBandIndex` (the discrete, legend/measurement
+ *  quantity) and `interpolatedBandColor` (the smooth, PAINTING quantity,
+ *  28 Aug 2026) both build from, so the two can never drift apart - a
+ *  pixel sitting exactly ON a band boundary reproduces the same integer
+ *  either way. */
+function continuousBandPosition(sigmaSystemsPerPc2: number): number {
+  return Math.log2(sigmaSystemsPerPc2 / ISOPHOTE_SIGMA_MIN);
+}
+
 /**
  * Band index for a surface density - `floor(log2(sigma/SIGMA_MIN))`,
  * clamped: below the floor is background (-1), at/above the ceiling
@@ -174,12 +184,73 @@ const ISOPHOTE_BG_HEX = '050710';
  * saturating into the top band is honest, not an artefact" (S2). Pure,
  * trivially monotonic (gate 9: band index is non-decreasing in density,
  * including both clamps, because `floor(log2(.))` already is one).
+ *
+ * This is the DISCRETE quantity - the legend's own swatches, gate 10's
+ * arm-amplitude-in-bands measurement, and every other gate that reads a
+ * band index all keep using this, unchanged. `paintDensityField` itself
+ * moved off it (28 Aug 2026) to `interpolatedBandColor` below - see that
+ * function's own header for why painting a hands-on-found problem.
  */
 export function isophoteBandIndex(sigmaSystemsPerPc2: number): number {
   if (!(sigmaSystemsPerPc2 > 0)) return -1;
-  const raw = Math.floor(Math.log2(sigmaSystemsPerPc2 / ISOPHOTE_SIGMA_MIN));
+  const raw = Math.floor(continuousBandPosition(sigmaSystemsPerPc2));
   if (raw < 0) return -1;
   return Math.min(ISOPHOTE_BANDS - 1, raw);
+}
+
+/**
+ * Smoothly interpolated RGB colour for a continuous surface density -
+ * hands-on found, 28 Aug 2026: `paintDensityField` used to paint each
+ * pixel a FLAT, solid colour from `bandRgb[isophoteBandIndex(s)]` - since
+ * each band is a full DOUBLING (5.12 dex across 17 bands total), any real
+ * density difference that does not cross a whole band boundary was
+ * completely invisible, painted identically either side of it. A seeded
+ * spiral's own genuine, gated arm/interarm contrast (roughly x2.5-x5
+ * depending on armClass) mostly landed INSIDE one band's own flat colour
+ * almost everywhere except right at a pre-existing boundary - reading, on
+ * an actual rendered plate, as "an elliptical galaxy with the arms only
+ * poking out slightly" rather than visible spiral structure, even though
+ * the underlying field (confirmed directly, disposable diagnostic script)
+ * has real, substantial azimuthal structure throughout.
+ *
+ * THE ABSOLUTE LOG2 SCALE ITSELF IS UNCHANGED - this does not touch
+ * `isophoteBandIndex`, the legend, or gate 10's own arm-amplitude-in
+ * -bands measurement, all of which keep reading the discrete, physically
+ * -decodable band index exactly as before. This is a PAINTING refinement
+ * only: instead of jumping from one band's flat colour to the next in one
+ * step exactly at the boundary, the colour is linearly interpolated
+ * between the two nearest band colours by the density's own fractional
+ * position within that doubling (`continuousBandPosition`, the same
+ * formula `isophoteBandIndex` floors) - continuous, so a pixel sitting
+ * EXACTLY on a boundary still reproduces the discrete `bandRgb[n]` colour
+ * exactly (fractional part 0), and the legend's own swatches never
+ * disagree with the plate at the boundaries themselves; only the flat
+ * interior a discrete step used to leave untouched now varies smoothly.
+ * Saturates to the top band's own flat colour at/above the ceiling
+ * (unchanged behaviour - "a dense nucleus saturating into the top band is
+ * honest, not an artefact", `isophoteBandIndex`'s own header) - there is
+ * no band 17 to interpolate toward. Below `SIGMA_MIN`, fades smoothly
+ * INTO the background colour rather than a hard cut at the floor either -
+ * the same reasoning applied one boundary further down (background is
+ * treated as a virtual "band -1" for exactly this purpose).
+ */
+export function interpolatedBandColor(
+  sigmaSystemsPerPc2: number,
+  bandRgb: readonly (readonly [number, number, number])[],
+  bgRgb: readonly [number, number, number],
+): [number, number, number] {
+  if (!(sigmaSystemsPerPc2 > 0)) return [bgRgb[0], bgRgb[1], bgRgb[2]];
+  const pos = continuousBandPosition(sigmaSystemsPerPc2);
+  if (pos >= ISOPHOTE_BANDS - 1) {
+    const top = bandRgb[ISOPHOTE_BANDS - 1]!;
+    return [top[0], top[1], top[2]];
+  }
+  const lo = Math.floor(pos);
+  const t = pos - lo;
+  const colourAt = (band: number): readonly [number, number, number] => (band < 0 ? bgRgb : bandRgb[band]!);
+  const [r0, g0, b0] = colourAt(lo);
+  const [r1, g1, b1] = colourAt(lo + 1);
+  return [r0 + (r1 - r0) * t, g0 + (g1 - g0) * t, b0 + (b1 - b0) * t];
 }
 
 /** Grid dimension is DERIVED from the frame extent and the fixed cell
@@ -463,8 +534,7 @@ export function paintDensityField(
       const cxPc = (px - w / 2) / pcToPx;
       const fracX = (cxPc + halfWidthPc) / (2 * halfWidthPc);
       const s = sampleBilinear(sigma, res.nx, res.ny, fracX, fracY);
-      const band = isophoteBandIndex(s);
-      const [r, g, b] = band < 0 ? [bgR, bgG, bgB] : bandRgb[band]!;
+      const [r, g, b] = interpolatedBandColor(s, bandRgb, [bgR, bgG, bgB]);
       const i4 = (py * w + px) * 4;
       data[i4 + 0] = r; data[i4 + 1] = g; data[i4 + 2] = b; data[i4 + 3] = 255;
     }

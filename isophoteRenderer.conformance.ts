@@ -14,6 +14,7 @@
 import {
   isophoteBandIndex, isophoteGridRes, smoothGrid1Cell, applyOuterBreak, applyRadialGranularity,
   computeSolarAnchorSystemsPerPc2, computeDensityDisplayField, interpolatePaletteFromAnchors,
+  interpolatedBandColor,
   ISOPHOTE_CELL_SIZE_PC, ISOPHOTE_SIGMA_MIN, ISOPHOTE_BANDS, ISOPHOTE_PALETTES,
 } from './isophoteRenderer';
 import { createSpiralModel, R0_PC, type GalaxyModel } from './galaxyModel';
@@ -237,6 +238,75 @@ function check(name: string, cond: boolean): void {
     `${MEASURED_BASELINE_SPREAD.toFixed(2)} (not the erratum's own isolated-arm target of ` +
     `${isolatedTargetSpread.toFixed(3)}, which the real field does not reproduce - see this block's header)`,
     Number.isFinite(spread) && Math.abs(spread - MEASURED_BASELINE_SPREAD) <= REGRESSION_TOLERANCE);
+}
+
+/* 11. interpolatedBandColor (28 Aug 2026, hands-on found - "the spiral
+ * looked elliptical, arms only poking out slightly") - the painting-time
+ * colour smoothing that replaced a flat per-band lookup. The absolute
+ * log2 scale itself (isophoteBandIndex, the legend) is UNCHANGED - these
+ * gates are specifically about the NEW continuous colour path agreeing
+ * with the discrete one exactly at every boundary, and varying smoothly
+ * between them. ---------------------------------------------------------- */
+{
+  const bandRgb: readonly (readonly [number, number, number])[] =
+    Array.from({ length: ISOPHOTE_BANDS }, (_, i) => [i * 15, i * 15, i * 15] as const);   // a synthetic, strictly-increasing ramp
+  // [0,0,0] specifically (not an arbitrary dark colour) - band 0's own
+  // colour is ALSO [0,0,0] here, so bg->band0 is non-decreasing component
+  // -wise, keeping the whole bg+bands sequence monotonic end to end (gate
+  // 11f's own requirement) - an arbitrary background hue would break that
+  // in at least one channel without meaning anything was actually wrong.
+  const bg: readonly [number, number, number] = [0, 0, 0];
+
+  check('11a interpolatedBandColor reproduces the discrete band colour EXACTLY at an integer boundary ' +
+    '(fractional position 0) - the legend and the plate never disagree at the boundaries themselves', (() => {
+    const sigmaAtBand5 = ISOPHOTE_SIGMA_MIN * 2 ** 5;
+    const [r, g, b] = interpolatedBandColor(sigmaAtBand5, bandRgb, bg);
+    const [er, eg, eb] = bandRgb[5]!;
+    return r === er && g === eg && b === eb;
+  })());
+
+  check('11b interpolatedBandColor is exactly midway between two adjacent bands\' colours at their own midpoint ' +
+    '(sigma * sqrt(2) - half a doubling in log2 - past a band\'s own start)', (() => {
+    const sigmaAtBand5 = ISOPHOTE_SIGMA_MIN * 2 ** 5;
+    const [r, g, b] = interpolatedBandColor(sigmaAtBand5 * Math.SQRT2, bandRgb, bg);
+    const [r5, g5, b5] = bandRgb[5]!, [r6, g6, b6] = bandRgb[6]!;
+    const close = (a: number, b2: number) => Math.abs(a - b2) < 1e-9;
+    return close(r, (r5 + r6) / 2) && close(g, (g5 + g6) / 2) && close(b, (b5 + b6) / 2);
+  })());
+
+  check('11c saturates to the top band\'s own flat colour at/above the ceiling (no band 17 to interpolate ' +
+    'toward) - matches isophoteBandIndex\'s own clamp exactly', (() => {
+    const [r, g, b] = interpolatedBandColor(ISOPHOTE_SIGMA_MIN * 2 ** 40, bandRgb, bg);
+    const [er, eg, eb] = bandRgb[ISOPHOTE_BANDS - 1]!;
+    return r === er && g === eg && b === eb;
+  })());
+
+  check('11d fades smoothly INTO the background colour below SIGMA_MIN, not a hard cut - halfway (in log2) ' +
+    'between "one full band below the floor" and the floor itself sits exactly midway between bg and band 0',
+    (() => {
+      const [r, g, b] = interpolatedBandColor(ISOPHOTE_SIGMA_MIN / Math.SQRT2, bandRgb, bg);
+      const [r0, g0, b0] = bandRgb[0]!;
+      const close = (a: number, b2: number) => Math.abs(a - b2) < 1e-9;
+      return close(r, (bg[0] + r0) / 2) && close(g, (bg[1] + g0) / 2) && close(b, (bg[2] + b0) / 2);
+    })());
+
+  check('11e non-positive/NaN sigma paints exactly the background colour, matching isophoteBandIndex\'s own ' +
+    '"-1" case', (() => {
+    const [r, g, b] = interpolatedBandColor(0, bandRgb, bg);
+    return r === bg[0] && g === bg[1] && b === bg[2];
+  })());
+
+  check('11f monotonic - a strictly increasing sigma never DECREASES any RGB channel, for a strictly ' +
+    'increasing palette ramp (no colour ever goes "backwards" as density rises)', (() => {
+    let prev = interpolatedBandColor(ISOPHOTE_SIGMA_MIN * 0.1, bandRgb, bg);
+    for (let i = 1; i <= 200; i++) {
+      const sigma = ISOPHOTE_SIGMA_MIN * 0.1 * 2 ** (i * 0.1);
+      const cur = interpolatedBandColor(sigma, bandRgb, bg);
+      if (cur[0] < prev[0] - 1e-9 || cur[1] < prev[1] - 1e-9 || cur[2] < prev[2] - 1e-9) return false;
+      prev = cur;
+    }
+    return true;
+  })());
 }
 
 /* Status notes for the package doc's remaining gates, not faked here:
