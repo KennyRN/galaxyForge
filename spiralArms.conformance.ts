@@ -645,20 +645,27 @@ check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=491
     JSON.stringify(generateSeededArms('gate-stagec-det', 'multipleArm')));
 
   check('15w termination rolling does not perturb geometry - a "grandDesign" and "multipleArm" table for ' +
-    'the SAME worldSeed still share identical pitchDeg/RrefPc/thetaRefDeg/weight/kink fields on their BASE ' +
-    '(non-spur) arms (CHANNELS.armTermination is isolated from CHANNELS.seededArms, so the geometry ' +
-    '-building draws are unaffected by whichever termination policy runs afterward). Spur arms excluded - ' +
-    'the two classes\' own DIFFERENT spur chances (ARM_CLASS_SPUR) can legitimately make a spur appear for ' +
-    'one class and not the other from the same underlying draw, independent of termination entirely', (() => {
+    'the SAME worldSeed still share identical pitchDeg/RrefPc/weight/kink fields on their two shared major ' +
+    '(indices 0-1, present in every class) arms (CHANNELS.armTermination is isolated from CHANNELS.' +
+    'seededArms, so the geometry-building draws are unaffected by whichever termination policy runs ' +
+    'afterward). REVISED (P14, 28 Aug 2026, arm count is now class-dependent - ARM_CLASS_ARM_COUNT\'s own ' +
+    'header): a whole-array comparison no longer applies (grandDesign is always 2 arms, multipleArm 3-4 - ' +
+    'different lengths BY DESIGN, not a channel leak), and thetaRefDeg is compared ONLY at index 0, not 1 - ' +
+    'index 1\'s own evenSpacingDeg = (360/armCount)*1 is itself armCount-dependent, a real and intentional ' +
+    'divergence from ruling 4, not something this gate should expect to survive. Index 0\'s evenSpacingDeg ' +
+    'is 0 regardless of armCount, so its thetaRefDeg still isolates the SAME channel-independence property ' +
+    'this gate has always tested (rechecked analytically: every draw consumed up to and including arm ' +
+    'index 1\'s own kink roll is IDENTICAL in count and outcome across classes, since armCount is not yet ' +
+    'consumed by anything upstream of index 1 - only evenSpacingDeg\'s OWN formula reads it).', (() => {
     const grandBase = generateSeededArms('gate-stagec-geom-iso', 'grandDesign').filter((a) => a.tier !== 'spur');
     const multiBase = generateSeededArms('gate-stagec-geom-iso', 'multipleArm').filter((a) => a.tier !== 'spur');
-    if (grandBase.length !== multiBase.length || grandBase.length === 0) return false;
-    return grandBase.every((g, i) => {
-      const m = multiBase[i]!;
-      return g.name === m.name && g.tier === m.tier && g.pitchDeg === m.pitchDeg && g.RrefPc === m.RrefPc &&
-        g.thetaRefDeg === m.thetaRefDeg && g.weight === m.weight &&
-        g.RkinkPc === m.RkinkPc && g.pitchOuterDeg === m.pitchOuterDeg;
-    });
+    if (grandBase.length < 2 || multiBase.length < 2) return false;
+    for (const i of [0, 1]) {
+      const g = grandBase[i]!, m = multiBase[i]!;
+      if (g.tier !== m.tier || g.pitchDeg !== m.pitchDeg || g.RrefPc !== m.RrefPc || g.weight !== m.weight ||
+        g.RkinkPc !== m.RkinkPc || g.pitchOuterDeg !== m.pitchOuterDeg) return false;
+    }
+    return grandBase[0]!.thetaRefDeg === multiBase[0]!.thetaRefDeg;
   })());
 
   check('15x armFactor stays mean-preserving (azimuthal average 1) even with termination genuinely active - ' +
@@ -725,6 +732,43 @@ check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=491
       }
       return true;
     })());
+}
+
+/* ------------------------------ GATE 17 (P14) ---------------------------------
+ * Arm count by class, 28 Aug 2026 (Ruling 4) - a direct adjacent finding:
+ * the reported bug's own seed rolled armClass='multipleArm' but the OLD,
+ * class-independent draw (armCount = 2 + floor(rng*3), range 2-4) landed
+ * on 2 - definitionally a grand design, not a multiple-arm (Elmegreen &
+ * Elmegreen 1987: grand design = two dominant arms, multiple-arm = three
+ * or more). G-P14-f is the direct falsification of THIS bug - it fails on
+ * the pre-fix code (which could roll 2 for multipleArm) and passes after. */
+{
+  const SEEDS = Array.from({ length: 20 }, (_, i) => `gate-p14-armcount-seed-${i}`);
+
+  check('G-P14-e grand design is two-armed (definitional): for every sampled seed, ' +
+    "generateSeededArms(seed, 'grandDesign') yields exactly 2 major-tier arms and 0 minor-tier arms",
+    SEEDS.every((seed) => {
+      const arms = generateSeededArms(seed, 'grandDesign').filter((a) => a.tier !== 'spur');
+      return arms.filter((a) => a.tier === 'major').length === 2 && arms.filter((a) => a.tier === 'minor').length === 0;
+    }));
+
+  check("G-P14-f multiple-arm is never two-armed (the actual reported bug, direct falsification): " +
+    "for every sampled seed, generateSeededArms(seed, 'multipleArm').filter(tier !== 'spur').length >= 3",
+    SEEDS.every((seed) => generateSeededArms(seed, 'multipleArm').filter((a) => a.tier !== 'spur').length >= 3));
+
+  check("G-P14-g flocculent is the most-fragmented class: across every sampled seed, flocculent's " +
+    "non-spur arm count is always >= multipleArm's own sourced minimum (3)",
+    SEEDS.every((seed) => generateSeededArms(seed, 'flocculent').filter((a) => a.tier !== 'spur').length >= 3));
+
+  check('G-P14-h one draw per class (reproducibility): for a fixed seed, the post-count draw sequence is ' +
+    'class-independent - pitchDeg (the very next rng() draw after the count) is identical across all three ' +
+    'classes, since every class consumes exactly ONE rng() call for the count itself (grandDesign included, ' +
+    'where the range width is 1 - floor(rng()*1) is always 0, but the draw is still taken)', (() => {
+    const seed = 'gate-p14-drawpos-seed';
+    const pitch = (cls: 'grandDesign' | 'multipleArm' | 'flocculent') => generateSeededArms(seed, cls)[0]!.pitchDeg;
+    const p1 = pitch('grandDesign'), p2 = pitch('multipleArm'), p3 = pitch('flocculent');
+    return p1 === p2 && p2 === p3;
+  })());
 }
 
 /* --------------------------------- result ------------------------------------ */

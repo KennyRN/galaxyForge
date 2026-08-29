@@ -141,6 +141,21 @@ every galaxy measured; the interlocking pattern found in 74/104, 71.2%, or
 erratum file, ready for whoever next revises `03-ARM-TERMINATION.md`/
 `AUDIT.md` to fold in.
 
+## P14 (beyond the original P0–P12 scope) — done, 28 Aug 2026
+
+A direct user bug report (an unbarred seeded Spiral rendered as a smooth
+circular blob, no visible arms), diagnosed and ruled on the same day as a
+standalone handoff — not one of the original thirteen numbered prompts,
+tracked here only as a pointer since its own file carries the full record:
+`galaxyForge-P14-RULING-unbarred-attach-and-armcount-2026-08-28.md`. Two
+independent fixes, one `genVersion` bump (14 → 15): (1) a new, much
+smaller `ARM_INNER_ATTACH_RADIUS_UNBARRED_PC` (1500pc) for unbarred
+spirals only — the bar-end radius (5000pc, Ruling 5) was being applied
+even with no bar; (2) arm count now class-dependent
+(`ARM_CLASS_ARM_COUNT`, Elmegreen & Elmegreen 1987) — a `multipleArm`
+galaxy could previously roll only 2 arms, definitionally a grand design.
+Visually verified against the exact reported seed, not merely gated.
+
 ## Where the original bundle text lives
 
 The user no longer had the original pasted documents. Recovered from this

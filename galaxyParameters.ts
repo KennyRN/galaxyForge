@@ -58,6 +58,7 @@ import type { GalaxyModelName } from './galaxyModel';
 import {
   ARMS, DEFAULT_ARM_WIDTH, deriveArmContrasts, anchorArmCorrection as computeAnchorArmCorrection,
   DRIMMEL_SPERGEL_K, ARM_CLASS_CONTRAST_TARGET_K, ARM_CLASS_MODULATION, ARM_INNER_ATTACH_RADIUS_PC,
+  ARM_INNER_ATTACH_RADIUS_UNBARRED_PC,
   type ArmDefinition, type ArmWidthParams, type ArmResponseSet, type ArmContrastSet, type ArmClass, type ArmModulationParams,
 } from './spiralArms';
 import { degToRad } from './units';
@@ -268,7 +269,7 @@ export interface GalaxyParameters {
    *  header. `deriveArmContrasts` is called once, lazily, at first read. */
   readonly armContrast: () => ArmContrastSet;
   /** Package 02/03 build plan Stage C (27 Aug 2026, Ruling 5) - NARROW
-   *  numerical smoothing window only, `ARM_INNER_ATTACH_RADIUS_PC` minus
+   *  numerical smoothing window only, the attach radius (below) minus
    *  `ARM_INNER_TAPER_SMOOTH_PC`. NOT a physical taper - `03-ARM-
    *  TERMINATION.md` SS4/gate 6 (bundle-source): "Delete armInnerBluntFraction
    *  ... arm begins at the bar-end radius at FULL amplitude, not ramped."
@@ -279,9 +280,13 @@ export interface GalaxyParameters {
    *  wide enough to keep the field C1 (no raw discontinuity) at the
    *  attachment edge, not to model a gradual physical ramp. */
   readonly armStartInnerPc: number;   // calibrated, numerical smoothing only
-  /** `= ARM_INNER_ATTACH_RADIUS_PC` exactly - full amplitude AT the bar-end
-   *  radius, per Ruling 5/gate 6 above. */
-  readonly armStartOuterPc: number;   // sourced, Wegg/Gerhard/Portail 2015 bar-end radius
+  /** `= ARM_INNER_ATTACH_RADIUS_PC` exactly for a BARRED host (full
+   *  amplitude AT the bar-end radius, per Ruling 5/gate 6 above); `=
+   *  ARM_INNER_ATTACH_RADIUS_UNBARRED_PC` for an unbarred one (P14, 28 Aug
+   *  2026, Ruling 1 - a geometric blur floor, not a "smaller bar" reading;
+   *  there is no bar). `makeDefaultGalaxyParameters`'s own `barEnabled`
+   *  argument selects which. */
+  readonly armStartOuterPc: number;   // sourced (barred) / calibrated (unbarred)
   /** Amendment A6, 17 Aug 2026 - `'multipleArm'` for `armSource:
    *  'observed-mw'` ALWAYS (the real Milky Way's own classification, never
    *  rolled); rolled once per galaxy (`spiralArms.rollArmClass`) for
@@ -362,12 +367,28 @@ const ARM_INNER_TAPER_SMOOTH_PC = 300;
 export function makeDefaultGalaxyParameters(
   worldSeed = '', arms: readonly ArmDefinition[] = ARMS, armSource: 'observed-mw' | 'seeded' = 'observed-mw',
   armClass: ArmClass = 'multipleArm',
+  // NEW (P14, 28 Aug 2026) - default `true` preserves the current 5000pc
+  // bar-end attach radius bit-for-bit for every existing caller (DEFAULT_
+  // GALAXY_PARAMETERS, the golden master, every conformance gate, main.ts)
+  // that omits this argument. Only the seeded-UNBARRED path (galaxyCreation
+  // Modals.ts's plain "Spiral" choice) changes, and only because the modal
+  // now passes `false` explicitly - see ARM_INNER_ATTACH_RADIUS_UNBARRED_PC's
+  // own header (spiralArms.ts) for the root-cause finding this fixes.
+  barEnabled = true,
 ): GalaxyParameters {
   const referenceRPc = 8200;
   const referenceThetaDeg = 0;
   const contrastTargetK = armSource === 'observed-mw' ? DRIMMEL_SPERGEL_K : ARM_CLASS_CONTRAST_TARGET_K[armClass];
+  // P14: bar-end radius for a barred host (unchanged, gate 13i), the much
+  // smaller geometric blur-floor radius for an unbarred one - NOT a "smaller
+  // bar" reading; there is no bar, see the unbarred constant's own header.
+  const attachPc = barEnabled ? ARM_INNER_ATTACH_RADIUS_PC : ARM_INNER_ATTACH_RADIUS_UNBARRED_PC;
   return {
-    fieldShapeVersion: 1,
+    // P14 (28 Aug 2026): 1 -> 2 - the generated field's own shape changes
+    // for two morphologies (unbarred-spiral attach radius; both seeded
+    // classes' arm count), a dedicated stamp for exactly this kind of
+    // change moving alongside CURRENT_GEN_VERSION's own 14 -> 15 bump.
+    fieldShapeVersion: 2,
     placementShapeVersion: 1,
     parameterSetVersion: '2026.08.15',
     worldSeed,
@@ -378,8 +399,8 @@ export function makeDefaultGalaxyParameters(
     armWidth: DEFAULT_ARM_WIDTH,
     armResponse: armClass === 'flocculent' ? FLOCCULENT_ARM_RESPONSE : DEFAULT_ARM_RESPONSE,
     armContrast: () => deriveArmContrasts(referenceRPc, DEFAULT_ARM_WIDTH, arms, contrastTargetK),
-    armStartInnerPc: ARM_INNER_ATTACH_RADIUS_PC - ARM_INNER_TAPER_SMOOTH_PC,
-    armStartOuterPc: ARM_INNER_ATTACH_RADIUS_PC,
+    armStartInnerPc: attachPc - ARM_INNER_TAPER_SMOOTH_PC,
+    armStartOuterPc: attachPc,
     armClass,
     armModulation: ARM_CLASS_MODULATION[armClass],
     referenceRPc,

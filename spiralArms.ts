@@ -605,6 +605,35 @@ const ARM_CLASS_SPUR: Readonly<Record<ArmClass, { readonly maxSpurs: number; rea
 };
 
 /**
+ * Base major+minor arm count range per arm class (P14, 28 Aug 2026).
+ * `calibrated`, grounded in the Elmegreen & Elmegreen (1987) arm-class
+ * semantics [PROVISIONAL — reference confirmed across citing sources, ApJ
+ * 314, 3; version-of-record full text not yet read]:
+ *   grandDesign  two dominant arms (AC 12)          -> [2,2]  (sourced anchor)
+ *   multipleArm  "three or more", inner-two          -> [3,4]  (>=3 sourced;
+ *                 symmetry branching outward                    upper calibrated)
+ *   flocculent   many short fragments                -> [4,5]  (calibrated)
+ * The model's `isMajor = i < 2` split already gives every class the shared
+ * "inner two-arm symmetry"; this table sets how many arms hang off it. The
+ * flocculent range is the softest of the three (adjacent open question,
+ * not actioned here: flocculent still gets two weight-1.0 major arms same
+ * as every other class - real flocculent galaxies lack dominant symmetric
+ * arms, but that is an arm-WEIGHT question, separate from this arm-COUNT
+ * fix, and its own future shape-break decision if taken up).
+ *
+ * Direct user report, 28 Aug 2026: a seed rolled armClass='multipleArm' but
+ * the (class-independent) old draw landed armCount=2 - a definitional
+ * contradiction, since multiple-arm means three or more (Elmegreen &
+ * Elmegreen 1987). Folded into the same P14 shape break as the attach
+ * -radius fix above rather than forcing a second fork later.
+ */
+const ARM_CLASS_ARM_COUNT: Readonly<Record<ArmClass, { readonly min: number; readonly max: number }>> = {
+  grandDesign: { min: 2, max: 2 },
+  multipleArm: { min: 3, max: 4 },
+  flocculent:  { min: 4, max: 5 },
+};
+
+/**
  * Memoised by (worldSeed, armClass) - a found perf bug, 25 Aug 2026, root
  * -caused by direct profiling (a single `densityAt` call was timed at
  * 557ms). This function is pure - same inputs, same output - but every
@@ -686,7 +715,15 @@ const KINK_R_OUTER_LO_PC = 9700, KINK_R_OUTER_HI_PC = 15500;
 
 function generateSeededArmsUncached(worldSeed: string, armClass: ArmClass): readonly ArmDefinition[] {
   const rng = channelRng(worldSeed, CHANNELS.seededArms);
-  const armCount = 2 + Math.floor(rng() * 3);   // 2, 3 or 4
+  // Class-dependent range (P14, 28 Aug 2026; was armCount = 2 + floor(rng*3),
+  // class-independent - see ARM_CLASS_ARM_COUNT's own header). Draws exactly
+  // ONE rng() call for every class, including grandDesign (max-min+1 === 1,
+  // so floor(rng()*1) === 0 always, but the draw is still taken) - every
+  // downstream draw stays in the same stream position across all three
+  // classes, matching this module's "one channel, one draw sequence per
+  // galaxy" discipline.
+  const armRange = ARM_CLASS_ARM_COUNT[armClass];
+  const armCount = armRange.min + Math.floor(rng() * (armRange.max - armRange.min + 1));
   const pitchDeg = 10 + rng() * 12;             // [10, 22)
   const basePhaseDeg = rng() * 360;
 
@@ -1459,6 +1496,29 @@ export const SPIRAL_PATTERN_SPEED_OUTER_KM_S_KPC =
  * is adopted despite that contest, not because it is settled).
  */
 export const ARM_INNER_ATTACH_RADIUS_PC = 5000;
+
+/**
+ * Arm inner attach radius for UNBARRED spirals (P14, 28 Aug 2026). `calibrated`.
+ * NOT a "smaller bar": there is no bar. A logarithmic arm winds ever tighter as
+ * R -> 0, so below ~1-1.5 kpc the ridges are wound so tight they blur into an
+ * axisymmetric smear and stop reading as arms regardless. This radius is that
+ * geometric blur floor, not a resonance radius (the contested pattern-speed /
+ * corotation framework is deliberately kept OUT of the field shape here, per the
+ * non-independence caution in the P13 track). The `MIN_ARM_R_PC = 1` clamp still
+ * guards the geometry itself; this is the physics gate that says near-centre
+ * carries no coherent arm signal, exactly as ARM_INNER_ATTACH_RADIUS_PC does for
+ * the barred case.
+ *
+ * Direct user report, 28 Aug 2026: a seeded unbarred Spiral galaxy rendered as a
+ * smooth circular blob - measured, arm contrast was identically zero across
+ * 2-8 kpc (real radii), only switching on near 10 kpc, by which point the
+ * axisymmetric bulge+disc envelope had already fallen ~40x from its peak. Root
+ * cause: arm-start was pinned to `ARM_INNER_ATTACH_RADIUS_PC` (the bar-END
+ * radius) even for a galaxy with no bar - `scaleSpiralModel`'s coordinate
+ * rescale then doubled that arm-free hole at size 2. This constant fixes the
+ * unbarred case specifically; the barred constant above is untouched (gate 13i).
+ */
+export const ARM_INNER_ATTACH_RADIUS_UNBARRED_PC = 1500;   // calibrated
 
 /**
  * Derives this module's own `oldThin`/`midThin`/`youngThin` contrast

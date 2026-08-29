@@ -394,9 +394,17 @@ function modelFromDraft(d: Screen1Draft): DraftModel {
     // SAME class either way (pure function of worldSeed), but one call is
     // the honest reading of "rolled once per galaxy".
     const seededArmClass = isRealMilkyWay ? undefined : rollArmClass(d.worldSeed);
+    // barEnabled (P14, 28 Aug 2026, a direct user report: an unbarred Spiral
+    // rendered as a smooth circular blob - arm-start was pinned to the
+    // bar-END radius even with no bar). Threaded explicitly, not read off
+    // `params.morphology` (never authoritative for bar state) - `resolveBar
+    // Enabled` is the SAME source of truth `createSpiralModel`'s own
+    // `barEnabled` argument below already uses, so the two can never
+    // disagree about whether this galaxy has a bar.
+    const barEnabled = resolveBarEnabled(d.morphology);
     const baseParams = isRealMilkyWay
-      ? makeDefaultGalaxyParameters(d.worldSeed)
-      : makeDefaultGalaxyParameters(d.worldSeed, generateSeededArms(d.worldSeed, seededArmClass), 'seeded', seededArmClass);
+      ? makeDefaultGalaxyParameters(d.worldSeed, ARMS, 'observed-mw', 'multipleArm', barEnabled)
+      : makeDefaultGalaxyParameters(d.worldSeed, generateSeededArms(d.worldSeed, seededArmClass), 'seeded', seededArmClass, barEnabled);
     // scaleSpiralModel (16 Aug 2026, a found bug this session's own
     // investigation surfaced: "Galaxy size" had NO EFFECT on this whole
     // morphology family - `params.scale` was always 1.0 and never read
@@ -413,7 +421,7 @@ function modelFromDraft(d: Screen1Draft): DraftModel {
     // generation entry point, so it should use the population-accurate
     // (age/feh-dependent) mass-to-count conversion wherever one is
     // available, exactly like every other mass-normalised population here.
-    const model = scaleSpiralModel(createSpiralModel(resolveBarEnabled(d.morphology), params, upsilonFor), sizeValue);
+    const model = scaleSpiralModel(createSpiralModel(barEnabled, params, upsilonFor), sizeValue);
     return { model, params };
   }
   const params = makeDefaultGalaxyParameters(d.worldSeed);

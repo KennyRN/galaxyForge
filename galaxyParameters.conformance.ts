@@ -15,8 +15,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { makeDefaultGalaxyParameters, assertGalaxyParameters, anchorArmCorrectionFor, DEFAULT_GALAXY_PARAMETERS, type GalaxyParameters } from './galaxyParameters';
-import { createSpiralModel, createEllipticalModel, createLenticularModel } from './galaxyModel';
-import { armFactor, ARM_INNER_ATTACH_RADIUS_PC } from './spiralArms';
+import { createSpiralModel, createEllipticalModel, createLenticularModel, measuredArmMagnitude } from './galaxyModel';
+import { armFactor, ARM_INNER_ATTACH_RADIUS_PC, ARM_INNER_ATTACH_RADIUS_UNBARRED_PC } from './spiralArms';
 
 const noopUpsilon = () => 1;
 
@@ -91,6 +91,60 @@ function check(name: string, cond: boolean) {
     'margin, not the old ~2kpc physical-looking taper', (
     p.armStartOuterPc - p.armStartInnerPc > 0 && p.armStartOuterPc - p.armStartInnerPc <= 500
   ));
+}
+
+/* --------------------------- P14: unbarred inner attachment -------------------
+ * 28 Aug 2026, a direct user report: a seeded unbarred Spiral galaxy (size
+ * 2) rendered as a smooth circular blob. Root cause: arm-start was pinned
+ * to the bar-END radius (5000pc) even with no bar. `makeDefaultGalaxyParameters`
+ * gained a `barEnabled` parameter (default `true`, preserving every
+ * existing caller bit-for-bit) selecting between the unchanged barred
+ * constant and a new, much smaller unbarred one. G-P14-a/c/d guard the
+ * barred path stays untouched; G-P14-b is the direct falsification of the
+ * reported bug - it fails on the pre-fix code (contrast is 0 there) and
+ * passes after it. */
+{
+  check('G-P14-a barred constant intact: ARM_INNER_ATTACH_RADIUS_UNBARRED_PC < ARM_INNER_ATTACH_RADIUS_PC, ' +
+    'and the unbarred constant equals its declared value (1500pc)',
+    ARM_INNER_ATTACH_RADIUS_UNBARRED_PC < ARM_INNER_ATTACH_RADIUS_PC && ARM_INNER_ATTACH_RADIUS_UNBARRED_PC === 1500);
+
+  const unbarredParams = makeDefaultGalaxyParameters('gate-p14-unbarred-seed', undefined, undefined, undefined, false);
+  check('G-P14: unbarred params.armStartOuterPc equals ARM_INNER_ATTACH_RADIUS_UNBARRED_PC exactly',
+    unbarredParams.armStartOuterPc === ARM_INNER_ATTACH_RADIUS_UNBARRED_PC);
+  const unbarredModel = createSpiralModel(false, unbarredParams);
+  check('G-P14-b arms now exist in the inner disc (the actual reported bug, direct falsification): ' +
+    'an unbarred seeded spiral shows nonzero arm contrast at both 2000pc and 4000pc',
+    measuredArmMagnitude(unbarredModel, 2000) > 0 && measuredArmMagnitude(unbarredModel, 4000) > 0);
+
+  const barredParams = makeDefaultGalaxyParameters('gate-p14-barred-seed');   // barEnabled omitted -> true
+  const barredModel = createSpiralModel(true, barredParams);
+  // measuredArmMagnitude sums EVERY population via densityAt - with
+  // barEnabled=true that includes the boxy/peanut BAR itself, which is
+  // its own genuinely theta-dependent (triaxial) term extending out to
+  // several kpc, independent of arm contrast entirely. Isolating a single
+  // arm-responsive, non-bulge population (spiralOldThin) is what actually
+  // asks "is the ARM tapered to zero here", not "is anything azimuthally
+  // asymmetric here" - found by this gate itself failing against the bar,
+  // not assumed safe.
+  const oldThinMagnitude = (model: ReturnType<typeof createSpiralModel>, R_pc: number): number => {
+    let max = -Infinity, min = Infinity;
+    const n = 1441;
+    for (let i = 0; i < n; i++) {
+      const theta = (2 * Math.PI * i) / n;
+      const v = model.densityByPopulation(R_pc, theta, 0).spiralOldThin ?? 0;
+      if (v > max) max = v;
+      if (v < min) min = v;
+    }
+    return 2.5 * Math.log10(max / min);
+  };
+  check('G-P14-c barred path byte-identical: a barred spiral\'s ARM-responsive population (spiralOldThin, ' +
+    'isolated from the bar\'s own independent azimuthal shape) still shows ZERO contrast below the bar end ' +
+    '(4700pc, still inside the numerical smoothing window) - guards the blast radius',
+    oldThinMagnitude(barredModel, 2000) === 0 && oldThinMagnitude(barredModel, 4700) === 0);
+
+  check('G-P14-d default preserves old behaviour: makeDefaultGalaxyParameters(seed) with barEnabled omitted ' +
+    'yields armStartOuterPc === 5000 (every existing call site reproduces bit-for-bit)',
+    makeDefaultGalaxyParameters('gate-p14-default-seed').armStartOuterPc === 5000);
 }
 
 /* ------------------------------ GATE 19 ---------------------------------------

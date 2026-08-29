@@ -431,5 +431,124 @@
  *
  * `verification/golden/gen14.json` is the fixture cut against THIS
  * version.
+ *
+ * BUMP 15, 28 Aug 2026 (P14 ruling - unbarred arm inner-taper attach
+ * radius, and arm count by class). A direct user report: a seeded
+ * unbarred Spiral galaxy (size 2) rendered as a smooth circular blob -
+ * "not what I expected from a spiral galaxy". Measured, the field's own
+ * arm contrast was identically ZERO across 2-8 kpc (real radii), only
+ * switching on near 10 kpc, by which point the axisymmetric bulge+disc
+ * envelope had already fallen ~40x from its peak - every bright pixel was
+ * pure axisymmetric term, so the plate could only read as circular. The
+ * isophote renderer was innocent (it already paints raw sampled density,
+ * no contrast inflation - `applyOuterBreak`'s own header already reported
+ * this axisymmetric-dominance symptom back to the owner). The field
+ * itself carried almost no arm signal where the galaxy is bright.
+ *
+ * TWO independent generation-path changes, one bump (P14's own §6
+ * versioning matrix):
+ *
+ * (1) UNBARRED INNER ATTACHMENT (Ruling 1-2). Root cause: `armStartInnerPc`/
+ * `armStartOuterPc` (`galaxyParameters.ts`) were pinned to `ARM_INNER_
+ * ATTACH_RADIUS_PC` (5000pc, the Wegg/Gerhard/Portail 2015 BAR-END radius)
+ * for every spiral-family galaxy, barred or not - an unbarred galaxy has no
+ * bar, so no physical reason to clear a 5kpc hole. Compounded by
+ * `scaleSpiralModel`'s own uniform coordinate rescale: at size 2 the 5kpc
+ * radius becomes 10kpc in real space, doubling the arm-free zone. Fixed:
+ * a NEW `ARM_INNER_ATTACH_RADIUS_UNBARRED_PC` = 1500pc (`spiralArms.ts`,
+ * `calibrated` - a geometric blur-floor radius below which a logarithmic
+ * arm winds too tight to read as an arm regardless, NOT a resonance
+ * radius and NOT a "smaller bar" reading). `makeDefaultGalaxyParameters`
+ * gained a new `barEnabled` parameter (default `true` - every existing
+ * caller that omits it, including `DEFAULT_GALAXY_PARAMETERS`, the golden
+ * master, and every conformance gate, reproduces the present 5000pc
+ * behaviour bit-for-bit) selecting which attach radius applies.
+ * `galaxyCreationModals.ts`'s `modelFromDraft` now threads the real
+ * `resolveBarEnabled(d.morphology)` result through - `barredSpiral` and
+ * `milkyWayAnalogue` keep 5000pc (both genuinely barred; the real Milky
+ * Way IS barred), only the plain unbarred `spiral` choice moves. Ruling 2:
+ * the attach radius keeps scaling with `scaleSpiralModel` - no exemption,
+ * since exempting it would break the self-similarity invariant the
+ * module's correctness rests on; once the unbarred BASE radius is small,
+ * scaling it is harmless. Ruling 3 (envelope-dominance / arm-boldness) is
+ * explicitly DEFERRED - no change to `armContrast`, `DRIMMEL_SPERGEL_K`,
+ * `ARM_CLASS_CONTRAST_TARGET_K`, `ARM_CLASS_MODULATION`, or any display
+ * path in this bump; the raw ~1 mag stellar arm/interarm contrast is
+ * scientifically correct as-is.
+ *
+ * (2) ARM COUNT BY CLASS (Ruling 4, folded into this same shape break
+ * rather than forcing a second fork later). Adjacent finding: the SAME
+ * reported seed rolled `armClass = 'multipleArm'` but the OLD, class
+ * -independent draw (`armCount = 2 + floor(rng*3)`, range 2-4) landed on
+ * 2 - a definitional contradiction, since multiple-arm means three or
+ * more (Elmegreen & Elmegreen 1987 arm-class semantics, PROVISIONAL -
+ * reference confirmed across citing sources, version of record not yet
+ * read at full text). Fixed: a NEW `ARM_CLASS_ARM_COUNT` table
+ * (`spiralArms.ts`) - `grandDesign` {2,2} (sourced anchor: two dominant
+ * arms), `multipleArm` {3,4} (>=3 sourced, upper bound `calibrated`),
+ * `flocculent` {4,5} (`calibrated` - flocculent is defined by fragments,
+ * not a countable arm number, so this range is genuinely the softest of
+ * the three). `generateSeededArmsUncached` now draws from this range
+ * instead of the flat 2-4 spread, consuming exactly ONE `rng()` call for
+ * every class (including `grandDesign`, where the range width is 1 -
+ * `floor(rng()*1)` is always 0, but the draw is still taken) so every
+ * downstream draw (pitch, phase, jitter, kink, spur) stays in the same
+ * stream position across all three classes. This touches EVERY seeded
+ * spiral-family galaxy, both `spiral` and `barredSpiral` (both call
+ * `generateSeededArms`) - a wider blast radius than (1) alone, which only
+ * touches the unbarred case.
+ *
+ * `params.fieldShapeVersion`: 1 -> 2 (owner decision, P14 §7 - the
+ * generated field's own shape genuinely changes for two morphologies).
+ * `params.placementShapeVersion` unchanged (the placement algorithm
+ * itself is untouched; its output shifts only because it reads a changed
+ * field, which `CURRENT_GEN_VERSION`'s own bump already covers).
+ *
+ * Blast radius (P14 §6, both changes combined) - in REAL app usage
+ * (`galaxyCreationModals.ts`'s `modelFromDraft`, the only caller that
+ * threads `barEnabled`/`generateSeededArms` per morphology): `spiral`
+ * (unbarred) - attach radius AND arm count both change, forks.
+ * `barredSpiral` - attach radius unchanged (still bar-end), arm count
+ * changes, forks. `milkyWayAnalogue` - real `ARMS` table, no seeded-arm
+ * -count draw, attach radius stays barred (5000pc) - unaffected.
+ * `elliptical`/`lenticular` - no arms at all - unaffected.
+ *
+ * CHECKED, not assumed: `goldenMaster.conformance.ts`'s own spiral/
+ * barredSpiral fixtures build via `createSpiralModel(barEnabled)` with NO
+ * `params` argument, i.e. `DEFAULT_GALAXY_PARAMETERS` - built by
+ * `makeDefaultGalaxyParameters()` with its OWN `barEnabled` omitted
+ * (defaults `true`) and `armSource: 'observed-mw'` (never calls
+ * `generateSeededArms`), so that harness never exercises either P14
+ * change regardless of which morphology label it claims - confirmed
+ * directly (this session): `verification/golden/gen15.json`'s own
+ * `placementData`/`remnantData` are byte-identical to `gen14.json`'s for
+ * all four tracked morphologies; only `systemCoreData` differs, and only
+ * because it stamps the literal `genVersion` number into every record
+ * (`CURRENT_GEN_VERSION` itself, not anything P14 touched). Real seeded
+ * -arm regression coverage for this bump lives in `spiralArms.
+ * conformance.ts` (gate 17) and `galaxyParameters.conformance.ts` (the
+ * "P14: unbarred inner attachment" block) instead - see those files'
+ * own gates for what actually exercises the changed code paths.
+ *
+ * New gates: `galaxyParameters.conformance.ts`, "P14: unbarred inner
+ * attachment" block (G-P14-a through d) - the unbarred constant's own
+ * value and ordering against the barred one, the actual bug's direct
+ * falsification (arm contrast now nonzero in the unbarred inner disc,
+ * isolated to an arm-responsive population so the bar's own independent
+ * azimuthal shape cannot mask the result), a barred path staying
+ * zero-contrast below the bar end, and `makeDefaultGalaxyParameters`'s
+ * omitted-argument default. `spiralArms.conformance.ts` gate 17 (G-P14-e
+ * through h) - grand design's exact 2-major/0-minor count, multiple-arm's
+ * >=3 floor (the actual arm-count bug's direct falsification),
+ * flocculent's ordering against multiple-arm's own minimum, and the
+ * one-draw-per-class reproducibility guarantee. Gate 15w (pre-existing,
+ * REVISED here) - its whole-array cross-class geometry comparison no
+ * longer applies now that arm count is class-dependent by design; narrowed
+ * to the two shared major-arm indices and to fields still provably
+ * class-independent under the new draw (see that gate's own updated
+ * header for the analysis).
+ *
+ * `verification/golden/gen15.json` is the fixture cut against THIS
+ * version.
  */
-export const CURRENT_GEN_VERSION = 14;
+export const CURRENT_GEN_VERSION = 15;
