@@ -645,25 +645,27 @@ check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=491
     JSON.stringify(generateSeededArms('gate-stagec-det', 'multipleArm')));
 
   check('15w termination rolling does not perturb geometry - a "grandDesign" and "multipleArm" table for ' +
-    'the SAME worldSeed still share identical pitchDeg/RrefPc/weight/kink fields on their two shared major ' +
+    'the SAME worldSeed still share identical pitchDeg/RrefPc/weight fields on their two shared major ' +
     '(indices 0-1, present in every class) arms (CHANNELS.armTermination is isolated from CHANNELS.' +
     'seededArms, so the geometry-building draws are unaffected by whichever termination policy runs ' +
-    'afterward). REVISED (P14, 28 Aug 2026, arm count is now class-dependent - ARM_CLASS_ARM_COUNT\'s own ' +
-    'header): a whole-array comparison no longer applies (grandDesign is always 2 arms, multipleArm 3-4 - ' +
-    'different lengths BY DESIGN, not a channel leak), and thetaRefDeg is compared ONLY at index 0, not 1 - ' +
-    'index 1\'s own evenSpacingDeg = (360/armCount)*1 is itself armCount-dependent, a real and intentional ' +
-    'divergence from ruling 4, not something this gate should expect to survive. Index 0\'s evenSpacingDeg ' +
-    'is 0 regardless of armCount, so its thetaRefDeg still isolates the SAME channel-independence property ' +
-    'this gate has always tested (rechecked analytically: every draw consumed up to and including arm ' +
-    'index 1\'s own kink roll is IDENTICAL in count and outcome across classes, since armCount is not yet ' +
-    'consumed by anything upstream of index 1 - only evenSpacingDeg\'s OWN formula reads it).', (() => {
+    'afterward). REVISED TWICE: P14 (28 Aug 2026, arm count is now class-dependent - ARM_CLASS_ARM_COUNT\'s ' +
+    'own header) - a whole-array comparison no longer applies (grandDesign is always 2 arms, multipleArm ' +
+    '3-4 - different lengths BY DESIGN, not a channel leak), and thetaRefDeg is compared ONLY at index 0, ' +
+    'not 1 - index 1\'s own evenSpacingDeg = (360/armCount)*1 is itself armCount-dependent, a real and ' +
+    'intentional divergence from ruling 4. Index 0\'s evenSpacingDeg is 0 regardless of armCount, so its ' +
+    'thetaRefDeg still isolates the SAME channel-independence property this gate has always tested. P15 ' +
+    '(28 Aug 2026, the kink-vs-terminus clamp fix) - RkinkPc/pitchOuterDeg dropped from this comparison ' +
+    'entirely: `clampKinkToTerminus` deliberately applies a CLASS-DEPENDENT correction (it reads that ' +
+    'class\'s own rolled terminusPc) to the OUTPUT RkinkPc, so a kink genuinely CAN differ between classes ' +
+    'now even at index 0/1 where every upstream draw is identical - that is P15\'s own fix working as ' +
+    'intended, not a channel leak. pitchDeg/RrefPc/weight remain untouched by either fix and still isolate ' +
+    'the channel-independence property this gate exists to test.', (() => {
     const grandBase = generateSeededArms('gate-stagec-geom-iso', 'grandDesign').filter((a) => a.tier !== 'spur');
     const multiBase = generateSeededArms('gate-stagec-geom-iso', 'multipleArm').filter((a) => a.tier !== 'spur');
     if (grandBase.length < 2 || multiBase.length < 2) return false;
     for (const i of [0, 1]) {
       const g = grandBase[i]!, m = multiBase[i]!;
-      if (g.tier !== m.tier || g.pitchDeg !== m.pitchDeg || g.RrefPc !== m.RrefPc || g.weight !== m.weight ||
-        g.RkinkPc !== m.RkinkPc || g.pitchOuterDeg !== m.pitchOuterDeg) return false;
+      if (g.tier !== m.tier || g.pitchDeg !== m.pitchDeg || g.RrefPc !== m.RrefPc || g.weight !== m.weight) return false;
     }
     return grandBase[0]!.thetaRefDeg === multiBase[0]!.thetaRefDeg;
   })());
@@ -768,6 +770,55 @@ check('10 Scutum-Centaurus carries its Table-2-sourced kink exactly (RkinkPc=491
     const pitch = (cls: 'grandDesign' | 'multipleArm' | 'flocculent') => generateSeededArms(seed, cls)[0]!.pitchDeg;
     const p1 = pitch('grandDesign'), p2 = pitch('multipleArm'), p3 = pitch('flocculent');
     return p1 === p2 && p2 === p3;
+  })());
+}
+
+/* ------------------------------ GATE 18 (P15) ---------------------------------
+ * Kink-vs-terminus collision, 28 Aug 2026 - a direct user report: "I can't
+ * see any obvious kinks". Measured directly, across 2000 seeds per class:
+ * 13.5% (grandDesign) to 32.5% (flocculent) of rolled kinks landed AT OR
+ * PAST their own arm's terminus - the arm had already faded to zero (or
+ * was already fading) before the kink's own pitch change could be seen.
+ * `RkinkPc` and `terminusPc` were rolled on independent draws with no
+ * coordination between the two mechanisms (bump 11's kink work; bump 14's
+ * termination work). Fixed by `clampKinkToTerminus` - a deterministic,
+ * draw-free clamp applied after both rolls complete. THE direct
+ * falsification: every kinked arm, across every class, now has
+ * `RkinkPc < terminusPc`, with no exceptions, across a large sample. */
+{
+  check('G-P15 no kinked arm has RkinkPc >= its own terminusPc, across a large sample of all three classes ' +
+    '(the actual reported bug\'s direct falsification - fails on pre-fix code, passes after)', (() => {
+    for (const armClass of ['grandDesign', 'multipleArm', 'flocculent'] as const) {
+      for (let i = 0; i < 500; i++) {
+        const arms = generateSeededArms(`gate-p15-kinkclamp-${armClass}-${i}`, armClass);
+        for (const a of arms) {
+          if (a.RkinkPc !== undefined && a.terminusPc !== undefined && a.RkinkPc >= a.terminusPc) return false;
+        }
+      }
+    }
+    return true;
+  })());
+
+  check('G-P15b the clamp is a rare correction, not a dominant force - across a large multipleArm sample, ' +
+    'RkinkPc still shows real seed-to-seed variation (not collapsed onto one repeated clamped value), and ' +
+    'every clamped case lands EXACTLY at terminusPc - ARM_TERMINUS_SMOOTH_PC (never below, per the floor ' +
+    'only ever binding at the theoretical worst case, which no real class\'s terminus range reaches)', (() => {
+    const seen = new Set<number>();
+    let clampedCount = 0, total = 0;
+    for (let i = 0; i < 500; i++) {
+      const arms = generateSeededArms(`gate-p15-variety-${i}`, 'multipleArm');
+      for (const a of arms) {
+        if (a.RkinkPc === undefined || a.terminusPc === undefined) continue;
+        total++;
+        seen.add(Math.round(a.RkinkPc));
+        const fadeStartsPc = a.terminusPc - ARM_TERMINUS_SMOOTH_PC;
+        if (Math.abs(a.RkinkPc - fadeStartsPc) < 1e-6) clampedCount++;
+      }
+    }
+    // Real variety (not every kink collapsed onto an identical value) AND
+    // at least some clamping genuinely happened (the gate is non-vacuous -
+    // it would also pass, uselessly, if the fix never actually engaged).
+    return seen.size > total * 0.5 && clampedCount > 0 && clampedCount < total;
   })());
 }
 

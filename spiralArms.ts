@@ -914,22 +914,58 @@ export function tipStartRatioFor(pitchDeg: number): number {
  *  constant, no roll). Draw order is array order (base arms then spurs, the
  *  same order `generateSeededArmsUncached` already returns them in) -
  *  deterministic for a given `worldSeed`/`armClass` (gated). */
+/**
+ * Clamps a rolled kink so it always sits safely BEFORE its own arm's
+ * termination fade begins (P15, 28 Aug 2026, a direct user report: "I
+ * can't see any obvious kinks"). Root cause, found by direct measurement
+ * across many seeds: `RkinkPc` (this module's own kink mechanism, item 3,
+ * bump 11) and `terminusPc` (Stage C's termination mechanism, bump 14)
+ * were rolled on independent draws with no coordination between them -
+ * `RkinkPc` can land anywhere in `[KINK_R_OUTER_LO_PC, KINK_R_OUTER_HI_PC]`
+ * = [9700, 15500], `terminusPc` anywhere in a per-class range whose OWN
+ * floor is 10500 (`multipleArm`/`flocculent`) - measured directly, 13.5%
+ * (`grandDesign`) to 32.5% (`flocculent`) of rolled kinks landed AT OR
+ * PAST their own arm's terminus, meaning the arm had already faded to
+ * zero (or was already fading, inside `ARM_TERMINUS_SMOOTH_PC`'s own
+ * window) before the kink's pitch change could ever be seen.
+ *
+ * Deterministic, NO new rng draw - this runs strictly after both
+ * mechanisms' own rolls, adjusting only the OUTPUT `RkinkPc` value when it
+ * would otherwise be hidden, never re-drawing it (preserves the "one
+ * channel, one draw sequence" stream-position discipline exactly - this
+ * function does not touch `CHANNELS.seededArms` or `CHANNELS.armTermination`
+ * at all). Clamped to `terminusPc - ARM_TERMINUS_SMOOTH_PC` - i.e. exactly
+ * where the fade begins, never past it - floored at `KINK_R_OUTER_LO_PC`
+ * as a defensive minimum (never actually binds: every class's own
+ * terminus floor is >= 10500, and 10500 - `ARM_TERMINUS_SMOOTH_PC` (800)
+ * = 9700 = `KINK_R_OUTER_LO_PC` exactly, so the floor and the terminus
+ * -derived clamp coincide at the worst case rather than one overriding
+ * the other unexpectedly). Only ever LOWERS `RkinkPc` - an already-visible
+ * kink (`RkinkPc` comfortably below its terminus) is untouched.
+ */
+function clampKinkToTerminus(a: ArmDefinition): ArmDefinition {
+  if (a.RkinkPc === undefined || a.terminusPc === undefined) return a;
+  const fadeStartsPc = a.terminusPc - ARM_TERMINUS_SMOOTH_PC;
+  if (a.RkinkPc < fadeStartsPc) return a;
+  return { ...a, RkinkPc: Math.max(KINK_R_OUTER_LO_PC, fadeStartsPc) };
+}
+
 function withTermination(arms: readonly ArmDefinition[], armClass: ArmClass, worldSeed: string): readonly ArmDefinition[] {
   if (armClass === 'grandDesign') {
-    return arms.map((a) => ({ ...a, terminusPc: ARM_TERMINUS_SHARED_PC }));
+    return arms.map((a) => clampKinkToTerminus({ ...a, terminusPc: ARM_TERMINUS_SHARED_PC }));
   }
   const rng = channelRng(worldSeed, CHANNELS.armTermination);
   if (armClass === 'multipleArm') {
     return arms.map((a) => {
       const terminusPc = MULTIPLE_ARM_TERMINUS_LO_PC + rng() * (MULTIPLE_ARM_TERMINUS_HI_PC - MULTIPLE_ARM_TERMINUS_LO_PC);
       const hasTip = rng() < ARM_TIP_PROBABILITY;
-      return { ...a, terminusPc, ...(hasTip ? { tipStartRatio: tipStartRatioFor(a.pitchDeg) } : {}) };
+      return clampKinkToTerminus({ ...a, terminusPc, ...(hasTip ? { tipStartRatio: tipStartRatioFor(a.pitchDeg) } : {}) });
     });
   }
   // flocculent
   return arms.map((a) => {
     const terminusPc = FLOCCULENT_TERMINUS_LO_PC + rng() * (FLOCCULENT_TERMINUS_HI_PC - FLOCCULENT_TERMINUS_LO_PC);
-    return { ...a, terminusPc };
+    return clampKinkToTerminus({ ...a, terminusPc });
   });
 }
 

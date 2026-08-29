@@ -512,6 +512,22 @@ function armInnerTaper(R: number, params: GalaxyParameters): number {
 function discTerm(pop: Population, R: number, theta: number, z: number, params: GalaxyParameters): number {
   const geom = discGeometryFor(pop.key);
   if (!geom) return 0;
+  // KNOWN ISSUE, documented not fixed (28 Aug 2026, a direct user report:
+  // random "splodges", especially concentrated on the bulge) - this plain
+  // exponential has NO inner cutoff, so it does not fade toward R=0, it
+  // PEAKS there: at R < params.R0Pc the exponent is positive, so density
+  // rises monotonically all the way to the centre. Measured directly for
+  // `spiralYoungThin`: expected complex-tier clump count at R=0 came out
+  // ~2-3x HIGHER than in the arms themselves - a real generation-path
+  // effect (`starFormingComplexes.complexCentresInCell`'s own Poisson rate
+  // scales directly off this term), not merely a preview artifact, since a
+  // real "Generate Sector" commit near the galactic centre reads the same
+  // unbounded-toward-R=0 density. Physically backwards for a young,
+  // recently-formed population - a real bulge is old-star-dominated, and
+  // young star-forming complexes piling up hardest exactly at the nucleus
+  // has no physical basis this project has sourced. Owner decision (28 Aug
+  // 2026): documented, not actioned this round - left here as a known,
+  // located issue rather than silently accepted or guessed at further.
   const smooth = pop.nLocal * Math.exp(-(R - params.R0Pc) / geom.scaleLengthPc) * Math.exp(-Math.abs(z) / geom.scaleHeightPc);
   const set = armResponseFor(pop.key, params);
   if (set === 'none') return smooth;

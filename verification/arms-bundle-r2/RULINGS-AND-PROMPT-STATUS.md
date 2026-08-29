@@ -156,6 +156,54 @@ even with no bar; (2) arm count now class-dependent
 galaxy could previously roll only 2 arms, definitionally a grand design.
 Visually verified against the exact reported seed, not merely gated.
 
+## P15 (beyond the original P0–P12 scope) — done, 28 Aug 2026
+
+A direct user report, two separate findings, after hands-on testing of
+P14's fix: "I can't see any obvious kinks... or spurs" and "random
+splodges... especially on the bulge".
+
+**Kink-vs-terminus collision (fixed).** `RkinkPc` (the kink mechanism,
+bump 11) and `terminusPc` (the termination mechanism, bump 14) were
+rolled on independent, uncoordinated draws - measured directly, 13.5%
+(`grandDesign`) to 32.5% (`flocculent`) of rolled kinks landed at or past
+their own arm's terminus, hiding the kink behind the already-faded
+envelope. Fixed by `spiralArms.clampKinkToTerminus` - a deterministic,
+draw-free clamp applied after both mechanisms' own rolls complete (no
+change to either channel's own draw sequence). Visually reverified against
+the original P14 reported seed, which had BOTH major arms' kinks hidden
+pre-fix - now visibly bent. `genVersion` bump 15 → 16;
+`verification/golden/gen16.json` cut.
+
+**Arm/interarm contrast too weak for kinks/spurs/patchiness to read
+clearly (investigated, deliberately left as-is).** Even a kink that is no
+longer hidden, or a genuine spur, or `ARM_CLASS_MODULATION`'s own
+along-arm brightness modulation, rides on top of the same weak base
+contrast already flagged during the P14 "circular galaxy" investigation -
+confirmed NOT a resolution artifact (re-rendered at 4x+ the shipped
+resolution with no meaningful improvement). Checked whether the seeded
+-class contrast targets (`ARM_CLASS_CONTRAST_TARGET_K`) could simply be
+raised: they are already anchored to real sourced/observed literature
+bands (measured A(R0): grandDesign 1.77 mag, multipleArm 1.42 mag,
+flocculent 1.01 mag - correctly ordered, resolving a false "inversion"
+concern P14 §7 had flagged), and the isophote renderer has its own gate
+(01-G10) explicitly forbidding a display-side contrast boost on the
+primary plate. Owner decision: leave contrast as-is - the kink-collision
+fix alone restores real, if modest, improvement; a genuine fix would mean
+either exceeding the sourced band (re-graded as no longer scientifically
+anchored) or building a new presentation render mode (Ruling 3's own
+second named door) - both bigger decisions than this finding on its own.
+
+**Complex-tier "splodges" concentrated on the bulge (documented, not
+fixed).** `spiralYoungThin`'s plain exponential disc profile has no inner
+cutoff - it does not fade toward the centre, it PEAKS there, so young
+-star-forming complex clumps concentrate hardest exactly on the bulge
+(measured: ~2-3x the clump rate of the arms themselves). This is a real
+generation-path effect, not merely a preview artifact - a real "Generate
+Sector" commit near the galactic centre reads the same density. Owner
+decision: document only this round (see `galaxyModel.ts`'s `discTerm`, the
+comment directly above the `smooth` calculation) - no genVersion impact,
+left as a known, located issue for whenever it's taken up.
+
 ## Where the original bundle text lives
 
 The user no longer had the original pasted documents. Recovered from this

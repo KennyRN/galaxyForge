@@ -550,5 +550,79 @@
  *
  * `verification/golden/gen15.json` is the fixture cut against THIS
  * version.
+ *
+ * BUMP 16, 28 Aug 2026 (P15 - kink-vs-terminus collision). A direct user
+ * report, same day as bump 15's own P14 fix shipped: "I can't see any
+ * obvious kinks... or spurs". Root cause, measured directly across 2000
+ * seeds per class: `RkinkPc` (the kink mechanism, bump 11) and
+ * `terminusPc` (the termination mechanism, bump 14) were rolled on
+ * independent draws with no coordination between them whatsoever - 13.5%
+ * (`grandDesign`) to 32.5% (`flocculent`) of rolled kinks landed AT OR
+ * PAST their own arm's terminus, meaning the arm had already faded to
+ * zero (or was already inside the fade window) before the kink's own
+ * pitch change could ever be seen. Neither bump 11 nor bump 14
+ * anticipated the other when it shipped - a real, previously-uncaught
+ * interaction between two independently-developed mechanisms, not a
+ * defect in either one alone.
+ *
+ * FIX: new `spiralArms.clampKinkToTerminus`, applied uniformly across all
+ * three `armClass` branches of `withTermination`, strictly AFTER both
+ * mechanisms' own rolls complete. Deterministic - no new `rng()` draw, so
+ * neither `CHANNELS.seededArms` nor `CHANNELS.armTermination`'s own draw
+ * sequence changes at all; only clamps an already-rolled `RkinkPc` DOWN
+ * to `terminusPc - ARM_TERMINUS_SMOOTH_PC` (exactly where that arm's own
+ * fade begins, never past it) when it would otherwise land inside or
+ * beyond the fade. Never raises `RkinkPc`; an already-visible kink is
+ * untouched. Verified: across the same 2000-seed-per-class sample, 0% of
+ * kinked arms now have `RkinkPc >= terminusPc`, in every class. Visually
+ * reverified against P14's own originally-reported seed (which had BOTH
+ * major arms' kinks hidden pre-fix) - now visibly bent.
+ *
+ * ALSO INVESTIGATED, DELIBERATELY LEFT AS-IS (same user report): even a
+ * no-longer-hidden kink, a genuine spur, or `ARM_CLASS_MODULATION`'s own
+ * along-arm brightness modulation is hard to see because all three ride
+ * on the same weak base arm/interarm contrast already flagged during
+ * bump 15's own "circular galaxy" investigation - confirmed NOT a
+ * resolution artifact (re-rendered at 4x+ the shipped preview resolution,
+ * no meaningful improvement). The seeded-class contrast targets
+ * (`ARM_CLASS_CONTRAST_TARGET_K`) are already anchored to real sourced
+ * literature bands (measured A(R0): grandDesign 1.77 mag, multipleArm
+ * 1.42 mag, flocculent 1.01 mag - correctly ordered, resolving a false
+ * "inversion" concern raised in the P14 handoff's own §7), and the
+ * isophote renderer's own gate 01-G10 explicitly forbids a display-side
+ * contrast boost on the primary plate. Owner decision: leave contrast
+ * as-is this round - genuinely fixing it means either exceeding the
+ * sourced band (no longer scientifically anchored) or building a new
+ * presentation render mode (Ruling 3's own second named door), both
+ * bigger decisions than this finding alone.
+ *
+ * ALSO FOUND, DOCUMENTED NOT FIXED (same user report - "random splodges,
+ * especially on the bulge"): `spiralYoungThin`'s plain exponential disc
+ * profile has no inner cutoff - it PEAKS at R=0 rather than fading there,
+ * so complex-tier star-forming clumps concentrate hardest exactly on the
+ * bulge (measured: ~2-3x the arms' own clump rate). This is a real
+ * generation-path effect, not a preview artifact - a real "Generate
+ * Sector" commit near the galactic centre reads the same density.
+ * Physically backwards (a bulge is old-star-dominated) but NOT actioned
+ * this round, per owner decision - documented at the source (`galaxyModel
+ * .ts`'s `discTerm`, directly above the `smooth` calculation) as a known,
+ * located issue rather than guessed at further.
+ *
+ * New gate: `spiralArms.conformance.ts` gate 18 (G-P15/G-P15b) - the
+ * actual bug's direct falsification (zero kinked arms landing at or past
+ * their own terminus, across a large sample of all three classes) and a
+ * non-vacuousness check (the clamp demonstrably engages sometimes,
+ * doesn't collapse all kinks onto one value, and never triggers on an
+ * already-safe kink). Gate 15w REVISED AGAIN - `RkinkPc`/`pitchOuterDeg`
+ * dropped from its own cross-class comparison entirely: the new clamp
+ * deliberately applies a CLASS-DEPENDENT correction (each class rolls its
+ * own `terminusPc`), so a kink genuinely can now differ between classes
+ * even at the shared major-arm indices - that is this bump's own fix
+ * working as intended, not a channel leak; `pitchDeg`/`RrefPc`/`weight`
+ * remain untouched by either fix and still isolate the property this
+ * gate exists to test.
+ *
+ * `verification/golden/gen16.json` is the fixture cut against THIS
+ * version.
  */
-export const CURRENT_GEN_VERSION = 15;
+export const CURRENT_GEN_VERSION = 16;
