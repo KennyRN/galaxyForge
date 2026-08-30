@@ -133,11 +133,11 @@ check('8a / G5 (Amendment A8): the RELATIVE field ismDensityAt is called from ex
 })());
 
 check('8b / P17: the ABSOLUTE accessor absoluteMidplaneDensityCm3 is called from exactly ONE ' +
-  'module - starFormingComplexes.ts (which hands it to nebulaMorphology.nebulaFieldFor). The ' +
-  'tripwire for the accessor that DOES move placed systems - fires the day anything else reads ' +
+  'module - nebulaMorphology.ts (inside nebulaNatalDensityCm3). The tripwire for the accessor ' +
+  'that feeds the generation-path region-expansion scales - fires the day anything else reads ' +
   'absolute ISM density without joining the genVersion contract.', (() => {
   const callers = callersOf(/\babsoluteMidplaneDensityCm3\s*\(/);
-  return callers.length === 1 && callers[0] === 'starFormingComplexes.ts';
+  return callers.length === 1 && callers[0] === 'nebulaMorphology.ts';
 })());
 
 /* 9. P17 - absolute accessor is anchored, positive, and monotone ------------ */

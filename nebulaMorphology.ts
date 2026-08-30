@@ -1,85 +1,128 @@
 /**
  * nebulaMorphology - the star-forming region's own internal structure: the
  * dense, sculpted, (often) ionised gas a star-forming complex's young stars
- * actually form inside. P17, 30 Aug 2026.
+ * form inside. P17, 30 Aug 2026; constants firmed up 30 Aug 2026 (science
+ * re-audit).
  *
- * -- WHAT THIS IS, AND WHAT IT IS NOT ----------------------------------------
- * This module produces a COUNT-CONSERVING DENSITY FIELD per complex, sampled
- * by `starFormingComplexes.placeYoungClustered` for member positions. It does
- * NOT change how many young systems exist (the two-level Poisson counts are
- * drawn on `complexField` exactly as before); it changes only WHERE, within a
- * complex, the complex-organised young stars land - in the filaments, in the
- * swept shells, at the pillar tips.
+ * -- ARCHITECTURAL RULING: STRUCTURE IS NOT PHASE --------------------------
+ * Two clocks, two jobs, no pipeline reorder:
  *
- * It is NOT a render-geometry object. The kpc-zoom glowing-nebula render is a
- * later, separate task that reads this SAME field (Law 1 - one field, not a
- * second sampler that could diverge from placement).
+ *   STRUCTURE  - WHERE stars sit inside a complex. Needs the fractal ISM
+ *                field (dimension D), NOT an age. `nebulaFieldFor` builds an
+ *                isotropic Efremov-scale envelope, fractal-sculpted; both the
+ *                group-around-complex and offspring-around-group scatters are
+ *                drawn from it. Applied at placement time
+ *                (`starFormingComplexes.placeYoungClustered`).
+ *
+ *   PHASE      - what the ionised nebula LOOKS like (compact HII -> classical
+ *                HII -> wind shell -> superbubble -> dispersing). A pure
+ *                downstream read of the co-natal group age
+ *                (`nebulaPhaseFor` / `nebulaIsLit`), computed AFTER placement
+ *                where the co-natal age is known. NOT a second RNG draw - the
+ *                co-natal age already IS the physical clock. The earlier
+ *                truncated-exponential `nebulaPhaseAgeMyr` draw is RETRACTED.
+ *
+ *   EXISTENCE  - a complex hosts a visible ionised nebula only while its
+ *                least-massive ionising star survives: `nebulaIsLit` gates on
+ *                co-natal age < `ceilingMyr` (~40 Myr ~ 8 Msol MS lifetime).
+ *                For `spiralYoungThin` (co-natal age uniform on [0, 1] Gyr)
+ *                this lights ~4% of complexes; phases then populate in
+ *                proportion to their DURATION, the correct snapshot statistic
+ *                for a complete (every-system) census.
+ *
+ * The phase/existence functions and the Stromgren/Weaver scale functions are
+ * exported and GATED here, ready for the render workstream (the ~kpc-zoom
+ * glowing-nebula patch, P17 SS16 - explicitly out of scope this pass). They
+ * are NOT yet attached to placed systems; only STRUCTURE is wired into
+ * generation so far. `params.placementShapeVersion` bumps because the member
+ * scatter changed shape (fractal, not isotropic Gaussian).
  *
  * SEAM WITH `ism.ts` (keep it): `ism` is the diffuse reservoir/backdrop,
- * forming nothing on its own; this module is the EVENT. The nebula READS
- * ambient ISM density (`absoluteMidplaneDensityCm3`) as an input - how dense
- * the surroundings are sets how far the ionisation front / wind shell
- * expands - and does not live inside the ISM module. If the two ever feel
- * like one module, re-check the seam, do not merge.
+ * forming nothing; this module is the EVENT. The nebula READS ambient ISM
+ * density (`ism.absoluteMidplaneDensityCm3`, via `nebulaNatalDensityCm3`) -
+ * how dense the surroundings are sets how far the ionisation front / wind
+ * shell reaches - and does not live inside the ISM module.
  *
  * -- PRNG --------------------------------------------------------------------
  * `CHANNELS.nebula`, scoped `channelRng(worldSeed, 'nebula', complexId, ...)`
- * - used ONLY for the field's own construction (the complex's dynamical
- * PHASE age, and the fractal-ISM realisation seed). Member POSITION draws
- * ride the CALLER's existing `complexField` `fill:{ci}` stream (that is where
- * expansion-invariance is built); `sampleGroupPos` / `sampleOffspringPos`
- * each consume a FIXED, documented number of `rng()` calls per call
- * (`SAMPLE_DRAWS`) regardless of how the accept/reject lands - rejections are
- * drawn on the same stream, and draws after acceptance are still consumed -
- * so the parent/offspring stream stays deterministic and expansion-invariant.
+ * - used ONLY for the fractal-ISM realisation seed. Member POSITION draws
+ * ride the CALLER's existing `complexField` `fill:{ci}` stream (where
+ * expansion invariance is built); `sampleGroupPos` / `sampleOffspringPos`
+ * each consume a FIXED `SAMPLE_DRAWS` `rng()` calls per call regardless of
+ * how accept/reject lands.
  *
- * -- PROVENANCE LEDGER ------------------------------------------------------
+ * -- PROVENANCE LEDGER ----------------------------------------------------
  * sourced:
- *   ALPHA_B_CM3_S            Case B recombination coefficient at 1e4 K, 2.59e-13
- *                            cm^3 s^-1 - Osterbrock & Ferland 2006, AGN^3 2nd ed.
- *   PROTON_MASS_G            1.67262e-24 g - CODATA (a physical constant).
- *   Stromgren R_S = (3 Q / (4 pi n^2 alpha_B))^(1/3)   - Stromgren 1939, ApJ 89, 526.
+ *   ALPHA_B_CM3_S            2.59e-13 cm^3 s^-1, Case B, 1e4 K - Osterbrock &
+ *                            Ferland 2006, AGN^3 2nd ed.
+ *   PROTON_MASS_G            1.67262e-24 g - CODATA.
+ *   N_MIDPLANE_R0_CM3        1.0 cm^-3 total-H midplane density at R0 - McKee,
+ *                            Parravano & Hollenbach 2015, ApJ 814, 13
+ *                            (Sigma_gas 13.7, Sigma_HI 7.8, Sigma_H2 0.7
+ *                            Msol/pc^2). FLAG: the exact midplane decimal must
+ *                            be read off Table 2 of the PDF before it enters
+ *                            a header claim - 1.0 stands, decimal pending.
+ *   Stromgren R_S = (3 Q / (4 pi n^2 alpha_B))^(1/3)  - Stromgren 1939, ApJ 89, 526.
  *   Weaver  R_w = (250/(308 pi))^(1/5) (L_w/rho_0)^(1/5) t^(3/5)
- *                            - Weaver et al. 1977, ApJ 218, 377 (energy-driven
- *                            wind bubble). Mac Low & McCray 1988, ApJ 324, 776
- *                            for the collective (superbubble) case - same
- *                            energy-driven form, boosted L_w.
- *   classical HII  R ~ t^(4/7)   - Spitzer 1978 (canonical).
- *   Kroupa 2001 IMF (alpha 0.3/1.3/2.3 across 0.08, 0.5 Msol) - MNRAS 322, 231.
- *   Martins, Schaerer & Hillier 2005, A&A 436, 1049, Table 1 - Q0(SpT, LC).
- *   triggered-SF fraction 14-30% - Deharveng et al. 2010, A&A 523, A6
- *                            (the coupling-amount anchor; see FILAMENT_SHARPEN_GAMMA).
- * calibrated + RE-AUDIT:
- *   DEFAULT_PHASE_BOUNDARIES_MYR   phase-age table, tuned (pending) to the
- *                            Churchwell et al. 2006/2007 bubble-size distribution.
- *   PHASE_AGE_*_MYR          the per-complex dynamical-age draw. NOTE: the P17
- *                            handoff's SS7 sets the phase from "co-natal ageGyr,
- *                            read in Myr". That quantity is (a) not available at
- *                            field-construction time without a disruptive
- *                            pipeline reorder, and (b) the wrong timescale -
- *                            co-natal coherence is ~100s of Myr, an HII
- *                            region / wind bubble is ~Myr. So the nebular
- *                            DYNAMICAL age is drawn here on `CHANNELS.nebula`
- *                            instead. Flagged to owner; a one-line change if
- *                            the co-natal age is wanted after all.
- * calibrated + RE-AUDIT (placeholder constant - NOT transcribed clean-room):
- *   K_Q_PER_MEMBER_S         IMF-weighted mean ionising output per member
- *                            (Kroupa 2001 x Martins 2005 integral above the
- *                            ionising-mass threshold) - value here is a
- *                            physically-plausible placeholder, ~1e46 s^-1.
- *   L_WIND_PER_MEMBER_ERG_S  IMF-weighted mean wind mechanical luminosity per
- *                            member - placeholder ~1e34 erg s^-1.
- * tunable + RE-AUDIT:
- *   DEFAULT_FRACTAL_DIMENSION_D   ISM fractal dimension, 2.3, band [2.3, 2.7]
- *                            - Elmegreen & Falgarone 1996, ApJ 471, 816;
- *                            CONTESTED (Sanchez et al. 2005/06, Stutzki et al.
- *                            1998, Federrath et al. 2007). HIDDEN: no UI
- *                            control, omitted from the user glossary - but it
- *                            shapes the field, so it is in this header and is
- *                            a `galaxyConfigHash` input (forks on change).
+ *                            - Weaver et al. 1977, ApJ 218, 377; Mac Low &
+ *                            McCray 1988, ApJ 324, 776 (collective case).
+ * derived (computed by us from sourced inputs - see per-constant notes):
+ *   K_Q_PER_MEMBER_S         4.2e46 s^-1 per member (log10 46.62). Kroupa 2001
+ *                            IMF (MNRAS 322, 231) x Martins, Schaerer &
+ *                            Hillier 2005 Q0 (A&A 436, 1049, Table 1, class V)
+ *                            integrated above m_ion = 15 Msol, x 1.5 mean
+ *                            stars/system (Duchene & Kraus 2013). Per-STAR
+ *                            value 2.8e46 if `multiplicity` ever expands
+ *                            members into stars itself (avoid double-count).
+ *   L_WIND_PER_MEMBER_ERG_S  1.03e34 erg s^-1 per member (log10 34.01). Vink,
+ *                            de Koter & Lamers 2001 (A&A 369, 574) hot-side
+ *                            mass-loss recipe, v_inf = 2.6 v_esc, L_w = 0.5
+ *                            Mdot v_inf^2 IMF-weighted. Per-star 6.85e33.
+ * calibrated:
+ *   SUPERBUBBLE_LW_BOOST     2 (band 2-4). Time-averaged (wind+SN)/wind
+ *                            mechanical power over the ~36 Myr SN window
+ *                            (10^51 erg/event, SN fraction 0.0063/star over
+ *                            the Kroupa IMF); Mac Low & McCray's constant-L
+ *                            assumption. R_w ~ L^(1/5), so 2 vs the old 8
+ *                            changes the superbubble radius by only 1.3x -
+ *                            duration (t^3/5) and the density drop to the
+ *                            dispersed medium do the real work.
+ *   NEBULA_NATAL_DENSITY_CONTRAST  1000. The region-expansion laws run
+ *                            against the NATAL molecular clump density
+ *                            (10^2-10^4 cm^-3, Lada & Lada 2003), NOT the
+ *                            diffuse midplane (~1). Implemented as a contrast
+ *                            over the local absolute ISM density so it tracks
+ *                            the galactic gradient; = 1e3 cm^-3 at R0. No
+ *                            single sourced value (natal densities span 2 dex).
+ *   DEFAULT_PHASE_BOUNDARIES_MYR  [0.5, 3, 8, 20]. Anchored to expansion
+ *                            timescales and to Churchwell et al. 2006/2007
+ *                            active-bubble radii (bulk 1-4 pc): Spitzer
+ *                            classical-HII expansion (Q 1e49, n 1e3) reaches
+ *                            2-3 pc in 0.2-0.5 Myr, so the median active
+ *                            bubble sits early in the classical phase. 3 Myr
+ *                            = first-SN time; 8/20 Myr bracket superbubble
+ *                            growth/blowout; 40 = the ~8 Msol MS lifetime.
+ * tunable + RE-AUDIT (mandatory re-audit on every science pass):
+ *   DEFAULT_FRACTAL_DIMENSION_D  2.6, band [2.3, 2.7]. Stutzki et al. 1998 /
+ *                            Sanchez et al. 2006 direct Delta-variance
+ *                            (3D iso-density-surface dimension), preferred
+ *                            over Elmegreen & Falgarone 1996's indirect 2.3.
+ *                            CONTESTED literature - hidden knob (no UI, not in
+ *                            the user glossary), but a config-hash input
+ *                            (forks on change). fBm gain = lacunarity^(-H),
+ *                            H = 3 - D (the level set of a 3D fBm field has
+ *                            Hausdorff dimension 3 - H; the competing 4 - D
+ *                            is the GRAPH dimension, a different object and it
+ *                            gives an invalid H > 1 for D = 2.3).
+ *   FILAMENT_SHARPEN_GAMMA   2 (band 1.5-2.5). Ridge-member weight rho^gamma
+ *                            over the rho^1 the Thomas process already
+ *                            carries; tuned toward the Deharveng et al. 2010
+ *                            (A&A 523, A6) 14-30% triggered-SF fraction, but
+ *                            that Galactic number is NOT the same quantity as
+ *                            this model's ridge-member fraction - re-audit
+ *                            against the synthesised field's own density PDF.
  * tunable:
- *   octave count/lacunarity, FILAMENT_SHARPEN_GAMMA, BASE_FRACTAL_WAVELENGTH_PC,
- *   shell-width fractions, SAMPLE_ATTEMPTS - this module's own field-shaping knobs.
+ *   octave count / lacunarity / BASE_FRACTAL_WAVELENGTH_PC, SAMPLE_ATTEMPTS.
  *
  * genVersion: any constant or formula change here moves complex-organised
  * young systems for every spiral/barredSpiral/milkyWayAnalogue galaxy - it is
@@ -89,43 +132,41 @@
 import { channelRng } from './rng';
 import { truncGaussQuantile } from './mathStats';
 import { cmToPc, yrToSeconds, myrToYr } from './units';
+import { absoluteMidplaneDensityCm3 } from './ism';
 import type { GlossaryEntry } from './types';
 
 /* --------------------------------- constants ------------------------------- */
 
 /** cm^3 s^-1, Case B, 1e4 K. `sourced` - Osterbrock & Ferland 2006. */
 export const ALPHA_B_CM3_S = 2.59e-13;
-/** g. `sourced` - CODATA proton mass (rho_0 = n * m_H, mean molecular weight
- *  ~1 assumed - a `calibrated` simplification stated plainly). */
+/** g. `sourced` - CODATA proton mass (rho_0 = mu n m_H, mu ~ 1 assumed). */
 const PROTON_MASS_G = 1.67262e-24;
 /** (250/(308 pi))^(1/5). `sourced (form)` - Weaver et al. 1977 shell coefficient. */
 const WEAVER_PREFACTOR = Math.pow(250 / (308 * Math.PI), 1 / 5);
-/** Spitzer 1978 classical-HII expansion exponent. `sourced (form)`. */
-const SPITZER_EXPANSION_EXP = 4 / 7;
-/** Myr, the e-folding time of the classical-HII expansion factor - the
- *  ionisation front reaches ~2 R_S by ~1 Myr. `calibrated`. */
-const CLASSICAL_EXPANSION_SCALE_MYR = 0.6;
-/** Mac Low & McCray superbubble: collective winds + first SNe raise the
- *  effective mechanical luminosity. `calibrated` (order-of-magnitude). */
-const SUPERBUBBLE_LW_BOOST = 8;
+/** Mac Low & McCray: collective winds + first SNe. `calibrated`, band 2-4. */
+export const SUPERBUBBLE_LW_BOOST = 2;
 
-/** s^-1 per member. `calibrated + RE-AUDIT` - PLACEHOLDER for the Kroupa x
- *  Martins IMF integral (see header). */
-export const K_Q_PER_MEMBER_S = 1e46;
-/** erg s^-1 per member. `calibrated + RE-AUDIT` - PLACEHOLDER (see header). */
-export const L_WIND_PER_MEMBER_ERG_S = 1e34;
+/** s^-1 per member system. `derived` - Kroupa 2001 x Martins 2005, x 1.5
+ *  stars/system. Per-STAR value 2.8e46 (see header). */
+export const K_Q_PER_MEMBER_S = 4.2e46;
+/** erg s^-1 per member system. `derived` - Vink et al. 2001. Per-star 6.85e33. */
+export const L_WIND_PER_MEMBER_ERG_S = 1.03e34;
+
+/** Multiplier on the local absolute ISM density giving the natal molecular
+ *  clump density the region-expansion laws run against. `calibrated` -
+ *  = 1e3 cm^-3 at R0 (McKee et al. 2015 midplane ~ 1 cm^-3). */
+export const NEBULA_NATAL_DENSITY_CONTRAST = 1000;
 
 /** Dimensionless. `tunable + RE-AUDIT` - hidden (see header). */
-export const DEFAULT_FRACTAL_DIMENSION_D = 2.3;
+export const DEFAULT_FRACTAL_DIMENSION_D = 2.6;
 export const FRACTAL_DIMENSION_BAND: readonly [number, number] = [2.3, 2.7];
 
-/** Myr. `calibrated + RE-AUDIT` - phase boundaries: [1|2, 2|3, 3|4, 4|5]. */
+/** Myr. `calibrated` - [1|2, 2|3, 3|4, 4|5] phase boundaries. */
 export const DEFAULT_PHASE_BOUNDARIES_MYR: readonly number[] = [0.5, 3, 8, 20];
-/** Myr. `calibrated + RE-AUDIT` - the per-complex dynamical-age draw is
- *  exponential (mean `PHASE_AGE_MEAN_MYR`) truncated to [0, PHASE_AGE_MAX_MYR];
- *  most complexes are young and structured, a tail is old and diffuse. */
-export const PHASE_AGE_MEAN_MYR = 9;
-export const PHASE_AGE_MAX_MYR = 40;
+/** Myr. `calibrated` - existence ceiling: a complex is "lit" only while its
+ *  least-massive ionising star (~8 Msol) survives. Could tighten to ~12 Myr
+ *  (~15 Msol) for BRIGHT rather than ANY ionised nebula - owner ruling. */
+export const DEFAULT_NEBULA_CEILING_MYR = 40;
 
 /** pc, the largest fractal octave's wavelength; smaller octaves reach
  *  sub-pc (pillar-tip / filament texture). `tunable`. */
@@ -133,9 +174,8 @@ const BASE_FRACTAL_WAVELENGTH_PC = 48;
 const DEFAULT_OCTAVES = 5;
 const DEFAULT_LACUNARITY = 2;
 /** Accept ~ T^gamma sharpens diffuse fractal noise into filaments/pillars.
- *  `tunable`, anchored so the accepted-fraction contrast lands in the
- *  Deharveng 2010 14-30% triggered-SF ballpark (see the `-d` gate). */
-const FILAMENT_SHARPEN_GAMMA = 2.4;
+ *  `tunable + RE-AUDIT` (Deharveng 2010 mapping - see header), band 1.5-2.5. */
+const FILAMENT_SHARPEN_GAMMA = 2;
 
 /** Fixed accept/reject attempts per sample. */
 const SAMPLE_ATTEMPTS = 8;
@@ -145,14 +185,17 @@ const DRAWS_PER_ATTEMPT = 4;
  *  `sampleOffspringPos` each consume EXACTLY this many `rng()` calls. */
 export const SAMPLE_DRAWS = SAMPLE_ATTEMPTS * DRAWS_PER_ATTEMPT;
 
+/** Guard-band width (in envelope sigmas) the group proposal is truncated to -
+ *  mirrors the caller's own `guardBandSigma`; the caller re-clamps too. */
+const ENVELOPE_TRUNCATION_SIGMA = 4;
+
 /* --------------------------------- types ----------------------------------- */
 
 export type NebulaPhase = 1 | 2 | 3 | 4 | 5;
 
 export interface NebulaParams {
-  /** ISM fractal dimension. Hidden (no UI, no glossary), but a config-hash
-   *  input - it shapes the field, so it forks. Clamped to
-   *  `FRACTAL_DIMENSION_BAND`. */
+  /** ISM fractal dimension (3D iso-surface). Hidden (no UI, no glossary), a
+   *  config-hash input. Clamped to `FRACTAL_DIMENSION_BAND`. */
   readonly fractalDimensionD: number;
   readonly octaves: number;
   readonly lacunarity: number;
@@ -160,13 +203,11 @@ export interface NebulaParams {
   readonly filamentSharpenGamma: number;
   /** [1|2, 2|3, 3|4, 4|5] phase boundaries, Myr, strictly increasing. */
   readonly phaseBoundariesMyr: readonly number[];
-  readonly phaseAgeMeanMyr: number;
-  readonly phaseAgeMaxMyr: number;
-  /** pc, the sub-pc scatter of an offspring around its group centre - the
-   *  "pillar-tip / filament texture" scale. Kept equal to the placement
-   *  layer's own `jitterSigmaPc` by default so the offspring cloud is the
-   *  same size as before P17; only its SHAPE (fractal-weighted, not
-   *  isotropic) changes. `calibrated`. */
+  /** Myr - `nebulaIsLit` ceiling. */
+  readonly ceilingMyr: number;
+  /** pc, the sub-pc scatter of an offspring around its group centre - kept
+   *  equal to the placement layer's `jitterSigmaPc` by default so the cloud
+   *  is the same SIZE as pre-P17; only its SHAPE (fractal-weighted) changes. */
   readonly offspringJitterSigmaPc: number;
 }
 
@@ -177,21 +218,14 @@ export const DEFAULT_NEBULA_PARAMS: NebulaParams = {
   baseFractalWavelengthPc: BASE_FRACTAL_WAVELENGTH_PC,
   filamentSharpenGamma: FILAMENT_SHARPEN_GAMMA,
   phaseBoundariesMyr: DEFAULT_PHASE_BOUNDARIES_MYR,
-  phaseAgeMeanMyr: PHASE_AGE_MEAN_MYR,
-  phaseAgeMaxMyr: PHASE_AGE_MAX_MYR,
+  ceilingMyr: DEFAULT_NEBULA_CEILING_MYR,
   offspringJitterSigmaPc: 1.5,
 };
 
 export interface Vec3 { readonly x: number; readonly y: number; readonly z: number; }
 
 export interface NebulaField {
-  readonly phase: NebulaPhase;
-  /** pc, derived - Stromgren radius from (Q_complex, n_ambient, alpha_B). */
-  readonly rStromgrenPc: number;
-  /** pc, phases 3-4 only - Weaver / Mac Low-McCray swept-shell radius. */
-  readonly rShellPc?: number;
-  /** Local fractal density in [0, 1] at an ABSOLUTE galactocentric point -
-   *  exposed for gates and for the future render layer. */
+  /** Local fractal density in [0, 1] at an ABSOLUTE galactocentric point. */
   fractalDensityAt(p: Vec3): number;
   /** One group-centre position, absolute galactocentric pc. Consumes exactly
    *  `SAMPLE_DRAWS` `rng()` calls. */
@@ -201,7 +235,29 @@ export interface NebulaField {
   sampleOffspringPos(rng: () => number, groupPos: Vec3): Vec3;
 }
 
+/* --------------------- phase & existence (downstream read) --------------- */
+
+/** 1..5 from `ageMyr` and the (strictly increasing) boundary table. */
+export function nebulaPhaseFor(ageMyr: number, boundariesMyr: readonly number[]): NebulaPhase {
+  let phase = 1;
+  for (const b of boundariesMyr) { if (ageMyr >= b) phase += 1; }
+  return Math.min(5, Math.max(1, phase)) as NebulaPhase;
+}
+
+/** Does this complex host a visible ionised nebula? True while its
+ *  least-massive ionising star survives (co-natal age < ceiling). */
+export function nebulaIsLit(coNatalAgeMyr: number, ceilingMyr: number): boolean {
+  return coNatalAgeMyr >= 0 && coNatalAgeMyr < ceilingMyr;
+}
+
 /* ------------------------------ derived scales ---------------------------- */
+
+/** cm^-3, the natal molecular clump density at galactocentric radius R -
+ *  a contrast over the local absolute ISM density (imports `ism`, the sole
+ *  generation-path consumer of `absoluteMidplaneDensityCm3`). */
+export function nebulaNatalDensityCm3(rGalactocentricPc: number): number {
+  return NEBULA_NATAL_DENSITY_CONTRAST * absoluteMidplaneDensityCm3(Math.max(0, rGalactocentricPc), 0);
+}
 
 /** pc. Stromgren radius R_S = (3 Q / (4 pi n^2 alpha_B))^(1/3). */
 export function stromgrenRadiusPc(qPerSec: number, nCm3: number): number {
@@ -211,40 +267,20 @@ export function stromgrenRadiusPc(qPerSec: number, nCm3: number): number {
   return cmToPc(rCm);
 }
 
-/** pc. Weaver energy-driven wind-bubble radius at age `tMyr`. */
-export function weaverShellRadiusPc(lwErgPerSec: number, nCm3: number, tMyr: number): number {
+/** pc. Weaver energy-driven wind-bubble radius at age `tMyr`. `boost` = 1 for
+ *  the wind phase, `SUPERBUBBLE_LW_BOOST` once SNe contribute. */
+export function weaverShellRadiusPc(lwErgPerSec: number, nCm3: number, tMyr: number, boost = 1): number {
   const rho0 = Math.max(nCm3, 1e-6) * PROTON_MASS_G;         // g cm^-3
   const tSec = Math.max(yrToSeconds(myrToYr(tMyr)), 1);
-  const rCm = WEAVER_PREFACTOR * Math.pow(Math.max(lwErgPerSec, 0) / rho0, 1 / 5) * Math.pow(tSec, 3 / 5);
+  const lw = Math.max(lwErgPerSec, 0) * boost;
+  const rCm = WEAVER_PREFACTOR * Math.pow(lw / rho0, 1 / 5) * Math.pow(tSec, 3 / 5);
   return cmToPc(rCm);
-}
-
-/** Classical-HII expansion factor R(t)/R_S ~ (1 + t/t_scale)^(4/7). */
-function classicalExpansionFactor(tMyr: number): number {
-  return Math.pow(1 + Math.max(tMyr, 0) / CLASSICAL_EXPANSION_SCALE_MYR, SPITZER_EXPANSION_EXP);
-}
-
-/** 1..5 from `ageMyr` and the (strictly increasing) boundary table. */
-export function nebulaPhaseFor(ageMyr: number, boundariesMyr: readonly number[]): NebulaPhase {
-  let phase = 1;
-  for (const b of boundariesMyr) { if (ageMyr >= b) phase += 1; }
-  return Math.min(5, Math.max(1, phase)) as NebulaPhase;
-}
-
-/** Per-complex nebular DYNAMICAL age, Myr. Own draw on `CHANNELS.nebula`
- *  (see header on why this is not the co-natal age). Exponential with mean
- *  `phaseAgeMeanMyr`, truncated to [0, phaseAgeMaxMyr]. */
-export function nebulaPhaseAgeMyr(worldSeed: string, complexId: string, p: NebulaParams): number {
-  const u = channelRng(worldSeed, 'nebula', complexId, 'age')();
-  const raw = -p.phaseAgeMeanMyr * Math.log(1 - u * (1 - Math.exp(-p.phaseAgeMaxMyr / p.phaseAgeMeanMyr)));
-  return Math.min(p.phaseAgeMaxMyr, Math.max(0, raw));
 }
 
 /* ------------------------------ fractal noise ---------------------------- */
 
-/** 32-bit integer lattice hash -> [0, 1). Not a stream - a pure function of
- *  (lattice cell, field seed), which is what a spatially-coherent noise
- *  needs (a `mulberry32` stream cannot be queried at an arbitrary point). */
+/** 32-bit integer lattice hash -> [0, 1). Pure function of (lattice cell,
+ *  field seed) - a spatially-coherent noise cannot come from a stream. */
 function latticeHash(ix: number, iy: number, iz: number, seed: number): number {
   let h = seed | 0;
   h = Math.imul(h ^ (ix | 0), 0x27d4eb2d); h ^= h >>> 15;
@@ -270,8 +306,8 @@ function valueNoise3(x: number, y: number, z: number, seed: number): number {
 /** fBm sum in [0, 1]. Octave amplitude gain = lacunarity^(-H), H = 3 - D
  *  clamped to (0.05, 0.95): a higher fractal dimension D -> lower H ->
  *  flatter spectrum -> more small-scale power -> rougher, more filamentary
- *  field. `calibrated (form)` - the D -> H mapping is the standard
- *  fractal-surface relation, not a knob. */
+ *  field. `H = 3 - D` is the level-set (iso-surface) relation for a 3D fBm
+ *  field, confirmed in the science re-audit. */
 function fbm01(x: number, y: number, z: number, seed: number, p: NebulaParams): number {
   const H = Math.min(0.95, Math.max(0.05, 3 - p.fractalDimensionD));
   const gain = Math.pow(p.lacunarity, -H);
@@ -289,114 +325,60 @@ function fbm01(x: number, y: number, z: number, seed: number, p: NebulaParams): 
 /* ------------------------------ the field --------------------------------- */
 
 function seedOf(worldSeed: string, complexId: string): number {
-  // A pure integer seed for the lattice noise - one draw off the nebula
-  // channel is a convenient hash of exactly the key we want.
   return (channelRng(worldSeed, 'nebula', complexId, 'fractal')() * 4294967296) | 0;
 }
 
-/** Unit direction from two uniforms (u_phi, u_costheta). */
-function unitDir(uPhi: number, uCos: number): Vec3 {
-  const phi = 2 * Math.PI * uPhi;
-  const cosT = 2 * uCos - 1;
-  const sinT = Math.sqrt(Math.max(0, 1 - cosT * cosT));
-  return { x: sinT * Math.cos(phi), y: sinT * Math.sin(phi), z: cosT };
-}
+const SPREAD = 1.7320508075688772;   // sqrt(3) - unit-variance uniform half-width
 
 export function nebulaFieldFor(
-  worldSeed: string, complexId: string, centre: Vec3,
-  nMembers: number, ageMyr: number, nAmbientCm3: number, p: NebulaParams,
+  worldSeed: string, complexId: string, centre: Vec3, envelopeSigmaPc: number, p: NebulaParams,
 ): NebulaField {
   const params: NebulaParams = {
     ...p,
     fractalDimensionD: Math.min(FRACTAL_DIMENSION_BAND[1], Math.max(FRACTAL_DIMENSION_BAND[0], p.fractalDimensionD)),
   };
-  const phase = nebulaPhaseFor(ageMyr, params.phaseBoundariesMyr);
-  const qComplex = Math.max(0, nMembers) * K_Q_PER_MEMBER_S;
-  const rStromgrenPc = stromgrenRadiusPc(qComplex, nAmbientCm3);
-  const lWind = Math.max(0, nMembers) * L_WIND_PER_MEMBER_ERG_S
-    * (phase === 4 ? SUPERBUBBLE_LW_BOOST : 1);
-  const rShellPc = (phase === 3 || phase === 4)
-    ? weaverShellRadiusPc(lWind, nAmbientCm3, ageMyr)
-    : undefined;
   const seed = seedOf(worldSeed, complexId);
   const lambdaPc = Math.max(1e-3, params.baseFractalWavelengthPc);
+  const sigma = Math.max(1e-3, envelopeSigmaPc);
+  const hi = ENVELOPE_TRUNCATION_SIGMA * sigma;
 
   const fractalDensityAt = (pt: Vec3): number =>
     fbm01((pt.x - centre.x) / lambdaPc, (pt.y - centre.y) / lambdaPc, (pt.z - centre.z) / lambdaPc, seed, params);
 
-  /** Envelope proposal (G_phase): an offset from `centre`, plus an extra
-   *  shaping weight `envW` in (0, 1] for blister breaks / bright rims. */
-  const propose = (u1: number, u2: number, u3: number): { off: Vec3; envW: number } => {
-    const dir = unitDir(u2, u3);
-    let r: number;
-    let envW = 1;
-    if (phase === 1) {
-      // compact HII: a small dense core, ~R_S/4 scale
-      r = 0.25 * rStromgrenPc * Math.sqrt(-2 * Math.log(1 - 0.999 * u1));
-    } else if (phase === 2) {
-      // classical HII: near the expanding ionisation front
-      const rFront = rStromgrenPc * classicalExpansionFactor(ageMyr);
-      r = truncGaussQuantile(u1, rFront, 0.18 * rFront + 1e-6, 0, 3 * rFront + 1e-3);
-    } else if (phase === 3) {
-      // wind-blown shell: a thin dense shell at R_shell
-      const rs = rShellPc ?? rStromgrenPc;
-      r = truncGaussQuantile(u1, rs, 0.10 * rs + 1e-6, 0, 3 * rs + 1e-3);
-    } else if (phase === 4) {
-      // superbubble: thicker, broken (blister) shell
-      const rs = rShellPc ?? rStromgrenPc;
-      r = truncGaussQuantile(u1, rs, 0.20 * rs + 1e-6, 0, 4 * rs + 1e-3);
-      if (dir.z > 0.55) envW = 0.25;   // the blister: one cap is blown open, few stars form there
-    } else {
-      // dispersing diffuse: broad low-contrast residual (Rayleigh, scale = complex sigma-ish)
-      r = 90 * Math.sqrt(-2 * Math.log(1 - 0.999 * u1));
-    }
-    return { off: { x: dir.x * r, y: dir.y * r, z: dir.z * r }, envW };
-  };
-
-  // SPREAD = sqrt(3): a uniform on [-SPREAD, SPREAD] has unit variance, so
-  // the offspring cloud keeps the same size as the old truncated-Gaussian
-  // jitter; only its SHAPE (fractal-weighted below) changes.
-  const SPREAD = 1.7320508075688772;
-
-  /** Fixed-budget accept/reject. `candidateAt(u1,u2,u3)` proposes from the
-   *  envelope; every candidate is fractal-weighted by `T^gamma * envW`.
-   *  ALWAYS runs `SAMPLE_ATTEMPTS` iterations of `DRAWS_PER_ATTEMPT` draws. */
-  const drawFixed = (
-    rng: () => number,
-    candidateAt: (u1: number, u2: number, u3: number) => { cand: Vec3; envW: number },
-  ): Vec3 => {
+  /** Fixed-budget accept/reject: `candidateAt` proposes, every candidate is
+   *  fractal-weighted by T^gamma. ALWAYS runs `SAMPLE_ATTEMPTS` iterations of
+   *  `DRAWS_PER_ATTEMPT` draws. */
+  const drawFixed = (rng: () => number, candidateAt: (u1: number, u2: number, u3: number) => Vec3): Vec3 => {
     let accepted: Vec3 | null = null;
     let last: Vec3 = centre;
     for (let a = 0; a < SAMPLE_ATTEMPTS; a++) {
       const u1 = rng(), u2 = rng(), u3 = rng(), u4 = rng();
-      const { cand, envW } = candidateAt(u1, u2, u3);
+      const cand = candidateAt(u1, u2, u3);
       last = cand;
-      if (accepted === null) {
-        const t = fractalDensityAt(cand);
-        if (u4 <= envW * Math.pow(t, params.filamentSharpenGamma)) accepted = cand;
-      }
+      if (accepted === null && u4 <= Math.pow(fractalDensityAt(cand), params.filamentSharpenGamma)) accepted = cand;
     }
     return accepted ?? last;
   };
 
-  const groupCandidate = (u1: number, u2: number, u3: number): { cand: Vec3; envW: number } => {
-    const pr = propose(u1, u2, u3);
-    return { cand: { x: centre.x + pr.off.x, y: centre.y + pr.off.y, z: centre.z + pr.off.z }, envW: pr.envW };
-  };
+  // Group: isotropic Gaussian envelope of scale `envelopeSigmaPc` (Efremov
+  // 1978 complex extent, sourced), truncated at the guard band - the same
+  // envelope the pre-P17 `truncGaussQuantile` group scatter used; the fractal
+  // accept/reject is what is new.
+  const groupCandidate = (u1: number, u2: number, u3: number): Vec3 => ({
+    x: centre.x + truncGaussQuantile(u1, 0, sigma, -hi, hi),
+    y: centre.y + truncGaussQuantile(u2, 0, sigma, -hi, hi),
+    z: centre.z + truncGaussQuantile(u3, 0, sigma, -hi, hi),
+  });
 
-  const offspringCandidate = (base: Vec3) => (u1: number, u2: number, u3: number): { cand: Vec3; envW: number } => ({
-    cand: {
-      x: base.x + params.offspringJitterSigmaPc * (u1 * 2 - 1) * SPREAD,
-      y: base.y + params.offspringJitterSigmaPc * (u2 * 2 - 1) * SPREAD,
-      z: base.z + params.offspringJitterSigmaPc * (u3 * 2 - 1) * SPREAD,
-    },
-    envW: 1,
+  // Offspring: sub-pc uniform jitter around the group, matched to the old
+  // Gaussian jitter's variance, then fractal-weighted (pillar-tip texture).
+  const offspringCandidate = (base: Vec3) => (u1: number, u2: number, u3: number): Vec3 => ({
+    x: base.x + params.offspringJitterSigmaPc * (u1 * 2 - 1) * SPREAD,
+    y: base.y + params.offspringJitterSigmaPc * (u2 * 2 - 1) * SPREAD,
+    z: base.z + params.offspringJitterSigmaPc * (u3 * 2 - 1) * SPREAD,
   });
 
   return {
-    phase,
-    rStromgrenPc,
-    rShellPc,
     fractalDensityAt,
     sampleGroupPos: (rng) => drawFixed(rng, groupCandidate),
     sampleOffspringPos: (rng, groupPos) => drawFixed(rng, offspringCandidate(groupPos)),
@@ -407,22 +389,28 @@ export function nebulaFieldFor(
 
 /**
  * Invariants this module owes (see nebulaMorphology.conformance.ts):
- *  1. DETERMINISM - same (worldSeed, complexId, params) -> bit-identical
- *     field and bit-identical sample sequence from a fixed rng.
+ *  1. DETERMINISM - same (worldSeed, complexId, params) + fixed rng ->
+ *     bit-identical field and sample sequence.
  *  2. FIXED DRAW BUDGET - sampleGroupPos/sampleOffspringPos consume EXACTLY
- *     SAMPLE_DRAWS rng() calls, every call, whatever the accept/reject does.
- *  3. PHASE GEOMETRY IS REAL - a shell-phase field places measurably more
- *     members in an annulus at R_shell than a same-N compact-phase field.
+ *     SAMPLE_DRAWS rng() calls, every call.
+ *  3. STRUCTURE / PHASE DECOUPLED - `nebulaFieldFor` takes no age; phase and
+ *     existence are pure functions of the co-natal age. `nebulaIsLit` lights
+ *     ~4% of a uniform [0,1] Gyr population; phase populations track phase
+ *     DURATION (the complete-census snapshot statistic).
  *  4. FULL-DEPTH - offspring positions correlate with local fractalDensityAt,
  *     and top-of-band vs bottom-of-band D changes the offspring clustering.
  *  5. D HIDDEN BUT HASHED - not in any UI/glossary surface; changing it
- *     changes the field (a config-hash input).
+ *     changes the field.
  *  6. STROMGREN SANITY - stromgrenRadiusPc live-computed matches the closed
- *     form for a fixed (Q, n) triple (guards a cm/pc or n^2 slip).
- *  7. COUNT-CONSERVING BY CONSTRUCTION - this module draws no counts at all;
- *     it only maps uniforms to positions.
+ *     form; `nebulaNatalDensityCm3` = contrast x local ISM (= 1e3 at R0),
+ *     exercising `ism.absoluteMidplaneDensityCm3`.
+ *  7. FRACTAL FORM - H = 3 - D gives valid H in (0,1) across the band, and a
+ *     higher D yields a rougher field (more small-scale power).
+ *  8. COUNT-CONSERVING BY CONSTRUCTION - this module draws no counts.
+ *  9. SANE SCALES - the derived K_Q / L_wind budgets give pc-scale
+ *     Stromgren / Weaver / superbubble radii for a nominal complex.
  */
-export const NEBULA_MORPHOLOGY_GATES = 7 as const;
+export const NEBULA_MORPHOLOGY_GATES = 9 as const;
 
 /* -------------------------------- glossary ------------------------------- */
 
@@ -430,13 +418,13 @@ export const glossary: GlossaryEntry[] = [
   {
     term: 'Nebular phase', status: 'calibrated',
     short: 'Which stage of its short life a star-forming region is in - from a compact ionised core, through an expanding HII region and a wind-blown shell, to a large superbubble and finally a dispersing wisp.',
-    long: 'Five age-phases (compact HII / classical HII / wind-blown shell / superbubble / dispersing diffuse) set by the complex\'s dynamical age against a calibrated boundary table (RE-AUDIT: to be tuned against the Churchwell et al. 2006/2007 bubble-size distribution). The phase selects the base geometry the young members are scattered through; a fractal ISM field (Elmegreen & Falgarone 1996) then sculpts filaments and pillars within it. Count-conserving - it moves young stars, never adds them.',
-    source: 'Stromgren 1939, ApJ 89, 526; Weaver et al. 1977, ApJ 218, 377; Mac Low & McCray 1988, ApJ 324, 776; Spitzer 1978; Churchwell et al. 2006/2007 (phase-age calibration, pending).',
+    long: 'Five age-phases (compact HII / classical HII / wind-blown shell / superbubble / dispersing diffuse) read from the complex\'s co-natal age against a boundary table [0.5, 3, 8, 20] Myr, anchored to expansion timescales and the Churchwell et al. 2006/2007 bubble sizes. A complex is a visible nebula only while its least-massive ionising star survives (co-natal age < ~40 Myr), lighting ~4% of the young thin disc\'s complexes. Phase is a downstream read - it does not move stars; the fractal ISM field does that at placement time.',
+    source: 'Stromgren 1939, ApJ 89, 526; Weaver et al. 1977, ApJ 218, 377; Mac Low & McCray 1988, ApJ 324, 776; Spitzer 1978; Churchwell et al. 2006 (ApJ 649, 759) / 2007 (ApJ 670, 428).',
   },
   {
     term: 'Stromgren radius', status: 'sourced',
     short: 'The radius out to which the ultraviolet light of a region\'s hot young stars keeps the surrounding hydrogen ionised.',
-    long: 'R_S = (3 Q / (4 pi n^2 alpha_B))^(1/3), with Q the region\'s total ionising-photon rate (estimated from its member count via an IMF-integrated per-star budget), n the ambient ISM number density (from ism.absoluteMidplaneDensityCm3), and alpha_B the Case B recombination coefficient. Sets the scale of the compact and classical HII phases.',
-    source: 'Stromgren 1939, ApJ 89, 526; Osterbrock & Ferland 2006, AGN^3 2nd ed. (alpha_B); Martins, Schaerer & Hillier 2005, A&A 436, 1049 (Q0).',
+    long: 'R_S = (3 Q / (4 pi n^2 alpha_B))^(1/3), with Q the region\'s total ionising-photon rate (member count x an IMF-integrated per-star budget: Kroupa 2001 x Martins et al. 2005, ~4.2e46 s^-1 per member), n the NATAL clump density (~1e3 cm^-3, a contrast over the local ISM), and alpha_B the Case B recombination coefficient (2.59e-13 cm^3 s^-1).',
+    source: 'Stromgren 1939, ApJ 89, 526; Osterbrock & Ferland 2006, AGN^3 2nd ed. (alpha_B); Kroupa 2001, MNRAS 322, 231; Martins, Schaerer & Hillier 2005, A&A 436, 1049 (Q0).',
   },
 ];

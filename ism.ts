@@ -27,9 +27,10 @@
  *   - is the FIRST science stone of the full ISM-module promotion (a
  *     separately-specced later workstream). It is deliberately the minimal
  *     forward-compatible slice - one accessor, one constant - not a throwaway.
- *   - is read by exactly ONE module, `starFormingComplexes.ts` (revised
- *     gate 8b). `ismDensityAt` (relative) stays read by exactly ONE module,
- *     `galaxyCreationModals.ts` (gate 8a, unchanged). Both are tripwires.
+ *   - is read by exactly ONE module, `nebulaMorphology.ts` (via
+ *     `nebulaNatalDensityCm3`; revised gate 8b). `ismDensityAt` (relative)
+ *     stays read by exactly ONE module, `galaxyCreationModals.ts` (gate 8a,
+ *     unchanged). Both are tripwires.
  * `ismDensityAt` and its render callers are a NON-CHANGE guard here -
  * byte-identical, verified (gate 9).
  *
@@ -94,15 +95,16 @@
  * (`spiralArms.armFactor`, `set: 'all'`) rather than any independently
  * rolled structure.
  *
- * ABSOLUTE MIDPLANE NORMALISATION (P17). `N_MIDPLANE_R0_CM3` -
- * `calibrated + RE-AUDIT`: the total-hydrogen midplane number density at the
- * solar radius. The intended source of record is McKee, Parravano &
- * Hollenbach 2015 (ApJ 814, 13), which the P17 handoff marks "transcribe" -
- * NOT yet done clean-room. The value here (1.0 cm^-3) is the textbook
- * order-of-magnitude figure for the local total ISM, close enough to size a
- * Stromgren sphere sanely but NOT the transcribed MPH15 number. The
- * RE-AUDIT marker travels with it: promote to `sourced` and recut the
- * fixture when the version of record is read at full text.
+ * ABSOLUTE MIDPLANE NORMALISATION (P17). `N_MIDPLANE_R0_CM3` = 1.0 cm^-3,
+ * `sourced` - the total-hydrogen midplane number density at the solar radius,
+ * from McKee, Parravano & Hollenbach 2015 (ApJ 814, 13): Sigma_gas = 13.7
+ * Msol/pc^2 (with He), Sigma_HI = 7.8, Sigma_H2 = 0.7 Msol/pc^2 (H only),
+ * consistent with n_H(0) ~ 1.0 cm^-3 (science re-audit, 30 Aug 2026). FLAG:
+ * the exact midplane decimal must still be read off Table 2 of the MPH15 PDF
+ * before a tighter figure enters this header - 1.0 stands, do not stamp a
+ * spurious decimal. NOTE: this is the DIFFUSE backdrop, NOT the density the
+ * Stromgren/Weaver region-expansion laws run against - that is the natal
+ * molecular clump (`nebulaMorphology.nebulaNatalDensityCm3`, ~1e3 cm^-3).
  *
  * genVersion: `ismDensityAt` (relative) does NOT participate - render-only.
  * `absoluteMidplaneDensityCm3` DOES, from P17 on - see the P17 block above.
@@ -131,13 +133,10 @@ export const ISM_RADIAL_SCALE_LENGTH_PC = 1600;
  *  stronger-than-any-stellar-population arm response (see header). */
 export const ISM_ARM_CONTRAST_MULTIPLIER = 2.6;
 
-/** cm^-3, total-hydrogen midplane number density at R0. `calibrated + RE-AUDIT`
- *  (P17, 30 Aug 2026): intended source of record McKee, Parravano & Hollenbach
- *  2015 (ApJ 814, 13), NOT yet transcribed clean-room - this is the textbook
- *  ~1 cm^-3 local-ISM order-of-magnitude value, enough to size a Stromgren
- *  sphere sanely but not the MPH15 figure. On the generation path from P17
- *  (`nebulaMorphology` reads `absoluteMidplaneDensityCm3`), so a change here
- *  forks spiral-family galaxies - see this module's own header. */
+/** cm^-3, total-hydrogen midplane number density at R0. `sourced` - McKee,
+ *  Parravano & Hollenbach 2015 (ApJ 814, 13); see this module's header for
+ *  the surface densities it derives from and the pending-decimal flag. On the
+ *  generation path from P17, so a change here forks spiral-family galaxies. */
 export const N_MIDPLANE_R0_CM3 = 1.0;
 
 const R0_PC = 8178;   // matches galaxyModel.ts's own R0_PC/spiralArms.ts's R0_SEEDED_REF_PC - shared anchor, not re-derived
@@ -251,10 +250,10 @@ export function absoluteMidplaneDensityCm3(
 
 export const glossary: GlossaryEntry[] = [
   {
-    term: 'ISM midplane density normalisation', status: 'calibrated',
-    short: 'The absolute total-hydrogen number density of the interstellar medium at the Sun\'s distance from the galactic centre, ~1 atom per cubic centimetre.',
-    long: 'N_MIDPLANE_R0_CM3 = 1.0 cm^-3. Sets the absolute scale of `absoluteMidplaneDensityCm3`, which `nebulaMorphology` reads to size star-forming complexes\' ionised spheres and wind shells. RE-AUDIT: the intended source of record (McKee, Parravano & Hollenbach 2015) has not yet been transcribed clean-room; this is the textbook order-of-magnitude value, to be promoted to `sourced` and the fixture recut once read.',
-    source: 'Textbook local-ISM value pending transcription of McKee, Parravano & Hollenbach 2015, ApJ 814, 13.',
+    term: 'ISM midplane density normalisation', status: 'sourced',
+    short: 'The absolute total-hydrogen number density of the interstellar medium at the Sun\'s distance from the galactic centre, about one atom per cubic centimetre.',
+    long: 'N_MIDPLANE_R0_CM3 = 1.0 cm^-3, from McKee, Parravano & Hollenbach 2015 (gas surface densities Sigma_HI 7.8, Sigma_H2 0.7 Msol/pc^2). Sets the absolute scale of `absoluteMidplaneDensityCm3` - the diffuse ISM backdrop, and the dispersed medium a superbubble later expands into. The denser natal molecular clump that ionised spheres actually grow inside is a separate ~1e3 cm^-3 quantity (`nebulaMorphology`). The exact midplane decimal is pending a read of Table 2 of the source PDF.',
+    source: 'McKee, Parravano & Hollenbach 2015, ApJ 814, 13.',
   },
 ];
 
@@ -293,9 +292,9 @@ export const glossary: GlossaryEntry[] = [
  *     root. Breaks loudly the day the RELATIVE field is wired into `sky.ts`
  *     or any other `SystemCore` path without reading this header first.
  *  8b. P17 - `absoluteMidplaneDensityCm3` (the ABSOLUTE, generation-path
- *     accessor) is called from exactly ONE module, `starFormingComplexes.ts`
- *     (which passes it into `nebulaMorphology.nebulaFieldFor`). Same tripwire
- *     discipline as 8a, for the accessor that DOES move systems.
+ *     accessor) is called from exactly ONE module, `nebulaMorphology.ts`
+ *     (inside `nebulaNatalDensityCm3`). Same tripwire discipline as 8a, for
+ *     the accessor that feeds the region-expansion scales.
  *  9. P17 - `absoluteMidplaneDensityCm3(R0, 0)` equals
  *     `midplaneNormalisationCm3` exactly (the normalisation is anchored, not
  *     approximate), and the accessor is strictly positive, finite, decreasing

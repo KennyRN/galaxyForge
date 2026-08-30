@@ -57,7 +57,7 @@
  * that showing and immediately hiding it would just be visual noise.
  */
 
-import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App, type TextComponent } from 'obsidian';
+import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App } from 'obsidian';
 import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, R0_PC, type GalaxyModel, type PopulationKey } from './galaxyModel';
 import { upsilonFor } from './galacticDensity';
 import { fieldFromModel, projectSlab, diametralEdgeOnDisplayField, sampleBilinear, type SlabRegionPc } from './densityMap';
@@ -182,6 +182,18 @@ const SHAPE_LABELS: Readonly<Record<FootprintShape, string>> = { circle: 'Circle
 const SYS_DENSITY_LABELS: Readonly<Record<SysDensityChoice, string>> = {
   thin: 'Low density', standard: 'Standard density', thick: 'High density',
 };
+
+/** Tabler `baseline-density-*` (xmlns omitted: gate S1), least lines to most:
+ *  large / medium / small. Medium is three lines and the default selection. */
+const SYS_DENSITY_ICONS: Readonly<Record<SysDensityChoice, string>> = {
+  thin: '<svg width="26" height="26" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4h16M4 20h16"/></svg>',
+  standard: '<svg width="26" height="26" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 20h16M4 12h16M4 4h16"/></svg>',
+  thick: '<svg width="26" height="26" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 3h16M4 9h16M4 15h16M4 21h16"/></svg>',
+};
+const SYS_DENSITY_ORDER: readonly SysDensityChoice[] = ['thin', 'standard', 'thick'];
+
+/** Tabler `ruler-measure` (xmlns omitted: gate S1). */
+const RULER_ICON = '<svg width="26" height="26" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.875 12c.621 0 1.125.512 1.125 1.143v5.714c0 .631-.504 1.143-1.125 1.143H4a1 1 0 0 1-1-1v-5.857C3 12.512 3.504 12 4.125 12zM9 12v2m-3-2v3m6-3v3m6-3v3m-3-3v2M3 3v4m0-2h18m0-2v4"/></svg>';
 
 /**
  * Shape icons + the sys-density dropdown, ONE row, no header, no label text
@@ -1171,7 +1183,64 @@ function renderEdgeOnCanvas(
   ctx.fillText(`vertical scale ×${exaggeration.toFixed(1)}`, 6, 4);
 }
 
-function renderPositionOnlyCanvas(canvas: HTMLCanvasElement, centrePc: { x: number; y: number; z: number }, halfWidthPc: number, positions: readonly { x: number; y: number; z: number }[]): void {
+/** 40% of the way from black to white. */
+const GHOST_GREY = '#666666';
+
+/** 10% of the preview box on each side is empty of the sector shape
+ *  (white stars sit inside; grey stars still fill the whole square). */
+const SOL_PREVIEW_MARGIN_FRACTION = 0.10;
+
+/**
+ * Characteristic size shown in the sol-neighbourhood size box.
+ * Internally `sizeInPc` remains circumradius. Display/input convert
+ * so the box names the shape's own across (circle diameter = square
+ * edge = hexagon long diagonal). Shape switches keep that across, and
+ * the preview is scaled from it, so the map does not zoom.
+ */
+const SIZE_DIMENSION_LABEL: Readonly<Record<FootprintShape, string>> = {
+  circle: 'Diameter',
+  square: 'Edge',
+  hexagon: 'Long diagonal',
+};
+
+/** Default across (pc) for a new sol-neighbourhood sector. */
+const SOL_DEFAULT_CHARACTERISTIC_PC = 25;
+
+/** SI: a space between the number and the unit symbol. */
+function formatCharacteristicPc(n: number): string {
+  return `${n.toFixed(2)} pc`;
+}
+
+function parseCharacteristicPc(raw: string): number {
+  return Number(raw.replace(/\s*pc\s*$/i, '').trim());
+}
+
+function characteristicFromCircumradius(shape: FootprintShape, circumradiusPc: number): number {
+  if (shape === 'square') return circumradiusPc * Math.SQRT2;
+  return circumradiusPc * 2;
+}
+
+function circumradiusFromCharacteristic(shape: FootprintShape, characteristicPc: number): number {
+  if (shape === 'square') return characteristicPc / Math.SQRT2;
+  return characteristicPc / 2;
+}
+
+function plotPositions(
+  ctx: CanvasRenderingContext2D, w: number, h: number, pcToPx: number,
+  centrePc: { x: number; y: number; z: number },
+  positions: readonly { x: number; y: number; z: number }[],
+): void {
+  for (const p of positions) {
+    const px = w / 2 + (p.x - centrePc.x) * pcToPx, py = h / 2 - (p.y - centrePc.y) * pcToPx;
+    ctx.fillRect(px - 0.75, py - 0.75, 1.5, 1.5);
+  }
+}
+
+function renderPositionOnlyCanvas(
+  canvas: HTMLCanvasElement, centrePc: { x: number; y: number; z: number }, halfWidthPc: number,
+  positions: readonly { x: number; y: number; z: number }[],
+  ghostPositions?: readonly { x: number; y: number; z: number }[],
+): void {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const w = canvas.width, h = canvas.height;
@@ -1182,12 +1251,20 @@ function renderPositionOnlyCanvas(canvas: HTMLCanvasElement, centrePc: { x: numb
   // sol-neighbourhood modal's tracks a CSS aspect-ratio and can be a pixel
   // or two off) - the long axis just shows a sliver more empty sky.
   const pcToPx = Math.min(w, h) / (2 * halfWidthPc);
-  ctx.fillStyle = '#ffffff';
-  for (const p of positions) {
-    const px = w / 2 + (p.x - centrePc.x) * pcToPx, py = h / 2 - (p.y - centrePc.y) * pcToPx;
-    ctx.fillRect(px - 0.75, py - 0.75, 1.5, 1.5);
+  if (ghostPositions && ghostPositions.length > 0) {
+    ctx.fillStyle = GHOST_GREY;
+    plotPositions(ctx, w, h, pcToPx, centrePc, ghostPositions);
   }
+  ctx.fillStyle = '#ffffff';
+  plotPositions(ctx, w, h, pcToPx, centrePc, positions);
 }
+
+/** Chevrons for the sol-neighbourhood history tape (xmlns omitted: gate S1). */
+const CHEVRON_LEFT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 5L8 12l7 7"/></svg>';
+const CHEVRON_RIGHT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7l-7 7"/></svg>';
+const CHEVRON_DOWN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 9l7 7l7-7"/></svg>';
+/** Arrow pointing into a box - load this preview from the history list. */
+const ARROW_INTO_BOX_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5M3 12h12M11 8l4 4l-4 4"/></svg>';
 
 /* --------------------------- shared sector commit ----------------------------- */
 
@@ -1403,11 +1480,11 @@ function solSectorKey(worldSeed: string, angleRad: number, distanceFromCentrePc:
  * sol-like band Screen 2 already defines as a reference mark
  * (`solNeighbourhoodBand` - R within +/-10% of R0, z within one thin-disc
  * scale height either side of the plane, so a sector can land above OR
- * below it), theta anywhere on the circle. "view new sector" re-rolls;
- * every roll is appended to a persisted history, browsed in a SEPARATE
- * modal (`SolNeighbourhoodHistoryModal`, 31 Aug 2026 - a direct user
- * follow-up) reachable from "previously viewed sectors", each entry
- * carrying its own worldSeed so re-selecting one is the SAME sector, not
+ * below it), theta anywhere on the circle. Left/right chevrons walk a
+ * persisted history tape (oldest → newest); right at the newest end
+ * rolls a new centre. A down-chevron next to Generate opens
+ * `SolNeighbourhoodHistoryModal` to jump to any past roll. Each entry
+ * carries its own worldSeed so re-selecting one is the SAME sector, not
  * just the same point in a different galaxy.
  *
  * Everything ELSE about the sector IS the user's to set (31 Aug 2026, a
@@ -1438,16 +1515,13 @@ export class GalaxySolNeighbourhoodModal extends Modal {
    *  preview, leaving every control live - same pattern as the numbered
    *  screens. */
   private mapPane!: HTMLElement;
-  /** Debounce for the Total systems / Size (pc) text fields - see Screen
-   *  2's own identical handlers for why. */
+  /** Debounce for the size text field - same rationale as Screen 2. */
   private sizeFieldRefreshTimer: number | null = null;
-  /** The live "Total systems" input, kept so `paintSector` can write the
-   *  generator's REAL placed count back into it (31 Aug 2026, a direct
-   *  user ask - the box was showing the density-field ESTIMATE, not what
-   *  the generator actually made) without a `setValue`-triggers-onChange
-   *  loop. Refreshed only when a sector is first established (open / view
-   *  new sector / history-load / search), never mid-edit. */
-  private totalSystemsInput: TextComponent | null = null;
+  /**
+   * Index into chronological history (oldest = 0, newest = length-1).
+   * Right at the newest end rolls a new sector rather than wrapping.
+   */
+  private historyCursor = 0;
 
   constructor(app: App, settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void) {
     super(app);
@@ -1477,15 +1551,19 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       this.rebuildModel();
       this.draft = reconcileSizeFields(this.model, defaultScreen2Draft({
         angleRad: recent.angleRad, distanceFromCentrePc: recent.distanceFromCentrePc, distanceFromPlanePc: recent.distanceFromPlanePc,
+        sizeInPc: circumradiusFromCharacteristic('circle', SOL_DEFAULT_CHARACTERISTIC_PC),
       }));
+      this.historyCursor = Math.max(0, this.chronoHistory().length - 1);
     } else {
       this.seed = Math.random().toString(36).slice(2);
       this.rebuildModel();
       const p = this.roll();
       this.draft = reconcileSizeFields(this.model, defaultScreen2Draft({
         angleRad: p.angleRad, distanceFromCentrePc: p.distanceFromCentrePc, distanceFromPlanePc: p.distanceFromPlanePc,
+        sizeInPc: circumradiusFromCharacteristic('circle', SOL_DEFAULT_CHARACTERISTIC_PC),
       }));
       this.recordCurrent();
+      this.historyCursor = 0;
     }
     this.render(true);
   }
@@ -1520,6 +1598,46 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     this.render();
   }
 
+  /** Oldest-first copy of the persisted tape. */
+  private chronoHistory(): SolNeighbourhoodSector[] {
+    return this.settings.solNeighbourhoodHistory.slice().reverse();
+  }
+
+  private applyEntry(entry: SolNeighbourhoodSector): void {
+    this.seed = entry.worldSeed;
+    this.rebuildModel();
+    this.draft = reconcileSizeFields(this.model, {
+      ...this.draft, angleRad: entry.angleRad, distanceFromCentrePc: entry.distanceFromCentrePc, distanceFromPlanePc: entry.distanceFromPlanePc,
+    });
+    this.render(true);
+  }
+
+  private viewOlder(): void {
+    if (this.historyCursor <= 0) return;
+    const chrono = this.chronoHistory();
+    this.historyCursor -= 1;
+    const entry = chrono[this.historyCursor];
+    if (entry) this.applyEntry(entry);
+  }
+
+  /** Walk toward newer history; at the newest end, roll a new sector. */
+  private viewNewerOrNew(): void {
+    const chrono = this.chronoHistory();
+    if (this.historyCursor < chrono.length - 1) {
+      this.historyCursor += 1;
+      const entry = chrono[this.historyCursor];
+      if (entry) this.applyEntry(entry);
+      return;
+    }
+    const p = this.roll();
+    this.draft = reconcileSizeFields(this.model, {
+      ...this.draft, angleRad: p.angleRad, distanceFromCentrePc: p.distanceFromCentrePc, distanceFromPlanePc: p.distanceFromPlanePc,
+    });
+    this.recordCurrent();
+    this.historyCursor = this.chronoHistory().length - 1;
+    this.render(true);
+  }
+
   private recordCurrent(): void {
     const entry: SolNeighbourhoodSector = {
       worldSeed: this.seed,
@@ -1533,22 +1651,12 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     this.onSettingsChange(this.settings);
   }
 
-  private viewNewSector(): void {
-    const p = this.roll();
-    this.draft = reconcileSizeFields(this.model, {
-      ...this.draft, angleRad: p.angleRad, distanceFromCentrePc: p.distanceFromCentrePc, distanceFromPlanePc: p.distanceFromPlanePc,
-    });
-    this.recordCurrent();
-    this.render(true);
-  }
-
   private loadEntry(entry: SolNeighbourhoodSector): void {
-    this.seed = entry.worldSeed;
-    this.rebuildModel();
-    this.draft = reconcileSizeFields(this.model, {
-      ...this.draft, angleRad: entry.angleRad, distanceFromCentrePc: entry.distanceFromCentrePc, distanceFromPlanePc: entry.distanceFromPlanePc,
-    });
-    this.render(true);
+    const key = solSectorKey(entry.worldSeed, entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc);
+    const chrono = this.chronoHistory();
+    const i = chrono.findIndex((e) => solSectorKey(e.worldSeed, e.angleRad, e.distanceFromCentrePc, e.distanceFromPlanePc) === key);
+    this.historyCursor = i >= 0 ? i : Math.max(0, chrono.length - 1);
+    this.applyEntry(entry);
   }
 
   private runSearch(): void {
@@ -1573,15 +1681,12 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     new Notice(`Found ${result.sysid}, ${result.distancePc.toFixed(1)} pc away - centred.`);
   }
 
-  /** `syncCount` (31 Aug 2026) - `true` only when a sector has just been
-   *  ESTABLISHED (open / view new sector / history-load / search), so
-   *  `paintSector` writes the generator's real placed count into the Total
-   *  systems box. `false` for a control-driven re-render, where the user's
-   *  own typed / reconciled value must not be clobbered. */
+  /** Rebuild the controls. `syncCount` is kept so open / re-roll / search
+   *  still call `render(true)` - the Total systems box that used to consume
+   *  it is gone; the preview count under the map is always the generator. */
   private render(syncCount = false): void {
     const { contentEl } = this;
     contentEl.empty();
-    this.totalSystemsInput = null;
     // Full-bleed SQUARE preview (31 Aug 2026, a direct user follow-up: fill
     // the entire top of the modal, at the modal's OWN width, kept square).
     // `.modal-content`'s padding is dropped here and re-added on the `body`
@@ -1602,94 +1707,153 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     const body = contentEl.createDiv();
     body.style.cssText = 'padding:12px 16px 16px;';
 
-    // System count + rolled-centre coordinates, both under the preview and
-    // centred (31 Aug 2026, a direct user follow-up). The coordinates are
-    // read-only provenance, not a control, so they sit muted.
-    this.countEl = body.createEl('p', { text: 'Placing systems…' });
-    this.countEl.style.cssText = 'text-align:center;margin:0 0 0;';
-    const coordEl = body.createEl('p', {
+    const metaRow = body.createDiv({ cls: 'sf-sol-meta-row' });
+    const olderBtn = metaRow.createEl('button', {
+      cls: 'sf-sol-hist-arrow',
+      attr: { type: 'button', 'aria-label': 'Previous previewed sector' },
+    });
+    olderBtn.innerHTML = CHEVRON_LEFT_SVG;
+    olderBtn.disabled = this.historyCursor <= 0;
+    olderBtn.onclick = () => this.viewOlder();
+
+    const metaText = metaRow.createDiv({ cls: 'sf-sol-meta-text' });
+    this.countEl = metaText.createEl('p', { text: 'Placing systems…' });
+    metaText.createEl('p', {
+      cls: 'sf-sol-coord',
       text: solSectorCoordLabel(this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc),
     });
-    coordEl.style.cssText = 'text-align:center;margin:2px 0 8px;color:var(--text-muted);font-size:var(--font-ui-small);';
 
-    const actions = body.createDiv();
-    actions.style.cssText = 'display:flex;gap:8px;margin:8px 0;';
-    actions.createEl('button', { text: 'view new sector' }).onclick = () => this.viewNewSector();
-    actions.createEl('button', { text: 'previously viewed sectors' }).onclick = () => {
+    const newerBtn = metaRow.createEl('button', {
+      cls: 'sf-sol-hist-arrow',
+      attr: { type: 'button', 'aria-label': 'Next previewed sector, or a new one' },
+    });
+    newerBtn.innerHTML = CHEVRON_RIGHT_SVG;
+    newerBtn.onclick = () => this.viewNewerOrNew();
+
+    const chromeRow = body.createDiv({ cls: 'sf-sol-chrome-row' });
+    const cluster = chromeRow.createDiv({ cls: 'sf-sol-shape-cluster' });
+    for (const shape of ['circle', 'square', 'hexagon'] as FootprintShape[]) {
+      const isSelected = shape === this.draft.footprintShape;
+      const icon = cluster.createDiv({
+        cls: isSelected ? 'sf-shape-icon is-selected' : 'sf-shape-icon',
+        attr: { title: SHAPE_LABELS[shape], 'aria-label': SHAPE_LABELS[shape], role: 'button', tabindex: '0' },
+      });
+      icon.style.cssText = 'flex:0 0 40px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+      icon.innerHTML = SHAPE_ICONS[shape];
+      const pickShape = (): void => {
+        if (shape === this.draft.footprintShape) return;
+        const shown = characteristicFromCircumradius(this.draft.footprintShape, this.draft.sizeInPc);
+        this.setDraft({
+          footprintShape: shape,
+          sizeEditMode: 'sizeInPc',
+          sizeInPc: circumradiusFromCharacteristic(shape, shown),
+        });
+      };
+      icon.onclick = pickShape;
+      icon.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pickShape(); } };
+    }
+    cluster.createDiv({ cls: 'sf-sol-chrome-split' });
+    for (const density of SYS_DENSITY_ORDER) {
+      const isSelected = density === this.draft.sysDensity;
+      const icon = cluster.createDiv({
+        cls: isSelected ? 'sf-shape-icon is-selected' : 'sf-shape-icon',
+        attr: { title: SYS_DENSITY_LABELS[density], 'aria-label': SYS_DENSITY_LABELS[density], role: 'button', tabindex: '0' },
+      });
+      icon.style.cssText = 'flex:0 0 40px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+      icon.innerHTML = SYS_DENSITY_ICONS[density];
+      const pickDensity = (): void => {
+        if (density === this.draft.sysDensity) return;
+        this.setDraft({ sysDensity: density });
+      };
+      icon.onclick = pickDensity;
+      icon.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pickDensity(); } };
+    }
+
+    const sizeCluster = chromeRow.createDiv({ cls: 'sf-sol-size-cluster' });
+    const ruler = sizeCluster.createDiv({
+      cls: 'sf-sol-size-ruler',
+      attr: {
+        title: SIZE_DIMENSION_LABEL[this.draft.footprintShape],
+        'aria-hidden': 'true',
+      },
+    });
+    ruler.innerHTML = RULER_ICON;
+    const sizeInput = sizeCluster.createEl('input', {
+      cls: 'sf-sol-size-input',
+      type: 'text',
+      attr: {
+        inputmode: 'decimal',
+        maxlength: '14',
+        'aria-label': SIZE_DIMENSION_LABEL[this.draft.footprintShape],
+      },
+    });
+    sizeInput.value = formatCharacteristicPc(characteristicFromCircumradius(this.draft.footprintShape, this.draft.sizeInPc));
+    sizeInput.addEventListener('change', () => {
+      const n = parseCharacteristicPc(sizeInput.value);
+      if (!Number.isFinite(n) || n <= 0) return;
+      this.setDraft({
+        sizeEditMode: 'sizeInPc',
+        sizeInPc: circumradiusFromCharacteristic(this.draft.footprintShape, n),
+      });
+    });
+
+    const centreRow = body.createDiv({ cls: 'sf-sol-centre-row' });
+    const centreCol = centreRow.createDiv({ cls: 'sf-sol-centre-label-col' });
+    centreCol.createDiv({ cls: 'sf-sol-centre-heading', text: 'System at centre' });
+    const toggleHost = centreCol.createDiv({ cls: 'sf-sol-centre-toggle' });
+    new Setting(toggleHost)
+      .addToggle((t) => t.setValue(this.draft.systemAtCentre).onChange((v) => this.setDraft({ systemAtCentre: v })));
+    const centreAside = centreRow.createDiv({ cls: 'sf-sol-centre-aside' });
+    if (!this.draft.systemAtCentre) {
+      centreAside.createEl('p', {
+        cls: 'sf-sol-centre-desc',
+        text: 'Search for a specific system to centre the sector on, instead of the rolled point',
+      });
+    } else {
+      const multiplicityField = centreAside.createDiv({ cls: 'sf-sol-centre-field' });
+      const multiplicity = new DropdownComponent(multiplicityField)
+        .addOption('any', 'Any').addOption('solo', 'Solo').addOption('binary', 'Binary or more')
+        .setValue(this.draft.multiplicity)
+        .onChange((v) => this.setDraft({ multiplicity: v as Screen2Draft['multiplicity'] }));
+      multiplicity.selectEl.setAttribute('aria-label', 'Multiplicity');
+      multiplicityField.createDiv({ cls: 'sf-sol-centre-field-label', text: 'Multiplicity' });
+      const sysTypeField = centreAside.createDiv({ cls: 'sf-sol-centre-field' });
+      const sysType = new DropdownComponent(sysTypeField)
+        .addOption('nearest', 'Nearest').addOption('interesting', 'Interesting')
+        .addOption('marginal', 'Nearest Marginal').addOption('tolerable', 'Nearest Tolerable').addOption('earthLike', 'Nearest Earth-like')
+        .setValue(this.draft.sysType)
+        .onChange((v) => this.setDraft({ sysType: v as Screen2Draft['sysType'] }));
+      sysType.selectEl.setAttribute('aria-label', 'Sys type');
+      sysTypeField.createDiv({ cls: 'sf-sol-centre-field-label', text: 'Sys type' });
+      centreAside.createEl('button', { text: 'Search', cls: 'mod-cta' }).addEventListener('click', () => this.runSearch());
+    }
+
+    const nav = body.createDiv();
+    nav.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:12px;';
+    nav.createEl('button', { text: '← back' }).onclick = () => {
+      this.close();
+      new GalaxyStartModal(this.app, this.settings, this.onSettingsChange).open();
+    };
+    const generateWrap = nav.createDiv({ cls: 'sf-sol-generate-wrap' });
+    const historyBtn = generateWrap.createEl('button', {
+      cls: 'sf-sol-hist-down',
+      attr: { type: 'button', 'aria-label': 'Previously viewed sectors' },
+    });
+    historyBtn.innerHTML = CHEVRON_DOWN_SVG;
+    historyBtn.onclick = () => {
       new SolNeighbourhoodHistoryModal(
         this.app, this.settings.solNeighbourhoodHistory,
         solSectorKey(this.seed, this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc),
         (entry) => this.loadEntry(entry),
       ).open();
     };
-
-    renderShapeAndDensityRow(
-      body, this.draft.footprintShape, (shape) => this.setDraft({ footprintShape: shape }),
-      this.draft.sysDensity, (density) => this.setDraft({ sysDensity: density }),
-    );
-
-    // Total systems / Size (pc) - identical debounced reactive pair to
-    // Screen 2's own (see its handlers for the debounce rationale). Each
-    // `Setting` is restyled into a centred label-over-input stack (31 Aug
-    // 2026, a direct user follow-up: the two were not lining up) - the
-    // default `Setting` layout pushes name hard-left and control hard-
-    // right, which reads as two mismatched halves at this width.
-    const sizeRow = body.createDiv();
-    sizeRow.style.cssText = 'display:flex;gap:16px;align-items:flex-start;';
-    const centreHalf = (s: Setting): void => {
-      s.settingEl.style.cssText = 'flex:1 1 0;min-width:0;border:none;padding:6px 0;flex-direction:column;align-items:center;gap:3px;';
-      s.infoEl.style.cssText = 'margin:0;text-align:center;';
-      s.controlEl.style.cssText = 'margin:0;padding:0;justify-content:center;';
-    };
-    const totalSystemsSetting = new Setting(sizeRow).setName('Total systems');
-    centreHalf(totalSystemsSetting);
-    totalSystemsSetting.addText((t) => {
-      this.totalSystemsInput = t;
-      t.setValue(String(this.draft.totalSystems))
-        .onChange((v) => {
-          const n = Number(v);
-          if (!Number.isFinite(n) || n < 0) return;
-          if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
-          this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'totalSystems', totalSystems: Math.round(n) }), 400);
-        });
-    });
-    const sizeInPcSetting = new Setting(sizeRow).setName('Size (pc)');
-    centreHalf(sizeInPcSetting);
-    sizeInPcSetting.addText((t) => t.setValue(this.draft.sizeInPc.toFixed(1))
-      .onChange((v) => {
-        const n = Number(v);
-        if (!Number.isFinite(n) || n <= 0) return;
-        if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
-        this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'sizeInPc', sizeInPc: n }), 400);
-      }));
-
-    new Setting(body).setName('System at centre').setDesc('Search for a specific system to centre the sector on, instead of the rolled point')
-      .addToggle((t) => t.setValue(this.draft.systemAtCentre).onChange((v) => this.setDraft({ systemAtCentre: v })));
-    if (this.draft.systemAtCentre) {
-      new Setting(body).setName('Multiplicity')
-        .addDropdown((d) => d.addOption('any', 'Any').addOption('solo', 'Solo').addOption('binary', 'Binary or more')
-          .setValue(this.draft.multiplicity).onChange((v) => this.setDraft({ multiplicity: v as Screen2Draft['multiplicity'] })));
-      new Setting(body).setName('Sys type')
-        .addDropdown((d) => d.addOption('nearest', 'Nearest').addOption('interesting', 'Interesting')
-          .addOption('marginal', 'Nearest Marginal').addOption('tolerable', 'Nearest Tolerable').addOption('earthLike', 'Nearest Earth-like')
-          .setValue(this.draft.sysType).onChange((v) => this.setDraft({ sysType: v as Screen2Draft['sysType'] })));
-      new Setting(body).addButton((b) => b.setButtonText('Search').setCta().onClick(() => this.runSearch()));
-    }
-
-    const nav = body.createDiv();
-    nav.style.cssText = 'display:flex;gap:8px;margin-top:12px;';
-    nav.createEl('button', { text: '← back' }).onclick = () => {
-      this.close();
-      new GalaxyStartModal(this.app, this.settings, this.onSettingsChange).open();
-    };
-    const generateBtn = nav.createEl('button', { text: 'generate sector', cls: 'mod-cta' });
-    generateBtn.style.marginLeft = 'auto';   // right-aligned, "<- back" stays left
+    const generateBtn = generateWrap.createEl('button', { text: 'generate sector', cls: 'mod-cta' });
     generateBtn.onclick = () => { void this.commit(); };
 
     void this.paintSector(syncCount);
   }
 
-  private async paintSector(syncCount: boolean): Promise<void> {
+  private async paintSector(_syncCount: boolean): Promise<void> {
     const overlay = showBusyOverlay(this.mapPane, 'Rendering preview…');
     await nextPaint();
     // Match the backing store to the laid-out pane (it fills the modal's
@@ -1699,22 +1863,20 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     this.canvas.height = Math.max(1, Math.round(this.mapPane.clientHeight));
     const centre = centrePcFromPolar(this.draft);
     const thickness = thicknessPcFor(this.draft.sysDensity);
-    const sector = generateSector(this.seed, this.model, centre, this.draft.sizeInPc, thickness, this.draft.footprintShape);
+    const radiusPc = this.draft.sizeInPc;
+    const characteristicPc = characteristicFromCircumradius(this.draft.footprintShape, radiusPc);
+    const viewHalfPc = (characteristicPc / 2) / (1 - 2 * SOL_PREVIEW_MARGIN_FRACTION);
+    const coverCircumradiusPc = viewHalfPc * Math.SQRT2;
+    const sector = generateSector(this.seed, this.model, centre, radiusPc, thickness, this.draft.footprintShape);
+    const field = generateSector(this.seed, this.model, centre, coverCircumradiusPc, thickness, 'square');
+    const ghostPositions = field
+      .filter((s) => !isWithinFootprint(s.positionPc.x - centre.x, s.positionPc.y - centre.y, radiusPc, this.draft.footprintShape))
+      .map((s) => s.positionPc);
     this.countEl.setText(`${sector.length} systems in this sector`);
-    renderPositionOnlyCanvas(this.canvas, centre, this.draft.sizeInPc * 1.15, sector.map((s) => s.positionPc));
+    renderPositionOnlyCanvas(
+      this.canvas, centre, viewHalfPc, sector.map((s) => s.positionPc), ghostPositions,
+    );
     hideBusyOverlay(overlay);
-
-    // The generator's REAL placed count (31 Aug 2026, a direct user ask -
-    // the Total systems box was showing `reconcileSizeFields`' density
-    // ESTIMATE). Only on a freshly-established sector, and only into the
-    // box + draft - `sizeEditMode` stays 'sizeInPc' so Size (pc) keeps the
-    // requested circumradius the generator was actually given, and
-    // `setValue` does not re-fire the field's own `onChange`, so this
-    // cannot loop back into another generate.
-    if (syncCount && sector.length !== this.draft.totalSystems) {
-      this.draft = { ...this.draft, sizeEditMode: 'sizeInPc', totalSystems: sector.length };
-      this.totalSystemsInput?.setValue(String(sector.length));
-    }
   }
 
   /** Same guard + delayed-spinner pattern as Screen 3's own commit; the
@@ -1767,9 +1929,17 @@ class SolNeighbourhoodHistoryModal extends Modal {
     listEl.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:60vh;overflow-y:auto;';
     for (const entry of this.history) {
       const isCurrent = solSectorKey(entry.worldSeed, entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc) === this.currentKey;
-      const row = listEl.createEl('button', { text: solSectorCoordLabel(entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc) });
-      row.style.cssText = `text-align:left;padding:6px 10px;${isCurrent ? 'font-weight:bold;' : ''}`;
-      row.onclick = () => { this.close(); this.onPick(entry); };
+      const row = listEl.createDiv({ cls: 'sf-sol-hist-row' });
+      const label = row.createSpan({
+        text: solSectorCoordLabel(entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc),
+      });
+      if (isCurrent) label.style.fontWeight = 'bold';
+      const load = row.createEl('button', {
+        cls: 'sf-sol-hist-load',
+        attr: { type: 'button', 'aria-label': 'Load this preview' },
+      });
+      load.innerHTML = ARROW_INTO_BOX_SVG;
+      load.onclick = () => { this.close(); this.onPick(entry); };
     }
   }
 

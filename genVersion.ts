@@ -677,51 +677,54 @@
  *
  * THREE coupled changes, one bump:
  *
- * (1) NEW MODULE `nebulaMorphology.ts` - a count-conserving per-complex
- * density field. Five age-phases (compact HII / classical HII / wind-blown
- * shell / superbubble / dispersing diffuse), phase set by a per-complex
- * DYNAMICAL age drawn on the new `CHANNELS.nebula`; a seeded fractal-ISM
- * field (Elmegreen & Falgarone 1996 fractal dimension D, hidden knob,
- * default 2.3) sculpts filaments within the phase's base geometry;
- * Stromgren (Stromgren 1939) and Weaver/Mac Low-McCray (Weaver 1977; Mac
- * Low & McCray 1988) radii set the scales from the complex's member count
- * and the ambient ISM density. FULL-DEPTH: both the group-around-complex
- * and the offspring-around-group scatters are drawn from this field.
+ * (1) NEW MODULE `nebulaMorphology.ts`. RULING: structure is not phase.
+ *   - STRUCTURE (where stars sit): an isotropic Efremov-scale envelope
+ *     sculpted by a seeded fractal-ISM field (dimension D, hidden knob,
+ *     default 2.6 - Stutzki 1998 / Sanchez 2006 Delta-variance; fBm gain
+ *     lacunarity^-(3-D)). Both the group-around-complex and offspring-
+ *     around-group scatters are drawn from it. This is what moves stars.
+ *   - PHASE (what the ionised nebula looks like): five phases read
+ *     DOWNSTREAM from the co-natal group age against a boundary table
+ *     [0.5, 3, 8, 20] Myr - a pure function, NOT an RNG draw. The earlier
+ *     truncated-exponential `nebulaPhaseAgeMyr` draw is RETRACTED.
+ *   - EXISTENCE: `nebulaIsLit` gates on co-natal age < 40 Myr (~8 Msol MS
+ *     lifetime) - lights ~4% of `spiralYoungThin` complexes; phases then
+ *     populate in proportion to their DURATION (the correct complete-census
+ *     snapshot statistic). Phase/existence are exported & gated but NOT yet
+ *     attached to placed systems (that is the render workstream, P17 SS16).
  *
  * (2) `starFormingComplexes.placeYoungClustered` REWRITE - the two isotropic
  * `truncGaussQuantile` scatters become `NebulaField` samples. `nGroups` is
  * drawn BEFORE any position draw, so it is bit-identical to pre-P17;
  * `nOff` and every position FORK (a shape break, Amendment P) but stay
  * Poisson/uniform so the placed-count DISTRIBUTION is statistically
- * unchanged (gate G-P17-a). Each field sample consumes a FIXED
+ * unchanged (gate 8 there). Each field sample consumes a FIXED
  * `nebulaMorphology.SAMPLE_DRAWS` rng() calls on the existing per-`ci`
  * `complexField` `fill:{ci}` stream - expansion invariance preserved
  * (G-P17-f). `params.placementShapeVersion` 1 -> 2 (the placement
- * ALGORITHM changed); `params.fieldShapeVersion` UNCHANGED (the smooth
- * density field is untouched).
+ * ALGORITHM changed); `params.fieldShapeVersion` UNCHANGED.
  *
  * (3) ISM PROMOTED - `ism.absoluteMidplaneDensityCm3` (cm^-3), the first
- * science stone of the full ISM-module promotion (a later, separate
- * workstream). It joins the genVersion / config-hash contract: the
- * relative render field `ismDensityAt` stays render-only (gate 8a), the
- * absolute accessor is read only by `starFormingComplexes.ts` (gate 8b).
- * `units.ts` gains Myr<->yr<->s, pc<->cm, log-Q<->linear.
+ * science stone of the full ISM-module promotion (a later workstream). It
+ * joins the genVersion / config-hash contract: `ismDensityAt` (relative)
+ * stays render-only (gate 8a), the absolute accessor is read only by
+ * `nebulaMorphology.ts` (gate 8b, via `nebulaNatalDensityCm3` = a 1000x
+ * contrast over the local ISM giving the natal clump density the
+ * Stromgren/Weaver laws run against). `units.ts` gains Myr<->yr<->s,
+ * pc<->cm, log-Q<->linear.
  *
- * PLACEHOLDER CONSTANTS, graded honestly (owner decision, this pass):
- * `K_Q_PER_MEMBER_S`, `L_WIND_PER_MEMBER_ERG_S` (the Kroupa 2001 x Martins
- * 2005 IMF integrals), `N_MIDPLANE_R0_CM3` (McKee, Parravano & Hollenbach
- * 2015), and the phase-age boundary table all carry `RE-AUDIT` markers -
- * physically-plausible values, NOT transcribed clean-room from the versions
- * of record. `alpha_B` (2.59e-13, Osterbrock & Ferland 2006) and the
- * Stromgren/Weaver/Spitzer FORMS are genuinely `sourced`. Promoting the
- * placeholders and recutting the fixture is owed work.
- *
- * DEVIATION FROM THE HANDOUT, recorded: the nebular phase is set from a
- * per-complex DYNAMICAL age drawn on `CHANNELS.nebula`, not the co-natal
- * `ageGyr` the handoff's SS7 names - that quantity is not available at
- * field-construction time without a pipeline reorder, and is the wrong
- * timescale (co-natal coherence ~100s of Myr vs an HII region's ~Myr). One
- * line to change back if the owner prefers.
+ * CONSTANTS - science re-audit (30 Aug 2026), graded honestly:
+ *   `alpha_B` 2.59e-13 (Osterbrock & Ferland 2006), `N_MIDPLANE_R0_CM3` 1.0
+ *   (McKee, Parravano & Hollenbach 2015 - exact decimal pending a PDF read),
+ *   and the Stromgren/Weaver/Spitzer FORMS: `sourced`.
+ *   `K_Q_PER_MEMBER_S` 4.2e46 s^-1 (was 1e46 - Kroupa 2001 x Martins 2005
+ *   IMF integral, x1.5 stars/system) and `L_WIND_PER_MEMBER_ERG_S` 1.03e34
+ *   (Vink et al. 2001): `derived`.
+ *   `SUPERBUBBLE_LW_BOOST` 2 (was 8), `NEBULA_NATAL_DENSITY_CONTRAST` 1000,
+ *   the phase boundaries, and the 40 Myr ceiling: `calibrated`.
+ *   `fractalDimensionD` and `FILAMENT_SHARPEN_GAMMA` 2: `tunable + RE-AUDIT`
+ *   (contested D literature; the Deharveng 2010 triggered-SF fraction is not
+ *   directly this model's ridge-member fraction).
  *
  * BLAST RADIUS: `spiral`, `barredSpiral`, `milkyWayAnalogue` (all carry
  * `spiralYoungThin` and run the complex tier) fork wherever a

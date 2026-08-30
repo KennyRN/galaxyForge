@@ -61,11 +61,11 @@
  *
  * P17 (30 Aug 2026): `placeYoungClustered`'s two isotropic scatters (group
  * around complex, offspring around group) are now drawn from a per-complex
- * `nebulaMorphology.NebulaField` - full-depth nebular sculpting. Count
- * conservation is untouched (`nGroups` still drawn before any position, so
- * bit-identical to pre-P17; `nOff`/positions fork but stay Poisson/uniform).
- * This module now reads `ism.absoluteMidplaneDensityCm3` (per complex centre)
- * and `nebulaMorphology` - see this file's `placeYoungClustered` header.
+ * `nebulaMorphology.NebulaField` (isotropic Efremov envelope, fractal-
+ * sculpted). Count conservation is untouched (`nGroups` still drawn before
+ * any position, bit-identical to pre-P17; `nOff`/positions fork but stay
+ * Poisson/uniform). Ionisation PHASE is a separate downstream concern owned
+ * by `nebulaMorphology` and not wired into placement.
  *
  * genVersion: any constant or formula change here (or in `nebulaMorphology`)
  * is genVersion-bumping for every spiral/barredSpiral-generated youngThin
@@ -76,8 +76,7 @@ import { channelRng } from './rng';
 import { LAMBDA_MAX, Phi, poissonInvCdf, truncGaussQuantile, smootherstep } from './mathStats';
 import type { GalaxyParameters, ComplexTierParams } from './galaxyParameters';
 import type { Population } from './galaxyModel';
-import { absoluteMidplaneDensityCm3 } from './ism';
-import { nebulaFieldFor, nebulaPhaseAgeMyr, type NebulaParams } from './nebulaMorphology';
+import { nebulaFieldFor, type NebulaParams } from './nebulaMorphology';
 
 /**
  * Per-star complex participation weight. Coherence survives ~100 Myr and
@@ -307,14 +306,14 @@ export interface ComplexPlacedCandidate {
  * assembleSector`) scales the smooth youngThin density in the ordinary
  * cell-based path instead.
  *
- * -- P17: NEBULAR SCULPTING (full-depth) -----------------------------------
+ * -- P17: NEBULAR SCULPTING ----------------------------------------------
  * The group-around-complex and offspring-around-group scatters are NO LONGER
- * isotropic truncated Gaussians. Each complex builds one `NebulaField`
- * (`nebulaMorphology.nebulaFieldFor`) from its phase (a per-complex dynamical
- * age on `CHANNELS.nebula`), its member count, and the ambient ISM density
- * (`ism.absoluteMidplaneDensityCm3` at the complex centre) - and BOTH scatters
- * are drawn from that field: stars land in the filaments, in the swept
- * shells, at the pillar tips.
+ * isotropic truncated Gaussians - they are drawn from a per-complex
+ * `nebulaMorphology.NebulaField`, an isotropic Efremov-scale envelope
+ * fractal-sculpted by the ISM fractal dimension D. Stars land in the
+ * filaments and at the pillar tips. (Ionisation PHASE is a separate
+ * downstream read of the co-natal age - it does not move stars; see
+ * `nebulaMorphology.ts`'s own "structure is not phase" ruling.)
  *
  * COUNT CONSERVATION is untouched: `nGroups` is drawn from `rng()` BEFORE any
  * position draw, so it is bit-identical to the pre-P17 stream. `nOff` and
@@ -324,8 +323,7 @@ export interface ComplexPlacedCandidate {
  *
  * DRAW BUDGET / EXPANSION INVARIANCE: each `sampleGroupPos` /
  * `sampleOffspringPos` consumes EXACTLY `nebulaMorphology.SAMPLE_DRAWS`
- * `rng()` calls (a fixed accept/reject budget - rejections and
- * post-acceptance draws are all consumed), on the same per-`ci`
+ * `rng()` calls (a fixed accept/reject budget), on the same per-`ci`
  * `fill:{ci}` stream. A centre that cannot reach the footprint is still
  * skipped without advancing anything shared.
  *
@@ -366,18 +364,12 @@ export function placeYoungClustered(
       const dx = cx.x - centreX, dy = cx.y - centreY;
       if (dx * dx + dy * dy > reach2) continue;
 
-      // One nebular field per complex (its own construction draws ride
-      // `CHANNELS.nebula`, isolated from this `complexField` stream).
+      // One nebular field per complex - its fractal realisation seed rides
+      // `CHANNELS.nebula`, isolated from this `complexField` stream. The
+      // envelope scale is the complex's own extent (`cx.sigmaPc`, Efremov).
       const complexId = `${cell.cellIx}.${cell.cellIy}.${ci}`;
-      const nAmbientCm3 = absoluteMidplaneDensityCm3(Math.hypot(cx.x, cx.y), 0);
-      const ageMyr = nebulaPhaseAgeMyr(worldSeed, complexId, nebulaParams);
-      // Expected member count - deterministic, known before the Poisson draw
-      // (the actual nGroups only shifts the realisation, not the scale used
-      // to size the Stromgren/Weaver radii).
-      const nMembers = p.meanGroupsPerComplex * meanSystemsPerGroup;
       const field = nebulaFieldFor(
-        worldSeed, complexId, { x: cx.x, y: cx.y, z: centreZ },
-        nMembers, ageMyr, nAmbientCm3, nebulaParams,
+        worldSeed, complexId, { x: cx.x, y: cx.y, z: centreZ }, cx.sigmaPc, nebulaParams,
       );
 
       const rng = channelRng(worldSeed, 'complexField', cell.cellIx, cell.cellIy, `fill:${ci}`);

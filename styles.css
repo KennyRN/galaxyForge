@@ -88,3 +88,256 @@
   padding: 0 !important;
 }
 
+.sf-sol-chrome-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 12px;
+}
+
+.sf-sol-shape-cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.sf-sol-chrome-split {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 2px;
+  background: var(--background-modifier-border);
+}
+
+.sf-sol-size-cluster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  flex: 0 0 auto;
+}
+
+.sf-sol-size-ruler {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.sf-sol-size-ruler svg {
+  display: block;
+}
+
+.sf-sol-size-input {
+  width: 11ch;
+  min-width: 11ch;
+  max-width: 11ch;
+  box-sizing: content-box;
+  padding: 4px 6px;
+  font-variant-numeric: tabular-nums;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+
+.sf-sol-centre-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 8px 0 12px;
+}
+
+.sf-sol-centre-label-col {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.sf-sol-centre-heading {
+  font-weight: 600;
+}
+
+.sf-sol-centre-toggle .setting-item {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sf-sol-centre-toggle .setting-item-info {
+  display: none;
+}
+
+.sf-sol-centre-toggle .setting-item-control {
+  justify-content: flex-start;
+  padding: 0;
+}
+
+.sf-sol-centre-aside {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sf-sol-centre-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sf-sol-centre-field-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.sf-sol-centre-desc {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: 1.4;
+}
+
+.sf-sol-meta-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.sf-sol-meta-text {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  min-width: 0;
+}
+
+.sf-sol-meta-text p {
+  margin: 0;
+}
+
+.sf-sol-coord {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  margin-top: 2px;
+}
+
+.sf-sol-hist-arrow,
+.sf-sol-hist-down,
+.sf-sol-hist-load {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.sf-sol-hist-arrow {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+}
+
+.sf-sol-hist-arrow svg {
+  display: block;
+  height: 100%;
+  width: auto;
+  min-height: 2.6em;
+  aspect-ratio: 0.6 / 1;
+}
+
+.sf-sol-hist-arrow:hover:not(:disabled) {
+  color: var(--text-normal);
+}
+
+.sf-sol-hist-arrow:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.sf-sol-generate-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.sf-sol-hist-down {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.sf-sol-hist-down svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.sf-sol-hist-down:hover {
+  color: var(--text-normal);
+}
+
+.sf-sol-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.sf-sol-hist-row span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sf-sol-hist-load {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.sf-sol-hist-load svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.sf-sol-hist-load:hover {
+  color: var(--text-normal);
+}
+
