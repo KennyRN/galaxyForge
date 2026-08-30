@@ -8,7 +8,7 @@ import {
   resolveModelName, resolveBarEnabled, sizeStepsFor, sizeValueFor, sizeIsMass,
   thicknessPcFor, sysTypeToSearchCriterion, centrePcFromPolar, reconcileSizeFields,
   sizeInPcForTargetCount, targetCountForSizeInPc, defaultScreen2Draft, assembleSearchCriteria,
-  defaultScreen1Draft,
+  defaultScreen1Draft, solNeighbourhoodBand, rollSolNeighbourhoodCentre,
   type MorphologyChoice, type Screen2Draft,
 } from './galaxyCreationState';
 import { createSpiralModel } from './galaxyModel';
@@ -48,6 +48,33 @@ check('defaultScreen2Draft(overrides) applies ONLY the given overrides, leaving 
   (() => {
     const d = defaultScreen2Draft({ angleRad: 1.2, distanceFromCentrePc: 5000 });
     return d.angleRad === 1.2 && d.distanceFromCentrePc === 5000 && d.sysDensity === 'standard' && d.footprintShape === 'circle';
+  })());
+
+/* -- sol-like neighbourhood band + roll (30 Aug 2026) -------------------------- */
+
+check('solNeighbourhoodBand: R centred on R0, +/-10% half-width, z half-height = hThin, all scaled by previewScale',
+  (() => {
+    const b = solNeighbourhoodBand(8178, 300, 2);
+    return b.rCentrePc === 8178 * 2 && Math.abs(b.rHalfWidthPc - 817.8 * 2) < 1e-9 && b.zHalfWidthPc === 300 * 2;
+  })());
+
+check('rollSolNeighbourhoodCentre: every roll lands inside the band (R within +/-half-width, z within +/-half-height), for rng extremes and midpoint',
+  (() => {
+    const b = solNeighbourhoodBand(8178, 300, 1);
+    return [0, 0.5, 1, 0.123, 0.987].every((v) => {
+      const c = rollSolNeighbourhoodCentre(b, () => v);
+      return c.distanceFromCentrePc >= b.rCentrePc - b.rHalfWidthPc - 1e-9
+        && c.distanceFromCentrePc <= b.rCentrePc + b.rHalfWidthPc + 1e-9
+        && Math.abs(c.distanceFromPlanePc) <= b.zHalfWidthPc + 1e-9
+        && c.angleRad >= 0 && c.angleRad <= 2 * Math.PI + 1e-9;
+    });
+  })());
+
+check('rollSolNeighbourhoodCentre: a sector can land below the plane (rng 0) AND above it (rng 1) - not pinned to z=0',
+  (() => {
+    const b = solNeighbourhoodBand(8178, 300, 1);
+    return rollSolNeighbourhoodCentre(b, () => 0).distanceFromPlanePc < 0
+      && rollSolNeighbourhoodCentre(b, () => 1).distanceFromPlanePc > 0;
   })());
 
 /* -- screen 1: morphology resolution -------------------------------------------- */

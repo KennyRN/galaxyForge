@@ -1,6 +1,7 @@
 import {
   createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, measuredArmMagnitude,
-  R0_PC, hernquistK, ELLIPTICAL_POPULATIONS, LENTICULAR_POPULATIONS, JURIC,
+  R0_PC, hernquistK, ELLIPTICAL_POPULATIONS, LENTICULAR_POPULATIONS, JURIC, SPIRAL_POPULATIONS,
+  morphologicalQuench, smoothDiscDensityTotal,
   type Population, type DensityByPopulation, type GalaxyModel,
 } from './galaxyModel';
 import { makeDefaultGalaxyParameters, DEFAULT_GALAXY_PARAMETERS, DEFAULT_BULGE } from './galaxyParameters';
@@ -376,6 +377,120 @@ check('G3b: armClass genuinely VARIES across worldSeeds (not manufactured stabil
     for (let i = 0; i < 60; i++) classes.add(rollArmClass(`g3-spread-${i}`));
     return classes.size >= 2;   // 60 draws against a {0.15,0.60,0.25} prior essentially guarantees all 3
   })());
+
+// -- P16 (29 Aug 2026) - morphological quenching of the young thin disc ---------
+//
+// The young thin disc's plain double-exponential peaked at R=0 (positive radial
+// exponent inside R0); `starFormingComplexes.complexCentresInCell` scales its
+// Poisson complex count off that surface density, so star-forming complexes were
+// massively over-produced at the nucleus (the two findings P15 documented but
+// did not action - "splodges on the bulge", "arms still faint"). P16 multiplies
+// `spiralYoungThin` by `disc/(disc+bulge)` (Martig et al. 2009; Gensior,
+// Kruijssen & Keller 2020) - the local disc mass fraction, built from the
+// model's own smooth (axisymmetric) disc and bulge terms. Every gate below is
+// falsifiable and most fail on pre-P16 code.
+
+{
+  const qParams = DEFAULT_GALAXY_PARAMETERS;
+  const qUps = (_p: Population) => 2.0;   // matches createSpiralModel's own DEFAULT_BULGE_UPSILON
+  const quench = (R: number, z = 0) => morphologicalQuench(SPIRAL_POPULATIONS, qParams, qUps, R, z);
+  const p16spiral = createSpiralModel(false);
+  const youngAt = (R: number) => (p16spiral.densityByPopulation(R, 0, 0) as Record<string, number>).spiralYoungThin;
+  const totalAt = (R: number) => p16spiral.densityAt(R, 0, 0);
+
+  // G-P16-a - young now fades toward the centre (the fix).
+  check('G-P16-a: spiralYoungThin fades toward the centre - youngDensity(0) < youngDensity(3000), ' +
+    'and the young radial profile peaks at R > 1000 pc (a molecular-ring-like turnover, not an R=0 spike)',
+    (() => {
+      if (!(youngAt(0) < youngAt(3000))) return false;
+      let bestR = -1, best = -Infinity;
+      for (let R = 0; R <= 15000; R += 50) { const v = youngAt(R); if (v > best) { best = v; bestR = R; } }
+      return bestR > 1000;
+    })());
+
+  // G-P16-b - quench is a well-formed fraction.
+  check('G-P16-b: 0 < quench <= 1 everywhere (0..20 kpc), quench(R0) > 0.999 (bulge negligible at ' +
+    'the solar circle), quench(0) < 0.3 (bulge-dominated nucleus) for default parameters',
+    (() => {
+      for (let R = 0; R <= 20000; R += 100) { const q = quench(R); if (!(q > 0 && q <= 1)) return false; }
+      return quench(R0_PC) > 0.999 && quench(0) < 0.3;
+    })());
+
+  // G-P16-c - emergent crossover in a sane band (guards against a pathological bulge parameter set).
+  check('G-P16-c: the bulge/disc crossover (quench = 0.5) is emergent and falls in 0.5 kpc < R_cross < 4 kpc',
+    (() => {
+      let lo = 0, hi = 8000;
+      for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (quench(mid) < 0.5) lo = mid; else hi = mid; }
+      const rCross = (lo + hi) / 2;
+      return rCross > 500 && rCross < 4000;
+    })());
+
+  // G-P16-d - complexes redistribute outward. Proxy: the AREA-WEIGHTED young
+  // surface-density fraction inside R < 2 kpc (integral of youngDensity * 2*pi*R
+  // dR; a stand-in for `complexCentresInCell`'s own Poisson rate, which is not
+  // reachable from this suite). The redistribution is checked both in absolute
+  // terms and against the pre-quench profile (`youngDensity / quench`), so the
+  // gate cannot pass vacuously.
+  const areaWeighted = (a: number, b: number, f: (R: number) => number) => {
+    let s = 0; const n = 4000; const h = (b - a) / n;
+    for (let i = 0; i < n; i++) { const R = a + (i + 0.5) * h; s += f(R) * 2 * Math.PI * R * h; }
+    return s;
+  };
+  const unquenchedYoung = (R: number) => youngAt(R) / quench(R);
+  check('G-P16-d: area-weighted young fraction inside R < 2 kpc drops - below 0.11 absolute, and to ' +
+    'under 0.7x its own pre-quench value (young complexes redistribute out of the nucleus)',
+    (() => {
+      const qFrac = areaWeighted(0, 2000, youngAt) / areaWeighted(0, 20000, youngAt);
+      const uFrac = areaWeighted(0, 2000, unquenchedYoung) / areaWeighted(0, 20000, unquenchedYoung);
+      return qFrac < 0.11 && qFrac < 0.7 * uFrac;
+    })());
+
+  // G-P16-e - the old-star isophote plate is essentially unmoved (centre is
+  // bulge-dominated, so quenching the young term barely shifts total density).
+  check('G-P16-e: total density at the centre changes by < 5% vs the pre-quench field ' +
+    '(bulge-dominated - the primary isophote plate is not visibly altered)',
+    (() => {
+      const unquenchedTotal0 = totalAt(0) - youngAt(0) + unquenchedYoung(0);
+      return Math.abs(unquenchedTotal0 - totalAt(0)) / totalAt(0) < 0.05;
+    })());
+
+  // G-P16-f - the quench multiplies spiralYoungThin ALONE. The thick disc
+  // ('none' arm response) is a pure double-exponential; a leak of the quench
+  // factor into any shared disc term would show here first.
+  const thickProbes: [number, number, number][] = [...PROBES, [300, 0.5, 50], [1500, 2.0, 0]];
+  check('G-P16-f: spiralThick is bit-identical to its analytic double-exponential at every probe ' +
+    '(the quench factor is applied to spiralYoungThin only, never a shared disc term)',
+    thickProbes.every(([R, t, z]) => {
+      const thick = SPIRAL_POPULATIONS.find((p) => p.key === 'spiralThick')!;
+      const analytic = thick.nLocal
+        * Math.exp(-(R - qParams.R0Pc) / JURIC.lThick) * Math.exp(-Math.abs(z) / JURIC.hThick);
+      return (p16spiral.densityByPopulation(R, t, z) as Record<string, number>).spiralThick === analytic;
+    }));
+
+  // Non-vacuousness for -f / -d: the quench genuinely bites in the inner disc.
+  check('G-P16: the quench is a real multiplier - quench(500 pc) < 0.5 for default parameters ' +
+    '(so G-P16-d/-f are testing an active mechanism, not an inert one)',
+    quench(500) < 0.5);
+
+  // barredSpiral: spiralYoungThin stays bit-identical to the unbarred spiral -
+  // the quench's bulge term is axisymmetrised, so the "no non-bulge population
+  // sees the bar" ruling (line ~60 above) still holds after P16.
+  check('G-P16: spiralYoungThin is bit-identical between spiral and barredSpiral at every probe ' +
+    '(the quench envelope is bar-free, like it is arm-free)',
+    PROBES.every(([R, t, z]) =>
+      (createSpiralModel(true).densityByPopulation(R, t, z) as Record<string, number>).spiralYoungThin
+      === (createSpiralModel(false).densityByPopulation(R, t, z) as Record<string, number>).spiralYoungThin));
+
+  // smoothDiscDensityTotal is the arm-free disc envelope (its whole reason to
+  // exist) - strictly positive, and strictly decreasing outward beyond R0.
+  check('G-P16: smoothDiscDensityTotal is arm-free (theta-independent by construction) and ' +
+    'strictly decreasing outward past R0',
+    (() => {
+      const a = smoothDiscDensityTotal(SPIRAL_POPULATIONS, 10000, 0, qParams);
+      const b = smoothDiscDensityTotal(SPIRAL_POPULATIONS, 12000, 0, qParams);
+      return a > 0 && b > 0 && b < a;
+    })());
+}
 
 if (failures > 0) throw new Error(`${failures} galaxyModel conformance failure(s)`);
 console.log('\nall galaxyModel conformance checks passed');

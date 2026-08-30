@@ -191,6 +191,67 @@ export function centrePcFromPolar(d: Screen2Draft): { x: number; y: number; z: n
   return { x: d.distanceFromCentrePc * Math.cos(d.angleRad), y: d.distanceFromCentrePc * Math.sin(d.angleRad), z: d.distanceFromPlanePc };
 }
 
+/* ----------------------- sol-like neighbourhood band -------------------------- */
+
+/**
+ * The slice of a disc galaxy that still "feels" roughly sol-like (16 Aug
+ * 2026, a direct user question originally answered inline in Screen 2's own
+ * constructor; lifted here 30 Aug 2026 so the new sol-neighbourhood sector
+ * flow rolls a centre from the SAME band Screen 2 draws as a reference
+ * mark, never a second definition that could silently disagree - Law 1):
+ *
+ *  - R within +/-10% of the model's own solar anchor radius R0 (a plain,
+ *    symmetric "still close to R0" reading).
+ *  - z within one full thin-disc scale height (`juric.hThin`, Juric et al.
+ *    2008) either side of the plane.
+ *  - theta unconstrained - the band is a full annulus.
+ *
+ * `previewScale` scales every distance the same way `scaleSpiralModel`
+ * scales the rest of the model, so the band stays correct at every galaxy
+ * size. Meaningful only for the disc morphologies (spiral/barredSpiral) -
+ * a pressure-supported spheroid has no plane, so no caller should ask.
+ */
+export interface SolNeighbourhoodBand {
+  readonly rCentrePc: number;
+  readonly rHalfWidthPc: number;
+  readonly zHalfWidthPc: number;
+}
+
+export function solNeighbourhoodBand(r0Pc: number, hThinPc: number, previewScale: number): SolNeighbourhoodBand {
+  return { rCentrePc: r0Pc * previewScale, rHalfWidthPc: r0Pc * 0.1 * previewScale, zHalfWidthPc: hThinPc * previewScale };
+}
+
+/** One uniform random sector centre inside `band` - R uniform across the
+ *  full +/-10% width, z uniform across the full +/-hThin height (so it can
+ *  land above OR below the plane), theta uniform on the circle. `rng` is
+ *  injected (`Math.random` in the GUI) purely so this is a pure function a
+ *  gate can pin - a rolled centre must always land inside the band. */
+export function rollSolNeighbourhoodCentre(
+  band: SolNeighbourhoodBand, rng: () => number,
+): { angleRad: number; distanceFromCentrePc: number; distanceFromPlanePc: number } {
+  return {
+    angleRad: rng() * 2 * Math.PI,
+    distanceFromCentrePc: band.rCentrePc + (rng() * 2 - 1) * band.rHalfWidthPc,
+    distanceFromPlanePc: (rng() * 2 - 1) * band.zHalfWidthPc,
+  };
+}
+
+/**
+ * One remembered sol-neighbourhood roll (30 Aug 2026) - persisted in
+ * `StarForgeSettings.solNeighbourhoodHistory` so the sector flow's own
+ * "view new sector" history survives a restart. Carries `worldSeed`
+ * alongside the coordinates: re-selecting an entry must reproduce the SAME
+ * sector, which means the same galaxy, not just the same point in a fresh
+ * one.
+ */
+export interface SolNeighbourhoodSector {
+  readonly worldSeed: string;
+  readonly angleRad: number;
+  readonly distanceFromCentrePc: number;
+  readonly distanceFromPlanePc: number;
+  readonly rolledIso: string;
+}
+
 /* -- reactive total-systems <-> size-in-pc, via densityMap's own machinery -- */
 
 /** Bounding-square area ratio for each footprint shape at a given

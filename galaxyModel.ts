@@ -509,25 +509,64 @@ function armInnerTaper(R: number, params: GalaxyParameters): number {
   return smootherstep(params.armStartInnerPc, params.armStartOuterPc, R);
 }
 
+/** Total SMOOTH (axisymmetric, non-arm-modulated) disc stellar density at
+ *  (R,z) - sums every disc population's double-exponential. Denominator of the
+ *  morphological-quench factor (the disc mass that resists the spheroid's
+ *  stabilisation). Deliberately arm-FREE, so the quench is a smooth envelope
+ *  that does not itself re-impose arm structure on top of discTerm's own. */
+export function smoothDiscDensityTotal(populations: readonly Population[], R: number, z: number, params: GalaxyParameters): number {
+  let s = 0;
+  for (const pop of populations) {
+    const geom = discGeometryFor(pop.key);
+    if (!geom) continue;
+    s += pop.nLocal * Math.exp(-(R - params.R0Pc) / geom.scaleLengthPc) * Math.exp(-Math.abs(z) / geom.scaleHeightPc);
+  }
+  return s;
+}
+
+/** Morphological quenching (Martig et al. 2009; Gensior, Kruijssen & Keller
+ *  2020) [both PROVISIONAL - confirmed across many citing works; versions of
+ *  record not yet read]. A dominant central spheroid stabilises the gas disc
+ *  against fragmentation, suppressing star formation where the bulge dominates
+ *  the local potential. Modelled as the local DISC MASS FRACTION: -> 1 where
+ *  the disc dominates (no suppression), -> 0 in the bulge-dominated centre.
+ *  This IS Martig's stated mechanism ("stellar spheroid RELATIVE TO the
+ *  stellar disc"), so the disc-to-total ratio and its LINEAR form are
+ *  `sourced`, not a knob: the disc fraction is the fragmentation-capable
+ *  (rotationally-supported) mass fraction, so the exponent is fixed at 1 by
+ *  meaning. Only approximation: stellar-mass fractions as a proxy for a
+ *  gas-dynamical stabilisation (`sourced (proxy)`). Uses the model's OWN bulge
+ *  and disc, so the suppression radius is emergent (bulge/disc crossover),
+ *  not hand-set. Leaves a small non-zero nuclear residual, not a hard hole.
+ *
+ *  BAR-INDEPENDENT BY CONSTRUCTION: the bulge term here is the AXISYMMETRISED
+ *  one (`boxyPeanutBulgeMassDensity(false, ...)`), never the triaxial branch,
+ *  for the same reason `smoothDiscDensityTotal` is arm-free - the quench is a
+ *  smooth radial envelope, and a bar is an azimuthal perturbation just like an
+ *  arm. This also keeps `barEnabled` from leaking into a non-bulge population's
+ *  density through the back door (the "every non-bulge population is
+ *  bit-identical barred vs unbarred" ruling / gate, `boxyPeanutBulgeMassDensity`'s
+ *  own header): `spiralYoungThin` stays identical between `spiral` and
+ *  `barredSpiral`, exactly as every other disc population does. */
+export function morphologicalQuench(
+  populations: readonly Population[], params: GalaxyParameters,
+  upsilonFor: (pop: Population) => number, R: number, z: number,
+): number {
+  const disc = smoothDiscDensityTotal(populations, R, z, params);
+  if (!(disc > 0)) return 1;
+  const bulgePop = populations.find((p) => p.key === 'spiralBoxyPeanutBulge');
+  if (!bulgePop) return 1;                      // no spheroid -> no quench
+  const massSol = params.bulge.totalStellarMassSol * bulgePop.massFractionGalaxy * params.bulge.strength;
+  const bulge = boxyPeanutBulgeMassDensity(false, params.bulge, massSol, R, 0, 0) * upsilonFor(bulgePop);
+  return disc / (disc + bulge);
+}
+
 function discTerm(pop: Population, R: number, theta: number, z: number, params: GalaxyParameters): number {
   const geom = discGeometryFor(pop.key);
   if (!geom) return 0;
-  // KNOWN ISSUE, documented not fixed (28 Aug 2026, a direct user report:
-  // random "splodges", especially concentrated on the bulge) - this plain
-  // exponential has NO inner cutoff, so it does not fade toward R=0, it
-  // PEAKS there: at R < params.R0Pc the exponent is positive, so density
-  // rises monotonically all the way to the centre. Measured directly for
-  // `spiralYoungThin`: expected complex-tier clump count at R=0 came out
-  // ~2-3x HIGHER than in the arms themselves - a real generation-path
-  // effect (`starFormingComplexes.complexCentresInCell`'s own Poisson rate
-  // scales directly off this term), not merely a preview artifact, since a
-  // real "Generate Sector" commit near the galactic centre reads the same
-  // unbounded-toward-R=0 density. Physically backwards for a young,
-  // recently-formed population - a real bulge is old-star-dominated, and
-  // young star-forming complexes piling up hardest exactly at the nucleus
-  // has no physical basis this project has sourced. Owner decision (28 Aug
-  // 2026): documented, not actioned this round - left here as a known,
-  // located issue rather than silently accepted or guessed at further.
+  // Young-disc central over-density is corrected OUTSIDE this function, in
+  // densityByPopulation, via morphologicalQuench (P16, Fix B). discTerm stays
+  // arm-normalisation-pure here; the quench is an outer factor on youngThin only.
   const smooth = pop.nLocal * Math.exp(-(R - params.R0Pc) / geom.scaleLengthPc) * Math.exp(-Math.abs(z) / geom.scaleHeightPc);
   const set = armResponseFor(pop.key, params);
   if (set === 'none') return smooth;
@@ -775,6 +814,13 @@ export function createSpiralModel(
         // than the complex layer adding on top of an already-full field,
         // which is what this multiplier used to do.
         out[pop.key] = discTerm(pop, R, theta, z, params);
+        if (pop.key === 'spiralYoungThin') {
+          // P16 - morphological quenching of the young thin disc (Fix B).
+          // Applied HERE, outside discTerm, so discTerm's arm-normalisation
+          // ("reference reads exactly nLocal") stays untouched: the quench is
+          // a separate outer envelope on the actively-forming population only.
+          out[pop.key]! *= morphologicalQuench(populations, params, upsilonFor, R, z);
+        }
       }
       return out;
     },

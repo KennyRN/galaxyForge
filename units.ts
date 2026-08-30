@@ -33,6 +33,14 @@ export function pcToKm(pc: number): number { return pc * KM_PER_PC; }
 export function pcToKpc(pc: number): number { return pc / 1000; }
 export function kpcToPc(kpc: number): number { return kpc * 1000; }
 
+/** pc <-> cm. `derived` from `KM_PER_PC` (no new literal - 1 km = 1e5 cm
+ *  exactly, by SI definition). Added 30 Aug 2026 for `nebulaMorphology`'s
+ *  Stromgren/Weaver radii, which are computed in cm (n in cm^-3, alpha_B in
+ *  cm^3 s^-1) and reported in the project's canonical pc. */
+const CM_PER_PC = KM_PER_PC * 1e5;
+export function pcToCm(pc: number): number { return pc * CM_PER_PC; }
+export function cmToPc(cm: number): number { return cm / CM_PER_PC; }
+
 export function auToKm(au: number): number { return au * KM_PER_AU; }
 export function kmToAu(km: number): number { return km / KM_PER_AU; }
 export function auToPc(au: number): number { return au / AU_PER_PC; }
@@ -101,6 +109,33 @@ export function surfaceGravityG(massEarth: number, radiusEarth: number): number 
 export function gyrToMyr(gyr: number): number { return gyr * 1000; }
 export function gyrToYr(gyr: number): number { return gyr * 1e9; }
 export function myrToGyr(myr: number): number { return myr / 1000; }
+/** Myr <-> yr. Added 30 Aug 2026: `nebulaMorphology` declares the nebula
+ *  DYNAMICAL timescale canonical in Myr (a DISTINCT quantity from stellar
+ *  age/Gyr - the same different-quantity/different-unit precedent as
+ *  R_sun / R_earth / km for radii), and the Weaver/Spitzer expansion laws
+ *  need the time in seconds, reached via yr. */
+export function myrToYr(myr: number): number { return myr * 1e6; }
+export function yrToMyr(yr: number): number { return yr / 1e6; }
+/** yr <-> s, Julian year (reuses `DAYS_PER_JULIAN_YEAR`, the same factor
+ *  `KM_PER_LY` is already built from - no new literal). `nebulaMorphology`'s
+ *  Weaver/Spitzer expansion laws are dimensionally in seconds. */
+export function yrToSeconds(yr: number): number { return yr * DAYS_PER_JULIAN_YEAR * 24 * 3600; }
+export function secondsToYr(s: number): number { return s / (DAYS_PER_JULIAN_YEAR * 24 * 3600); }
+
+/* ------------------------- ionising photon rate ---------------------------------- */
+
+/**
+ * Ionising photon output is STORED as log10(Q / s^-1) (the form Martins,
+ * Schaerer & Hillier 2005 Table 1 tabulates it in), and used linearly in the
+ * Stromgren volume `Q / (n^2 alpha_B)`. Added 30 Aug 2026 for
+ * `nebulaMorphology`. Functionally identical to `dexToLinearRatio` /
+ * `linearRatioToDex` but kept as a separate named pair because the quantity
+ * is a photon RATE, not a [Fe/H] abundance ratio - a shared name would make
+ * one of the two call sites read wrong, the same reasoning Ruling 7 gives
+ * for keeping degrees and radians as their own pair.
+ */
+export function ionisingRateLogToLinear(logQ: number): number { return Math.pow(10, logQ); }
+export function ionisingRateLinearToLog(q: number): number { return Math.log10(q); }
 
 /* -------------------------------- metallicity -------------------------------------- */
 

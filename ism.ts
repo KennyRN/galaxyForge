@@ -1,15 +1,37 @@
 /**
- * ism - interstellar medium (gas + dust) volume density, RENDER-ONLY at v1
- * (Amendment A8, morphology patch v3.0, 17 Aug 2026).
+ * ism - interstellar medium (gas + dust) volume density. The RELATIVE field
+ * (`ismDensityAt`) is RENDER-ONLY (Amendment A8, morphology patch v3.0,
+ * 17 Aug 2026); the ABSOLUTE midplane accessor (`absoluteMidplaneDensityCm3`,
+ * P17, 30 Aug 2026) IS on the generation path - see below.
  *
  * -- SCOPE, STATED PLAINLY -----------------------------------------------------
- * Owns gas/dust volume density for the PREVIEW only. No `SystemCore` field
- * reads this module, no note content changes because of it, no `genVersion`
- * bump - the same "alters what you see, never what exists" invariant
- * `densityMap.ts` already states for itself (this module's own header
- * repeats it below). `sky.ts`'s own header (this session, Amendment A8's own
- * required text) records exactly why sector-level extinction is not yet
- * coupled into apparent magnitude and what that future coupling would cost.
+ * `ismDensityAt` owns gas/dust volume density for the PREVIEW only: no
+ * `SystemCore` field reads it, no note content changes because of it, it does
+ * not participate in `genVersion` - the same "alters what you see, never what
+ * exists" invariant `densityMap.ts` states for itself. `sky.ts`'s own header
+ * records why sector-level extinction is not yet coupled into apparent
+ * magnitude and what that future coupling would cost.
+ *
+ * -- P17: THE ABSOLUTE MIDPLANE ACCESSOR IS NOT RENDER-ONLY ------------------
+ * `absoluteMidplaneDensityCm3(R, z)` = the same relative vertical/radial
+ * profile shape as `ismDensityAt` (arm modulation dropped - it is a smooth
+ * axisymmetric envelope), scaled by a sourced normalisation
+ * `N_MIDPLANE_R0_CM3` so it returns a real number density in cm^-3.
+ * `nebulaMorphology.ts` reads it (via `starFormingComplexes.placeYoungClustered`)
+ * to size the Stromgren sphere and Weaver wind shell of every star-forming
+ * complex - which MOVES placed young systems. So this accessor:
+ *   - LOSES the Amendment A8 render-only exemption. It joins the `genVersion`
+ *     / `galaxyConfigHash` contract: the day `N_MIDPLANE_R0_CM3` or the
+ *     profile shape changes, spiral/barredSpiral/milkyWayAnalogue galaxies
+ *     fork.
+ *   - is the FIRST science stone of the full ISM-module promotion (a
+ *     separately-specced later workstream). It is deliberately the minimal
+ *     forward-compatible slice - one accessor, one constant - not a throwaway.
+ *   - is read by exactly ONE module, `starFormingComplexes.ts` (revised
+ *     gate 8b). `ismDensityAt` (relative) stays read by exactly ONE module,
+ *     `galaxyCreationModals.ts` (gate 8a, unchanged). Both are tripwires.
+ * `ismDensityAt` and its render callers are a NON-CHANGE guard here -
+ * byte-identical, verified (gate 9).
  *
  * Consumes the EXISTING arm field (`spiralArms.armFactor`) for its own
  * azimuthal modulation rather than rolling independent arm structure -
@@ -72,12 +94,23 @@
  * (`spiralArms.armFactor`, `set: 'all'`) rather than any independently
  * rolled structure.
  *
- * genVersion: this module does NOT participate - render-only, alters what
- * you see, never what exists (the same invariant `densityMap.ts` states for
- * itself).
+ * ABSOLUTE MIDPLANE NORMALISATION (P17). `N_MIDPLANE_R0_CM3` -
+ * `calibrated + RE-AUDIT`: the total-hydrogen midplane number density at the
+ * solar radius. The intended source of record is McKee, Parravano &
+ * Hollenbach 2015 (ApJ 814, 13), which the P17 handoff marks "transcribe" -
+ * NOT yet done clean-room. The value here (1.0 cm^-3) is the textbook
+ * order-of-magnitude figure for the local total ISM, close enough to size a
+ * Stromgren sphere sanely but NOT the transcribed MPH15 number. The
+ * RE-AUDIT marker travels with it: promote to `sourced` and recut the
+ * fixture when the version of record is read at full text.
+ *
+ * genVersion: `ismDensityAt` (relative) does NOT participate - render-only.
+ * `absoluteMidplaneDensityCm3` DOES, from P17 on - see the P17 block above.
  */
 
 import { armFactor, deriveArmContrasts, ARMS, DEFAULT_ARM_WIDTH, type ArmDefinition, type ArmWidthParams } from './spiralArms';
+
+import type { GlossaryEntry } from './types';
 
 /** pc, `sourced` (interpolated to the solar radius - see header). */
 export const H_MOLECULAR_R0_PC = 100;
@@ -98,6 +131,15 @@ export const ISM_RADIAL_SCALE_LENGTH_PC = 1600;
  *  stronger-than-any-stellar-population arm response (see header). */
 export const ISM_ARM_CONTRAST_MULTIPLIER = 2.6;
 
+/** cm^-3, total-hydrogen midplane number density at R0. `calibrated + RE-AUDIT`
+ *  (P17, 30 Aug 2026): intended source of record McKee, Parravano & Hollenbach
+ *  2015 (ApJ 814, 13), NOT yet transcribed clean-room - this is the textbook
+ *  ~1 cm^-3 local-ISM order-of-magnitude value, enough to size a Stromgren
+ *  sphere sanely but not the MPH15 figure. On the generation path from P17
+ *  (`nebulaMorphology` reads `absoluteMidplaneDensityCm3`), so a change here
+ *  forks spiral-family galaxies - see this module's own header. */
+export const N_MIDPLANE_R0_CM3 = 1.0;
+
 const R0_PC = 8178;   // matches galaxyModel.ts's own R0_PC/spiralArms.ts's R0_SEEDED_REF_PC - shared anchor, not re-derived
 
 export interface IsmParams {
@@ -106,6 +148,10 @@ export interface IsmParams {
   readonly flareScaleLengthPc: number;
   readonly radialScaleLengthPc: number;
   readonly armContrastMultiplier: number;
+  /** cm^-3, P17 - the absolute-density normalisation (see `N_MIDPLANE_R0_CM3`).
+   *  Consumed ONLY by `absoluteMidplaneDensityCm3`; `ismDensityAt` (relative,
+   *  render-only) never reads it, so the render path is unaffected. */
+  readonly midplaneNormalisationCm3: number;
 }
 
 export const DEFAULT_ISM_PARAMS: IsmParams = {
@@ -114,6 +160,7 @@ export const DEFAULT_ISM_PARAMS: IsmParams = {
   flareScaleLengthPc: FLARE_SCALE_LENGTH_PC,
   radialScaleLengthPc: ISM_RADIAL_SCALE_LENGTH_PC,
   armContrastMultiplier: ISM_ARM_CONTRAST_MULTIPLIER,
+  midplaneNormalisationCm3: N_MIDPLANE_R0_CM3,
 };
 
 /** Molecular scale height at galactocentric radius R - a smooth exponential
@@ -167,6 +214,50 @@ export function ismDensityAt(
   return (molecular + atomic) * Math.max(armMod, 0);
 }
 
+/**
+ * P17 - ABSOLUTE total-hydrogen number density, cm^-3, at galactocentric
+ * (R, z). NOT render-only (see this module's own header): read by
+ * `starFormingComplexes.placeYoungClustered` to size every star-forming
+ * complex's Stromgren sphere and Weaver wind shell, which moves placed young
+ * systems - so this participates in `genVersion` from P17 on.
+ *
+ * Shape: the SAME radial exponential and vertical `sech2` profile shape as
+ * `ismDensityAt`, but ARM MODULATION DROPPED (a smooth axisymmetric envelope -
+ * `nebulaMorphology` wants the ambient reservoir density, not the local arm
+ * shock, and the complex placement's own `youngSurfaceAt` already carries the
+ * arm structure). Normalised so the value at (R0, z=0) equals
+ * `params.midplaneNormalisationCm3` exactly: the reference profile there is
+ * `exp(-R0/radialScaleLengthPc) * sech2(0) * 2` (molecular + atomic, both
+ * `sech2(0)=1`, 1:1 as in `ismDensityAt`), so the normalisation constant
+ * divides that out.
+ *
+ * The FIRST science stone of the full ISM promotion - deliberately minimal
+ * (one accessor, one constant), forward-compatible, not a throwaway stub.
+ */
+export function absoluteMidplaneDensityCm3(
+  R_pc: number, z_pc: number, params: IsmParams = DEFAULT_ISM_PARAMS,
+): number {
+  const shapeAt = (R: number, z: number): number => {
+    const hMol = molecularScaleHeightPc(R, params);
+    const hAtomic = hMol * params.atomicToMolecularScaleHeightRatio;
+    const radial = Math.exp(-R / params.radialScaleLengthPc);
+    return radial * (sech2(z / hMol) + sech2(z / hAtomic));
+  };
+  const refShape = shapeAt(R0_PC, 0);   // = exp(-R0/l) * 2, strictly > 0
+  return params.midplaneNormalisationCm3 * (shapeAt(R_pc, z_pc) / refShape);
+}
+
+/* --------------------------------- glossary ----------------------------------- */
+
+export const glossary: GlossaryEntry[] = [
+  {
+    term: 'ISM midplane density normalisation', status: 'calibrated',
+    short: 'The absolute total-hydrogen number density of the interstellar medium at the Sun\'s distance from the galactic centre, ~1 atom per cubic centimetre.',
+    long: 'N_MIDPLANE_R0_CM3 = 1.0 cm^-3. Sets the absolute scale of `absoluteMidplaneDensityCm3`, which `nebulaMorphology` reads to size star-forming complexes\' ionised spheres and wind shells. RE-AUDIT: the intended source of record (McKee, Parravano & Hollenbach 2015) has not yet been transcribed clean-room; this is the textbook order-of-magnitude value, to be promoted to `sourced` and the fixture recut once read.',
+    source: 'Textbook local-ISM value pending transcription of McKee, Parravano & Hollenbach 2015, ApJ 814, 13.',
+  },
+];
+
 /* --------------------------------- gates ------------------------------------ */
 
 /**
@@ -196,11 +287,22 @@ export function ismDensityAt(
  *     (R, z) for a model with live arm contrast (reuses `spiralArms
  *     .armFactor` directly - this is not a manufactured, independent arm
  *     signal, Law 1).
- *  8. G5 (Step 6) - `ismDensityAt` is called from exactly ONE module,
- *     `galaxyCreationModals.ts` (the render layer's diametral side-on
- *     view) - grepped directly across the project root, not merely
- *     asserted. Breaks loudly the day this is wired into `sky.ts` or any
- *     other `SystemCore`-consumed path without reading this module's own
- *     header first.
+ *  8a. G5 (Step 6) - `ismDensityAt` (the RELATIVE, render-only field) is
+ *     called from exactly ONE module, `galaxyCreationModals.ts` (the render
+ *     layer's diametral side-on view) - grepped directly across the project
+ *     root. Breaks loudly the day the RELATIVE field is wired into `sky.ts`
+ *     or any other `SystemCore` path without reading this header first.
+ *  8b. P17 - `absoluteMidplaneDensityCm3` (the ABSOLUTE, generation-path
+ *     accessor) is called from exactly ONE module, `starFormingComplexes.ts`
+ *     (which passes it into `nebulaMorphology.nebulaFieldFor`). Same tripwire
+ *     discipline as 8a, for the accessor that DOES move systems.
+ *  9. P17 - `absoluteMidplaneDensityCm3(R0, 0)` equals
+ *     `midplaneNormalisationCm3` exactly (the normalisation is anchored, not
+ *     approximate), and the accessor is strictly positive, finite, decreasing
+ *     in |z| at fixed R and decreasing in R at fixed z=0.
+ *  10. P17 NON-CHANGE GUARD - `ismDensityAt` is byte-identical for a battery
+ *     of probes before/after the absolute-accessor addition (the relative
+ *     render field and its callers are untouched); `absoluteMidplaneDensityCm3`
+ *     never reads the arm field (theta-independent by construction).
  */
-export const ISM_GATES = 8 as const;
+export const ISM_GATES = 10 as const;

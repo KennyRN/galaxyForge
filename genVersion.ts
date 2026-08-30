@@ -624,5 +624,120 @@
  *
  * `verification/golden/gen16.json` is the fixture cut against THIS
  * version.
+ *
+ * BUMP 17, 29 Aug 2026 (P16 - morphological quenching of the young thin disc,
+ * a direct fix for the two findings P15 documented but did not action): the
+ * `spiralYoungThin` population is now multiplied by a morphological-quench
+ * factor `disc/(disc+bulge)` (Martig et al. 2009; Gensior, Kruijssen & Keller
+ * 2020, both PROVISIONAL) built from the model's own smooth disc and bulge
+ * terms, so young-disc density no longer peaks at R=0 but turns over into a
+ * molecular-ring-like profile (emergent bulge/disc crossover, ~1.4 kpc for
+ * `DEFAULT_GALAXY_PARAMETERS`, ~1.6 kpc for the P16 handoff's own seeded-arm
+ * reproduction - it follows the model's bulge/disc parameters, not a knob). This
+ * changes `densityByPopulation`/`densityAt` for `spiralYoungThin` at fixed
+ * (worldSeed, cell), hence the complex-tier count `starFormingComplexes` draws,
+ * hence every placed young system's positions in a complex-active region.
+ * Young-only (quenching suppresses star FORMATION; mid/old thin keep the
+ * observed Juric exponential); the disc/(disc+bulge) form and unit exponent are
+ * `sourced`, not tunable (Martig's "spheroid relative to disc"). Blast radius:
+ * `spiral`, `barredSpiral` AND `milkyWayAnalogue` - UNLIKE P14, the MW-analogue
+ * is NOT spared, because it carries `spiralYoungThin`; this is a correctness
+ * improvement (the real Milky Way has an inner SF depression / molecular ring).
+ * `elliptical`/`lenticular` unaffected (no `spiralYoungThin`; lenticulars are
+ * already-quenched by population design). The quench's bulge term is the
+ * AXISYMMETRISED one (smooth radial envelope, bar-free for the same reason it
+ * is arm-free), so `spiralYoungThin` stays bit-identical between `spiral` and
+ * `barredSpiral` - the "no non-bulge population sees the bar" ruling holds.
+ * `params.fieldShapeVersion` 2 -> 3 (field shape genuinely changes);
+ * `placementShapeVersion` unchanged (placement algorithm untouched; its output
+ * shifts only because it reads a changed field, which this bump already covers).
+ *
+ * CHECKED, not assumed: `goldenMaster.conformance.ts`'s own spiral/barredSpiral
+ * fixtures build via `createSpiralModel(barEnabled)` with NO `params` argument,
+ * i.e. `DEFAULT_GALAXY_PARAMETERS` - which DOES carry `spiralBoxyPeanutBulge`
+ * and a live young thin disc, so unlike P14/P15 this harness DOES exercise the
+ * changed field. Re-running the suite against the still-committed `gen16.json`:
+ * `barredSpiral`'s own placement fixture FAILS (its reference cell, R~4170pc,
+ * sits well inside the bulge-dominated quench zone - a genuine fork); `spiral`'s
+ * own reference cell (R~8170pc) lands on the same kind of Poisson-rounding
+ * coincidence bumps 6/9/10 already document - the young field there genuinely
+ * changed (confirmed via `spiralYoungThin` density directly), but the
+ * perturbation does not cross an integer-draw threshold at that one narrow
+ * cell, so its `placementData`/`remnantData` happen to stay byte-identical;
+ * per those bumps' own precedent that coincidence is not grounds to skip the
+ * bump. `elliptical`/`lenticular` are byte-identical in placement/remnants
+ * (no `spiralYoungThin`); only `systemCoreData` differs for them, and only via
+ * the stamped `CURRENT_GEN_VERSION` number itself.
+ * `verification/golden/gen17.json` is the fixture cut against THIS version.
+ *
+ * BUMP 18, 30 Aug 2026 (P17 - nebulae (`nebulaMorphology`) + ISM absolute-
+ * density promotion). A new science module sculpts every star-forming
+ * complex's member stars into real nebular structure - filaments, swept
+ * shells, pillar tips - instead of scattering them in isotropic Gaussians.
+ *
+ * THREE coupled changes, one bump:
+ *
+ * (1) NEW MODULE `nebulaMorphology.ts` - a count-conserving per-complex
+ * density field. Five age-phases (compact HII / classical HII / wind-blown
+ * shell / superbubble / dispersing diffuse), phase set by a per-complex
+ * DYNAMICAL age drawn on the new `CHANNELS.nebula`; a seeded fractal-ISM
+ * field (Elmegreen & Falgarone 1996 fractal dimension D, hidden knob,
+ * default 2.3) sculpts filaments within the phase's base geometry;
+ * Stromgren (Stromgren 1939) and Weaver/Mac Low-McCray (Weaver 1977; Mac
+ * Low & McCray 1988) radii set the scales from the complex's member count
+ * and the ambient ISM density. FULL-DEPTH: both the group-around-complex
+ * and the offspring-around-group scatters are drawn from this field.
+ *
+ * (2) `starFormingComplexes.placeYoungClustered` REWRITE - the two isotropic
+ * `truncGaussQuantile` scatters become `NebulaField` samples. `nGroups` is
+ * drawn BEFORE any position draw, so it is bit-identical to pre-P17;
+ * `nOff` and every position FORK (a shape break, Amendment P) but stay
+ * Poisson/uniform so the placed-count DISTRIBUTION is statistically
+ * unchanged (gate G-P17-a). Each field sample consumes a FIXED
+ * `nebulaMorphology.SAMPLE_DRAWS` rng() calls on the existing per-`ci`
+ * `complexField` `fill:{ci}` stream - expansion invariance preserved
+ * (G-P17-f). `params.placementShapeVersion` 1 -> 2 (the placement
+ * ALGORITHM changed); `params.fieldShapeVersion` UNCHANGED (the smooth
+ * density field is untouched).
+ *
+ * (3) ISM PROMOTED - `ism.absoluteMidplaneDensityCm3` (cm^-3), the first
+ * science stone of the full ISM-module promotion (a later, separate
+ * workstream). It joins the genVersion / config-hash contract: the
+ * relative render field `ismDensityAt` stays render-only (gate 8a), the
+ * absolute accessor is read only by `starFormingComplexes.ts` (gate 8b).
+ * `units.ts` gains Myr<->yr<->s, pc<->cm, log-Q<->linear.
+ *
+ * PLACEHOLDER CONSTANTS, graded honestly (owner decision, this pass):
+ * `K_Q_PER_MEMBER_S`, `L_WIND_PER_MEMBER_ERG_S` (the Kroupa 2001 x Martins
+ * 2005 IMF integrals), `N_MIDPLANE_R0_CM3` (McKee, Parravano & Hollenbach
+ * 2015), and the phase-age boundary table all carry `RE-AUDIT` markers -
+ * physically-plausible values, NOT transcribed clean-room from the versions
+ * of record. `alpha_B` (2.59e-13, Osterbrock & Ferland 2006) and the
+ * Stromgren/Weaver/Spitzer FORMS are genuinely `sourced`. Promoting the
+ * placeholders and recutting the fixture is owed work.
+ *
+ * DEVIATION FROM THE HANDOUT, recorded: the nebular phase is set from a
+ * per-complex DYNAMICAL age drawn on `CHANNELS.nebula`, not the co-natal
+ * `ageGyr` the handoff's SS7 names - that quantity is not available at
+ * field-construction time without a pipeline reorder, and is the wrong
+ * timescale (co-natal coherence ~100s of Myr vs an HII region's ~Myr). One
+ * line to change back if the owner prefers.
+ *
+ * BLAST RADIUS: `spiral`, `barredSpiral`, `milkyWayAnalogue` (all carry
+ * `spiralYoungThin` and run the complex tier) fork wherever a
+ * complex-organised young system falls. `elliptical`/`lenticular` - no
+ * complex tier - byte-identical.
+ *
+ * CHECKED, not assumed: `goldenMaster.conformance.ts` builds its placement
+ * fixtures via `placement.rollCell` DIRECTLY, never `assembleSector` /
+ * `placeYoungClustered`, so - exactly as for the P14/P15 bumps - `gen18.json`'s
+ * `placementData`/`remnantData` are byte-identical to `gen17.json`'s for all
+ * four tracked morphologies; only `systemCoreData` differs, and only via the
+ * stamped `CURRENT_GEN_VERSION` number. The real regression coverage for
+ * this bump is `nebulaMorphology.conformance.ts` (G-P17-a..g),
+ * `starFormingComplexes.conformance.ts` and `sectorFootprint.conformance.ts`
+ * (which DO exercise `placeYoungClustered` / `assembleSector`), and
+ * `ism.conformance.ts` (G-P17-h / gates 8b-10).
+ * `verification/golden/gen18.json` is the fixture cut against THIS version.
  */
-export const CURRENT_GEN_VERSION = 16;
+export const CURRENT_GEN_VERSION = 18;

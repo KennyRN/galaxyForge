@@ -59,14 +59,25 @@
  * (expectation, not point-evaluation) form is adopted directly rather than
  * risk introducing it now.
  *
- * genVersion: any constant or formula change here is genVersion-bumping for
- * every spiral/barredSpiral-generated youngThin system.
+ * P17 (30 Aug 2026): `placeYoungClustered`'s two isotropic scatters (group
+ * around complex, offspring around group) are now drawn from a per-complex
+ * `nebulaMorphology.NebulaField` - full-depth nebular sculpting. Count
+ * conservation is untouched (`nGroups` still drawn before any position, so
+ * bit-identical to pre-P17; `nOff`/positions fork but stay Poisson/uniform).
+ * This module now reads `ism.absoluteMidplaneDensityCm3` (per complex centre)
+ * and `nebulaMorphology` - see this file's `placeYoungClustered` header.
+ *
+ * genVersion: any constant or formula change here (or in `nebulaMorphology`)
+ * is genVersion-bumping for every spiral/barredSpiral-generated youngThin
+ * system.
  */
 
 import { channelRng } from './rng';
 import { LAMBDA_MAX, Phi, poissonInvCdf, truncGaussQuantile, smootherstep } from './mathStats';
 import type { GalaxyParameters, ComplexTierParams } from './galaxyParameters';
 import type { Population } from './galaxyModel';
+import { absoluteMidplaneDensityCm3 } from './ism';
+import { nebulaFieldFor, nebulaPhaseAgeMyr, type NebulaParams } from './nebulaMorphology';
 
 /**
  * Per-star complex participation weight. Coherence survives ~100 Myr and
@@ -295,24 +306,53 @@ export interface ComplexPlacedCandidate {
  * remainder is NOT placed here - the caller (`sectorFootprint.
  * assembleSector`) scales the smooth youngThin density in the ordinary
  * cell-based path instead.
+ *
+ * -- P17: NEBULAR SCULPTING (full-depth) -----------------------------------
+ * The group-around-complex and offspring-around-group scatters are NO LONGER
+ * isotropic truncated Gaussians. Each complex builds one `NebulaField`
+ * (`nebulaMorphology.nebulaFieldFor`) from its phase (a per-complex dynamical
+ * age on `CHANNELS.nebula`), its member count, and the ambient ISM density
+ * (`ism.absoluteMidplaneDensityCm3` at the complex centre) - and BOTH scatters
+ * are drawn from that field: stars land in the filaments, in the swept
+ * shells, at the pillar tips.
+ *
+ * COUNT CONSERVATION is untouched: `nGroups` is drawn from `rng()` BEFORE any
+ * position draw, so it is bit-identical to the pre-P17 stream. `nOff` and
+ * every position then fork (a shape break, Amendment P) - `nGroups`/`nOff`
+ * are still Poisson deviates off a uniform, so the placed-count DISTRIBUTION
+ * (hence its mean) is statistically unchanged.
+ *
+ * DRAW BUDGET / EXPANSION INVARIANCE: each `sampleGroupPos` /
+ * `sampleOffspringPos` consumes EXACTLY `nebulaMorphology.SAMPLE_DRAWS`
+ * `rng()` calls (a fixed accept/reject budget - rejections and
+ * post-acceptance draws are all consumed), on the same per-`ci`
+ * `fill:{ci}` stream. A centre that cannot reach the footprint is still
+ * skipped without advancing anything shared.
+ *
+ * The envelope proposals are still CLAMPED here to the guard band
+ * (`+/- guardBandSigma * sigmaComplexPc` per axis for groups, `3 * jitter`
+ * for offspring) - the same truncation the old `truncGaussQuantile` bounds
+ * enforced, so the reach cull below stays exact.
  */
 export function placeYoungClustered(
   worldSeed: string, centreX: number, centreY: number, centreZ: number,
   radiusPc: number, thicknessPc: number, w: number,
   youngSurfaceAt: (x: number, y: number) => number, p: ComplexTierParams,
   meanSystemsPerGroup: number, jitterSigmaPc: number,
+  nebulaParams: NebulaParams,
 ): ComplexPlacedCandidate[] {
   if (!(w > 0)) return [];
   const guardPc = p.guardBandSigma * p.sigmaComplexPc;
   const cells = complexCellsOverlapping(centreX, centreY, radiusPc, p.cellSizePc, guardPc, youngSurfaceAt, p.cellMeanSubGridN);
   const placed: ComplexPlacedCandidate[] = [];
-  const jitterLo = -3 * jitterSigmaPc, jitterHi = 3 * jitterSigmaPc;
-  const zLo = centreZ - thicknessPc / 2;
-  const complexLo = -p.guardBandSigma * p.sigmaComplexPc, complexHi = p.guardBandSigma * p.sigmaComplexPc;
-  // With complex scatter truncated at the guard band, a centre farther than
-  // this cannot place a system into the footprint - so the cull is exact
-  // and expansion-invariant.
-  const reachPc = radiusPc + p.guardBandSigma * p.sigmaComplexPc + 3 * jitterSigmaPc;
+  const zLo = centreZ - thicknessPc / 2, zHi = centreZ + thicknessPc / 2;
+  const complexHi = p.guardBandSigma * p.sigmaComplexPc;
+  const offspringReachPc = 3 * Math.max(jitterSigmaPc, nebulaParams.offspringJitterSigmaPc);
+  const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+  // With both scatters clamped (groups to the guard band, offspring to
+  // `offspringReachPc`), a centre farther than this cannot place a system
+  // into the footprint - so the cull is exact and expansion-invariant.
+  const reachPc = radiusPc + complexHi + offspringReachPc;
   const reach2 = reachPc * reachPc;
 
   for (const cell of cells) {
@@ -326,22 +366,38 @@ export function placeYoungClustered(
       const dx = cx.x - centreX, dy = cx.y - centreY;
       if (dx * dx + dy * dy > reach2) continue;
 
+      // One nebular field per complex (its own construction draws ride
+      // `CHANNELS.nebula`, isolated from this `complexField` stream).
+      const complexId = `${cell.cellIx}.${cell.cellIy}.${ci}`;
+      const nAmbientCm3 = absoluteMidplaneDensityCm3(Math.hypot(cx.x, cx.y), 0);
+      const ageMyr = nebulaPhaseAgeMyr(worldSeed, complexId, nebulaParams);
+      // Expected member count - deterministic, known before the Poisson draw
+      // (the actual nGroups only shifts the realisation, not the scale used
+      // to size the Stromgren/Weaver radii).
+      const nMembers = p.meanGroupsPerComplex * meanSystemsPerGroup;
+      const field = nebulaFieldFor(
+        worldSeed, complexId, { x: cx.x, y: cx.y, z: centreZ },
+        nMembers, ageMyr, nAmbientCm3, nebulaParams,
+      );
+
       const rng = channelRng(worldSeed, 'complexField', cell.cellIx, cell.cellIy, `fill:${ci}`);
-      const nGroups = poissonInvCdf(p.meanGroupsPerComplex, rng());
+      const nGroups = poissonInvCdf(p.meanGroupsPerComplex, rng());   // BEFORE any position draw - bit-identical to pre-P17
       for (let g = 0; g < nGroups; g++) {
-        const gx = cx.x + truncGaussQuantile(rng(), 0, cx.sigmaPc, complexLo, complexHi);
-        const gy = cx.y + truncGaussQuantile(rng(), 0, cx.sigmaPc, complexLo, complexHi);
-        const gz = zLo + rng() * thicknessPc;
+        const gp = field.sampleGroupPos(rng);
+        const gx = clamp(gp.x, cx.x - complexHi, cx.x + complexHi);
+        const gy = clamp(gp.y, cx.y - complexHi, cx.y + complexHi);
+        const gz = clamp(gp.z, zLo, zHi);
         const parentOrdinal = ci * 1024 + g;   // stable across region size - never a running counter
         placed.push({ x: gx, y: gy, z: gz, cellIx: cell.cellIx, cellIy: cell.cellIy, ordinal: parentOrdinal, isOffspring: false });
 
         const offspringLambda = Math.max(0, meanSystemsPerGroup - 1);
         const nOff = offspringLambda > 0 ? poissonInvCdf(offspringLambda, rng()) : 0;
         for (let k = 0; k < nOff; k++) {
+          const op = field.sampleOffspringPos(rng, { x: gx, y: gy, z: gz });
           placed.push({
-            x: gx + truncGaussQuantile(rng(), 0, jitterSigmaPc, jitterLo, jitterHi),
-            y: gy + truncGaussQuantile(rng(), 0, jitterSigmaPc, jitterLo, jitterHi),
-            z: gz + truncGaussQuantile(rng(), 0, jitterSigmaPc, jitterLo, jitterHi),
+            x: clamp(op.x, gx - offspringReachPc, gx + offspringReachPc),
+            y: clamp(op.y, gy - offspringReachPc, gy + offspringReachPc),
+            z: clamp(op.z, zLo, zHi),
             cellIx: cell.cellIx, cellIy: cell.cellIy, ordinal: k, parentOrdinal, isOffspring: true,
           });
         }
@@ -376,8 +432,13 @@ export function placeYoungClustered(
  *     LAMBDA_MAX, split into sub-tiles, has the same EXPECTED total centre
  *     count as the unsplit formula would give (checked via the sum of
  *     sub-tile means, not a single stochastic draw).
+ *  8. P17 NEBULAR SCULPTING IS COUNT-CONSERVING - the nebula-field-sampled
+ *     `placeYoungClustered` places the same MEAN young count per unit area
+ *     (within statistical tolerance) as the pre-P17 isotropic version, and
+ *     the field genuinely moved the stars (structured 3D positions, not an
+ *     inert pass-through).
  */
-export const STAR_FORMING_COMPLEXES_GATES = 7 as const;
+export const STAR_FORMING_COMPLEXES_GATES = 8 as const;
 
 /* -------------------------------- glossary ----------------------------------- */
 

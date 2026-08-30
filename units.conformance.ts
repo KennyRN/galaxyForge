@@ -4,6 +4,8 @@ import {
   radiusEarthToRjup, massEarthToMjup, gyrToMyr, myrToGyr, dexToLinearRatio,
   linearRatioToDex, MEARTH_PER_MSUN, surfaceGravityG,
   degToRad, radToDeg, surfaceDensityPc2ToLy2, surfaceDensityLy2ToPc2,
+  pcToCm, cmToPc, myrToYr, yrToMyr, yrToSeconds, secondsToYr,
+  ionisingRateLogToLinear, ionisingRateLinearToLog,
 } from './units';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -86,6 +88,15 @@ check('+ radiusEarthToRjup(11.2) lands near 1 (Jupiter is ~11.2 Rearth)',
 check('+ massEarthToMjup(317.8) lands near 1 (Jupiter is ~317.8 Mearth)',
   Math.abs(massEarthToMjup(317.8) - 1) < 0.01);
 check('+ gyrToMyr and myrToGyr round-trip', Math.abs(myrToGyr(gyrToMyr(4.6)) - 4.6) < 1e-9);
+check('+ pc -> cm -> pc round-trips', Math.abs(cmToPc(pcToCm(3.14159)) - 3.14159) < 1e-9);
+check('+ pcToCm(1) lands near the known ~3.086e18 cm figure',
+  Math.abs(pcToCm(1) / 3.0857e18 - 1) < 1e-3);
+check('+ Myr -> yr -> Myr round-trips; myrToYr(1) === 1e6', yrToMyr(myrToYr(7.5)) === 7.5 && myrToYr(1) === 1e6);
+check('+ yr -> s -> yr round-trips; yrToSeconds(1) lands near the ~3.156e7 s Julian year',
+  Math.abs(secondsToYr(yrToSeconds(1234.5)) - 1234.5) < 1e-9 && Math.abs(yrToSeconds(1) / 3.15576e7 - 1) < 1e-6);
+check('+ ionisingRateLog <-> linear round-trips; log 49 -> 1e49',
+  Math.abs(ionisingRateLinearToLog(ionisingRateLogToLinear(48.7)) - 48.7) < 1e-12
+  && ionisingRateLogToLinear(49) === 1e49);
 check('+ surfaceGravityG(1, 1) === 1 exactly (Earth is its own reference)', surfaceGravityG(1, 1) === 1);
 check('+ surfaceGravityG doubles with mass at fixed radius', surfaceGravityG(2, 1) === 2 * surfaceGravityG(1, 1));
 check('+ surfaceGravityG quarters when radius doubles at fixed mass (inverse-square)', Math.abs(surfaceGravityG(1, 2) - surfaceGravityG(1, 1) / 4) < 1e-12);

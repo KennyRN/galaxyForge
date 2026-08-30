@@ -251,6 +251,7 @@ export function assembleSector(
     const complexCandidates: ComplexPlacedCandidate[] = placeYoungClustered(
       worldSeed, centrePc.x, centrePc.y, centrePc.z, radiusPc, thicknessPc, complexW,
       youngSurfaceAt, params.complexTier, meanSystemsPerGroup, params.placement.jitterSigmaPc,
+      params.nebula,
     );
     const byParent = new Map<number, ComplexPlacedCandidate[]>();
     for (const c of complexCandidates) {

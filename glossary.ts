@@ -61,6 +61,8 @@ import { glossary as systemConductorGlossary } from './systemConductor';
 import { glossary as sectorSearchGlossary } from './sectorSearch';
 import { glossary as sectorFootprintGlossary } from './sectorFootprint';
 import { glossary as prugnielSimienGlossary } from './prugnielSimien';
+import { glossary as ismGlossary } from './ism';
+import { glossary as nebulaMorphologyGlossary } from './nebulaMorphology';
 
 /**
  * Every module's `glossary` export, concatenated in brief stage order
@@ -97,6 +99,8 @@ export const GLOSSARY: GlossaryEntry[] = [
   ...sectorSearchGlossary,
   ...sectorFootprintGlossary,
   ...prugnielSimienGlossary,
+  ...ismGlossary,
+  ...nebulaMorphologyGlossary,
 ];
 
 /** Look up every glossary entry for a given module, in aggregate order. */

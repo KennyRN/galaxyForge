@@ -31,3 +31,60 @@
   background: var(--interactive-hover);
 }
 
+/* Start-screen route rows (31 Aug 2026, a direct user follow-up) - both
+ * routes are one plain, chrome-free target each: NO background, border or
+ * shadow in any state, the whole row clickable. The label + icon sit at
+ * --text-muted at rest and lift to --text-normal on hover/focus - a
+ * colour-only change, nothing else (the icon follows via
+ * fill="currentColor"). Same "colour-only hover, no button box" language as
+ * .sf-shape-icon above, at row scale. DIVs, not <button>s (see
+ * GalaxyStartModal's own header) - so no Obsidian button rule is in play
+ * and a single-class selector wins. */
+.sf-start-route {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 66px; /* 50px icon + 8px padding top and bottom */
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-ui-medium);
+  transition: color 100ms ease-in-out;
+}
+.sf-start-route:hover,
+.sf-start-route:focus-visible {
+  color: var(--text-normal);
+  outline: none;
+}
+/* Fixed 50px box so both icons - the 48-unit galaxy glyph and the 16-unit
+ * stars glyph - sit on the same left edge and the labels start at one x. */
+.sf-start-route-icon {
+  flex: 0 0 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sf-start-route-icon svg {
+  display: block;
+}
+.sf-start-route-label {
+  flex: 1 1 auto;
+}
+
+/* Sol-neighbourhood modal (31 Aug 2026, a direct user follow-up) - the
+ * square preview has to sit flush to the top and side edges, so the
+ * default modal padding is zeroed here (Obsidian sets it with enough
+ * weight that an inline style on `.modal` does not always win). The class
+ * is added to the `.modal` element itself in GalaxySolNeighbourhoodModal's
+ * onOpen; the controls below the preview get their own padding from an
+ * inner wrapper, so only the preview goes edge to edge. */
+.modal.sf-sol-modal,
+.sf-sol-modal .modal-content {
+  padding: 0 !important;
+}
+

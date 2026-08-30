@@ -552,6 +552,20 @@ export const CHANNELS = {
    *  already-reserved, collision-free stream waiting rather than a new key
    *  invented under time pressure at that point. */
   ism: 'ism',
+  /** `nebulaMorphology.ts` (30 Aug 2026, P17) - the per-complex nebular
+   *  field's own construction draws: the complex's dynamical PHASE age and
+   *  the fractal-ISM realisation seed. Isolated from `complexField` and
+   *  `placement` so a change to the sculpting (fractal dimension, phase-age
+   *  boundaries, octave weights) can never perturb the two-level Poisson
+   *  COUNTS `starFormingComplexes.ts` draws on `complexField`, nor any
+   *  ordinary placed system - only WHERE the complex-organised young stars
+   *  land within their own complex. Member POSITION draws ride the caller's
+   *  existing `complexField` `fill:{ci}` stream (expansion-invariance is
+   *  built there); this channel is the field's own parameters only. The
+   *  key is colon-free (the `:{complexId}` scoping is a `channelRng`
+   *  keyPart, per that function's own convention - stage0's constant-channel
+   *  colon gate). */
+  nebula: 'nebula',
   /** Registered Stage A (27 Aug 2026), WIRED Stage C (27 Aug 2026,
    *  `spiralArms.withTermination`) - the per-arm termination roll (per-arm
    *  extent for `multipleArm`/`flocculent`, the Honig & Reid tip-narrowing

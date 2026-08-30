@@ -8,6 +8,17 @@
  * are kept deliberately thin - they read/write that state and call
  * `sectorSearch`/`sectorFootprint`/`systemConductor`/`vault`, nothing more.
  *
+ * -- START SCREEN: WHAT TO CREATE (30 Aug 2026) --------------------------------
+ * `GalaxyStartModal`, opened first by `main.ts`, offers two icon-marked
+ * routes: "create an entire galaxy" (the full Screen 1 -> 2 -> 3 flow
+ * below) or "create a sector using sol-neighbourhood as a template", which
+ * hands off to `GalaxySolNeighbourhoodModal` - a flow that ROLLS the sector
+ * centre inside the sol-like neighbourhood band (randomly-seeded Milky Way
+ * Analogue, terraforming off) rather than dialling it, but keeps Screen 2's
+ * shape / slab / size / system-search controls; a separate
+ * `SolNeighbourhoodHistoryModal` browses past rolls, and commit goes
+ * through the same shared `writeSectorDocument` Screen 3 uses.
+ *
  * -- SCREEN 1: MORPHOLOGY, SIZE, SEED --------------------------------------------
  * Five morphology buttons, a discrete size slider (label-driven, not a raw
  * number - "left is smaller, right is larger"), a seed field with a
@@ -46,7 +57,7 @@
  * that showing and immediately hiding it would just be visual noise.
  */
 
-import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App } from 'obsidian';
+import { Modal, Setting, Notice, SliderComponent, DropdownComponent, type App, type TextComponent } from 'obsidian';
 import { createSpiralModel, createEllipticalModel, createLenticularModel, scaleSpiralModel, R0_PC, type GalaxyModel, type PopulationKey } from './galaxyModel';
 import { upsilonFor } from './galacticDensity';
 import { fieldFromModel, projectSlab, diametralEdgeOnDisplayField, sampleBilinear, type SlabRegionPc } from './densityMap';
@@ -69,9 +80,11 @@ import type { HabTier } from './humanHabitability';
 import type { SystemCore } from './types';
 import {
   type MorphologyChoice, type Screen1Draft, type Screen2Draft, type SysDensityChoice,
+  type SolNeighbourhoodSector,
   defaultScreen1Draft, defaultScreen2Draft, resolveModelName, resolveBarEnabled,
   sizeStepsFor, sizeValueFor, sizeIsMass, thicknessPcFor, centrePcFromPolar,
   reconcileSizeFields, assembleSearchCriteria, isWithinFootprint,
+  solNeighbourhoodBand, rollSolNeighbourhoodCentre,
 } from './galaxyCreationState';
 import type { FootprintShape } from './sectorFootprint';
 import type { StarForgeSettings } from './main';
@@ -107,7 +120,7 @@ const SPINNER_DELAY_MS = 200;
  *
  * `nextPaint` is the part Screen 3's OWN commit flow never needed: that
  * flow's real work is a per-system CPU loop (`generateSystemCore`) with a
- * periodic macrotask yield of its own (`commitInner`'s own `YIELD_EVERY`,
+ * periodic macrotask yield of its own (`writeSectorDocument`'s own `YIELD_EVERY`,
  * 17 Aug 2026 - the single `writeSectorList` at the end no longer gives the
  * many per-system yield points a `writeSystemNote`-per-system loop used to
  * provide "for free"), so the event loop still gets real chances to run a
@@ -1164,11 +1177,605 @@ function renderPositionOnlyCanvas(canvas: HTMLCanvasElement, centrePc: { x: numb
   const w = canvas.width, h = canvas.height;
   ctx.fillStyle = '#05050a';
   ctx.fillRect(0, 0, w, h);
-  const pcToPx = w / (2 * halfWidthPc);
+  // Scale off the SHORTER axis so the whole sector stays visible even if
+  // the canvas is not perfectly square (Screen 3's is 420x420; the
+  // sol-neighbourhood modal's tracks a CSS aspect-ratio and can be a pixel
+  // or two off) - the long axis just shows a sliver more empty sky.
+  const pcToPx = Math.min(w, h) / (2 * halfWidthPc);
   ctx.fillStyle = '#ffffff';
   for (const p of positions) {
     const px = w / 2 + (p.x - centrePc.x) * pcToPx, py = h / 2 - (p.y - centrePc.y) * pcToPx;
     ctx.fillRect(px - 0.75, py - 0.75, 1.5, 1.5);
+  }
+}
+
+/* --------------------------- shared sector commit ----------------------------- */
+
+/**
+ * Best `HabTier` across a system's own planets - `null` when there is
+ * nothing to grade (no planets, or no planet carries a habitability
+ * verdict) - same convention `types.ts`'s own `SystemSummary.bestHabTier`
+ * already establishes.
+ */
+function bestHabTierOf(core: SystemCore): HabTier | null {
+  let best: HabTier | null = null;
+  for (const h of core.humanHabitability) {
+    if (h && (best === null || h.tier > best)) best = h.tier;
+  }
+  return best;
+}
+
+/**
+ * Runs the real generation pipeline for a committed sector and writes ONE
+ * sector-list document to the vault. Extracted from `GalaxyScreen3Modal`'s
+ * own commit (30 Aug 2026) so the sol-neighbourhood sector flow commits
+ * through the byte-identical path - one commit implementation, never two
+ * that could quietly disagree (Law 1). Owns no modal lifecycle: the caller
+ * closes its own modal once this resolves.
+ *
+ * `sectorFootprint.assembleSector` (16 Aug 2026) composes the stellar,
+ * remnant AND co-natal-chemistry layers together - real computation the
+ * position-only preview deliberately skips. `generateSystemCore` then runs
+ * for every stellar system: that is where the list's habitability / planet
+ * -type / belt columns come from. Only the sector-list note is written (17
+ * Aug 2026) - the per-system canonical/authored writers remain real, gated
+ * infrastructure for a future lazy detail note, just not called here.
+ *
+ * Yields the event loop every `YIELD_EVERY` systems so a large sector's
+ * (genuinely CPU-bound) generation still lets the caller's delayed busy
+ * spinner paint, rather than freezing the UI silently for its whole run.
+ */
+async function writeSectorDocument(app: App, screen1: Screen1Draft, screen2: Screen2Draft, model: GalaxyModel): Promise<void> {
+  const centrePc = centrePcFromPolar(screen2);
+  const thickness = thicknessPcFor(screen2.sysDensity);
+  const assembled = assembleSector(screen1.worldSeed, model, centrePc, screen2.sizeInPc, thickness, screen2.footprintShape);
+  const total = assembled.stellar.length + assembled.remnants.length;
+  new Notice(`Generating ${total} systems (${assembled.remnants.length} remnants) - this may take a moment...`);
+
+  const rows: SectorListRow[] = [];
+  const YIELD_EVERY = 25;
+  const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, 0));
+
+  for (let mi = 0; mi < assembled.stellar.length; mi++) {
+    if (mi > 0 && mi % YIELD_EVERY === 0) await yieldToEventLoop();
+    const m = assembled.stellar[mi]!;
+    const s = m.placed;
+    const populationMeta = model.populations.find((p) => p.key === s.population);
+    if (!populationMeta) continue;
+    const inputs: GenerateSystemInputs = {
+      sysid: s.sysid, genVersion: CURRENT_GEN_VERSION, worldSeed: screen1.worldSeed, positionPc: s.positionPc,
+      population: s.population, populationMeta, formationRank: s.formationRank,
+      terraformScale: screen1.terraformScale, terraformIntensity: screen1.terraformIntensity,
+      conatal: m.conatal,
+    };
+    const core = generateSystemCore(inputs);
+    rows.push({
+      sysid: s.sysid,
+      // TRUE distance from the SECTOR's own origin (centrePc) - the owner's
+      // own explicit spec for this list's sort order (17 Aug 2026).
+      distancePc: trueDistance3dPc(s.positionPc, centrePc),
+      multiplicity: core.stars.length,
+      primaryType: core.stars[0]!.class,
+      bestHabTier: bestHabTierOf(core),
+      planetTypes: formatPlanetTypesCell(core.planets),
+      belts: formatBeltsCell(core.belts),
+    });
+  }
+
+  // Remnants get a row too - position/kind only, same honest scoping the
+  // per-system note used to carry for them.
+  for (const r of assembled.remnants) {
+    rows.push({
+      sysid: r.sysid,
+      distancePc: trueDistance3dPc(r.positionPc, centrePc),
+      multiplicity: 1,
+      primaryType: r.kind,
+      bestHabTier: null,
+      planetTypes: formatPlanetTypesCell([]),
+      belts: formatBeltsCell([]),
+    });
+  }
+
+  const meta: SectorListMeta = {
+    worldSeed: screen1.worldSeed, centrePc, radiusPc: screen2.sizeInPc, thicknessPc: thickness,
+    footprintShape: screen2.footprintShape, stellarCount: assembled.stellar.length,
+    remnantCount: assembled.remnants.length, generatedIso: new Date().toISOString(),
+  };
+  const content = buildSectorListContent(meta, rows);
+  const filename = `Sector - ${sanitiseFilenamePart(screen1.worldSeed)} - ${filenameTimestamp()}`;
+  await writeSectorList(app.vault, filename, content);
+
+  new Notice(`StarForge: wrote a ${rows.length}-system sector list to ${SECTOR_FOLDER}/${filename}.md`);
+}
+
+/* --------------------------------- start screen -------------------------------- */
+
+/**
+ * Icons for the two start-screen routes (30 Aug 2026, a direct user ask) -
+ * "streamline-plump--galaxy-2-solid" and "at-icons--stars", `currentColor`
+ * -filled so they inherit the button's own text colour. `xmlns` stripped
+ * (Gate S1's URL-literal scanner cannot tell an XML namespace from a fetch
+ * target - same treatment `SHAPE_ICONS`/`ANGLE_ICON` already get).
+ */
+const GALAXY_ICON = '<svg width="50" height="50" viewBox="0 0 48 48"><path fill="currentColor" fill-rule="evenodd" d="M31.85 1.466C32.22.97 32.894.675 33.61.99c9.6 4.23 14.948 14.94 12.149 25.387c-2.925 10.917-14.124 17.407-25.042 14.533c-7.525-2.641-10.687-9.47-9.883-15.538c.41-3.099 1.852-5.958 4.245-7.964c2.378-1.993 5.798-3.23 10.338-2.911a1.5 1.5 0 1 0 .21-2.993c-5.222-.366-9.434 1.055-12.476 3.605c-3.027 2.538-4.793 6.109-5.29 9.869c-.759 5.72 1.408 11.975 6.614 15.958a27 27 0 0 0 1.783 3.763c.364.63.255 1.35-.107 1.835c-.37.498-1.044.792-1.758.478c-9.6-4.23-14.949-14.94-12.15-25.387c2.926-10.92 14.13-17.41 25.05-14.53c7.52 2.642 10.679 9.467 9.875 15.534c-.41 3.099-1.852 5.958-4.245 7.964c-2.378 1.993-5.798 3.23-10.337 2.911a1.5 1.5 0 0 0-.21 2.993c5.22.366 9.433-1.055 12.475-3.605c3.027-2.538 4.793-6.109 5.29-9.869c.759-5.72-1.408-11.975-6.614-15.958a27 27 0 0 0-1.782-3.762a1.67 1.67 0 0 1 .106-1.836M24 29a5 5 0 1 0 0-10a5 5 0 0 0 0 10" clip-rule="evenodd"/></svg>';
+const STARS_ICON = '<svg width="50" height="50" viewBox="0 0 16 16"><path fill="currentColor" d="M6.5 8.75L9 10l-2.5 1.25L5 15l-1.5-3.75L1 10l2.5-1.25L5 5zM10 12a1 1 0 1 1 0 2a1 1 0 0 1 0-2m3-3a1 1 0 1 1 0 2a1 1 0 0 1 0-2m.269-5.692L15 4l-1.731.691L12.5 7l-.77-2.309L10 4l1.73-.692L12.5 1zM3 2a1 1 0 1 1 0 2a1 1 0 0 1 0-2"/></svg>';
+
+/** How many past sol-neighbourhood rolls `GalaxySolNeighbourhoodModal`
+ *  keeps in `StarForgeSettings.solNeighbourhoodHistory` - newest first,
+ *  older entries dropped off the end. Generous enough to be a real
+ *  "sectors I've looked at" list, bounded so the settings file cannot
+ *  grow without limit. */
+const SOL_NEIGHBOURHOOD_HISTORY_MAX = 30;
+
+/**
+ * The mode chooser shown before anything else (30 Aug 2026, a direct user
+ * ask) - two routes into generation, one per row:
+ *
+ *  - "create an entire galaxy" (galaxy icon, top) - the full three-screen
+ *    flow, unchanged: `GalaxyScreen1Modal` (morphology/size/seed) ->
+ *    Screen 2 (sector centring) -> Screen 3 (position-only preview + commit).
+ *
+ *  - "create a sector using sol-neighbourhood as a template" (stars icon) -
+ *    hands off to `GalaxySolNeighbourhoodModal`, which offers NO
+ *    positioning dials at all (a direct user instruction): the sector
+ *    centre is rolled inside the sol-like neighbourhood band, not chosen.
+ *
+ * No header, no primary/secondary distinction (31 Aug 2026, a direct user
+ * follow-up): both rows are the SAME plain, chrome-free target - a 50px
+ * left-aligned icon whose `currentColor` lifts from muted to normal on
+ * hover, the whole row clickable, styled by `.sf-start-route` (styles.css,
+ * since :hover has no inline equivalent - same reason `.sf-shape-icon`
+ * exists). The rows are DIVs with `role="button"`, NOT `<button>`s - a real
+ * button in a modal inherits Obsidian's own centring, background and
+ * min-height (which beat a single-class rule on specificity), the exact
+ * chrome the "hover-icon, not a button" look has to avoid - the identical
+ * reason `renderShapeAndDensityRow` already uses divs for its icons.
+ * Writes no state and persists nothing itself - it only picks which modal
+ * opens next.
+ */
+export class GalaxyStartModal extends Modal {
+  constructor(
+    app: App,
+    private readonly settings: StarForgeSettings,
+    private readonly onSettingsChange: (s: StarForgeSettings) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    const list = contentEl.createDiv();
+    list.style.cssText = 'display:flex;flex-direction:column;gap:2px;margin:4px 0;';
+
+    const addRoute = (icon: string, label: string, onPick: () => void): void => {
+      // No `title`/`aria-label` - the visible label span IS the accessible
+      // name; a tooltip here would only echo the text already on screen.
+      const row = list.createDiv({ cls: 'sf-start-route', attr: { role: 'button', tabindex: '0' } });
+      row.createSpan({ cls: 'sf-start-route-icon' }).innerHTML = icon;
+      row.createSpan({ cls: 'sf-start-route-label', text: label });
+      row.onclick = onPick;
+      row.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onPick(); } };
+    };
+
+    addRoute(GALAXY_ICON, 'create an entire galaxy', () => {
+      this.close();
+      new GalaxyScreen1Modal(this.app, this.settings, this.onSettingsChange).open();
+    });
+    addRoute(STARS_ICON, 'create a sector using sol-neighbourhood as a template', () => {
+      this.close();
+      new GalaxySolNeighbourhoodModal(this.app, this.settings, this.onSettingsChange).open();
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    super.onClose();
+  }
+}
+
+/* ------------------------ sol-neighbourhood sector flow ----------------------- */
+
+/** `θ ...°  ·  R ... pc  ·  z ±... pc` - the rolled sector centre in
+ *  galactic polar coordinates, shared by `GalaxySolNeighbourhoodModal` and
+ *  its history modal so both label a sector the same way. */
+function solSectorCoordLabel(angleRad: number, distanceFromCentrePc: number, distanceFromPlanePc: number): string {
+  const z = distanceFromPlanePc.toFixed(0);
+  const signedZ = distanceFromPlanePc >= 0 ? `+${z}` : z;
+  return `θ ${radToDeg(angleRad).toFixed(1)}°  ·  R ${distanceFromCentrePc.toFixed(0)} pc  ·  z ${signedZ} pc`;
+}
+
+function solSectorKey(worldSeed: string, angleRad: number, distanceFromCentrePc: number, distanceFromPlanePc: number): string {
+  return `${worldSeed}|${angleRad}|${distanceFromCentrePc}|${distanceFromPlanePc}`;
+}
+
+/**
+ * `GalaxySolNeighbourhoodModal` (30 Aug 2026) - the "create a sector using
+ * sol-neighbourhood as a template" branch of `GalaxyStartModal`.
+ *
+ * The galaxy is a fresh, randomly-seeded Milky Way Analogue
+ * (`milkyWayAnalogue` - real Reid et al. 2019 arm table, Standard scale),
+ * terraforming forced fully OFF (a direct user instruction - "the default
+ * for terraforming for this galaxy is none at all").
+ *
+ * The sector CENTRE is never dialled in - it is ROLLED, uniformly, from the
+ * sol-like band Screen 2 already defines as a reference mark
+ * (`solNeighbourhoodBand` - R within +/-10% of R0, z within one thin-disc
+ * scale height either side of the plane, so a sector can land above OR
+ * below it), theta anywhere on the circle. "view new sector" re-rolls;
+ * every roll is appended to a persisted history, browsed in a SEPARATE
+ * modal (`SolNeighbourhoodHistoryModal`, 31 Aug 2026 - a direct user
+ * follow-up) reachable from "previously viewed sectors", each entry
+ * carrying its own worldSeed so re-selecting one is the SAME sector, not
+ * just the same point in a different galaxy.
+ *
+ * Everything ELSE about the sector IS the user's to set (31 Aug 2026, a
+ * direct user follow-up: "need sizing, shape, and slab options" +
+ * "need the centre on system options") - the same footprint-shape,
+ * slab-thickness, size/count and system-search controls Screen 2 carries,
+ * held in a full `Screen2Draft` whose angle/R/z fields the roll owns and
+ * the rest the controls own. "generate sector" (on one row with "<- back",
+ * a direct user follow-up) commits through the shared `writeSectorDocument`
+ * - the byte-identical path Screen 3 uses, no second copy.
+ */
+export class GalaxySolNeighbourhoodModal extends Modal {
+  private settings: StarForgeSettings;
+  private seed!: string;
+  /** Full sector draft. `angleRad`/`distanceFromCentrePc`/
+   *  `distanceFromPlanePc` are owned by the roll (and by history-load /
+   *  system-search); every other field is owned by the controls below. */
+  private draft!: Screen2Draft;
+  private model!: GalaxyModel;
+  private params!: GalaxyParameters;
+  private previewScale!: number;
+
+  private generating = false;
+  private busyOverlay: HTMLElement | null = null;
+  private countEl!: HTMLElement;
+  private canvas!: HTMLCanvasElement;
+  /** Wraps the canvas so `paintSector`'s busy overlay scopes to just the
+   *  preview, leaving every control live - same pattern as the numbered
+   *  screens. */
+  private mapPane!: HTMLElement;
+  /** Debounce for the Total systems / Size (pc) text fields - see Screen
+   *  2's own identical handlers for why. */
+  private sizeFieldRefreshTimer: number | null = null;
+  /** The live "Total systems" input, kept so `paintSector` can write the
+   *  generator's REAL placed count back into it (31 Aug 2026, a direct
+   *  user ask - the box was showing the density-field ESTIMATE, not what
+   *  the generator actually made) without a `setValue`-triggers-onChange
+   *  loop. Refreshed only when a sector is first established (open / view
+   *  new sector / history-load / search), never mid-edit. */
+  private totalSystemsInput: TextComponent | null = null;
+
+  constructor(app: App, settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void) {
+    super(app);
+    this.settings = settings;
+  }
+
+  onOpen(): void {
+    // Default modal width, kept (31 Aug 2026, a direct user correction - the
+    // preview is meant to be a SQUARE the width of the modal, not a wide
+    // banner). For the preview to sit flush to the TOP edge, three separate
+    // bits of default modal chrome have to go: the close cross, the (empty
+    // but still space-taking) `.modal-title`/`.modal-header`, and the
+    // `.modal`/`.modal-content` padding - the last via `.sf-sol-modal` in
+    // styles.css since Obsidian may set it `!important`. "<- back", Escape
+    // and click-outside all still dismiss the modal.
+    this.modalEl.addClass('sf-sol-modal');
+    this.modalEl.querySelector('.modal-close-button')?.remove();
+    this.modalEl.querySelector('.modal-title')?.remove();
+    this.modalEl.querySelector('.modal-header')?.remove();
+    this.modalEl.style.overflow = 'hidden';   // rounded corners clip the square's corners - accepted
+
+    const recent = this.settings.solNeighbourhoodHistory[0];
+    if (recent) {
+      // Re-open on the last sector the user was looking at - seed included,
+      // so it is genuinely the same sector, not just the same point.
+      this.seed = recent.worldSeed;
+      this.rebuildModel();
+      this.draft = reconcileSizeFields(this.model, defaultScreen2Draft({
+        angleRad: recent.angleRad, distanceFromCentrePc: recent.distanceFromCentrePc, distanceFromPlanePc: recent.distanceFromPlanePc,
+      }));
+    } else {
+      this.seed = Math.random().toString(36).slice(2);
+      this.rebuildModel();
+      const p = this.roll();
+      this.draft = reconcileSizeFields(this.model, defaultScreen2Draft({
+        angleRad: p.angleRad, distanceFromCentrePc: p.distanceFromCentrePc, distanceFromPlanePc: p.distanceFromPlanePc,
+      }));
+      this.recordCurrent();
+    }
+    this.render(true);
+  }
+
+  onClose(): void {
+    if (this.sizeFieldRefreshTimer !== null) { window.clearTimeout(this.sizeFieldRefreshTimer); this.sizeFieldRefreshTimer = null; }
+    this.contentEl.empty();
+    super.onClose();
+  }
+
+  /** `milkyWayAnalogue` + this modal's current seed, terraforming OFF. */
+  private screen1Draft(): Screen1Draft {
+    return defaultScreen1Draft({ morphology: 'milkyWayAnalogue', worldSeed: this.seed, terraformScale: 0, terraformIntensity: 0 });
+  }
+
+  private rebuildModel(): void {
+    const built = modelFromDraft(this.screen1Draft());
+    this.model = built.model;
+    this.params = built.params;
+    this.previewScale = previewScaleFor(this.model, this.params);
+  }
+
+  private roll(): { angleRad: number; distanceFromCentrePc: number; distanceFromPlanePc: number } {
+    const band = solNeighbourhoodBand(this.params.R0Pc, this.params.juric.hThin, this.previewScale);
+    return rollSolNeighbourhoodCentre(band, Math.random);
+  }
+
+  /** Re-derives the non-primary of the size/count pair after any change,
+   *  exactly as Screen 2's own `setDraft` does. */
+  private setDraft(partial: Partial<Screen2Draft>): void {
+    this.draft = reconcileSizeFields(this.model, { ...this.draft, ...partial });
+    this.render();
+  }
+
+  private recordCurrent(): void {
+    const entry: SolNeighbourhoodSector = {
+      worldSeed: this.seed,
+      angleRad: this.draft.angleRad,
+      distanceFromCentrePc: this.draft.distanceFromCentrePc,
+      distanceFromPlanePc: this.draft.distanceFromPlanePc,
+      rolledIso: new Date().toISOString(),
+    };
+    const history = [entry, ...this.settings.solNeighbourhoodHistory].slice(0, SOL_NEIGHBOURHOOD_HISTORY_MAX);
+    this.settings = { ...this.settings, solNeighbourhoodHistory: history };
+    this.onSettingsChange(this.settings);
+  }
+
+  private viewNewSector(): void {
+    const p = this.roll();
+    this.draft = reconcileSizeFields(this.model, {
+      ...this.draft, angleRad: p.angleRad, distanceFromCentrePc: p.distanceFromCentrePc, distanceFromPlanePc: p.distanceFromPlanePc,
+    });
+    this.recordCurrent();
+    this.render(true);
+  }
+
+  private loadEntry(entry: SolNeighbourhoodSector): void {
+    this.seed = entry.worldSeed;
+    this.rebuildModel();
+    this.draft = reconcileSizeFields(this.model, {
+      ...this.draft, angleRad: entry.angleRad, distanceFromCentrePc: entry.distanceFromCentrePc, distanceFromPlanePc: entry.distanceFromPlanePc,
+    });
+    this.render(true);
+  }
+
+  private runSearch(): void {
+    const origin = centrePcFromPolar(this.draft);
+    const criteria = assembleSearchCriteria(this.draft);
+    const result = searchNearestSystem(
+      this.seed, this.model, CURRENT_GEN_VERSION, 0, 0,
+      origin, criteria, Math.max(this.draft.sizeInPc * 20, 2000),
+    );
+    if (!result.found) {
+      new Notice('No matching system found within the search radius - try widening your criteria.');
+      return;
+    }
+    const R = Math.hypot(result.positionPc.x, result.positionPc.y);
+    const theta = Math.atan2(result.positionPc.y, result.positionPc.x);
+    // A search re-establishes the sector centre, so the count refreshes
+    // from the generator too (render(true)) - same as a fresh roll.
+    this.draft = reconcileSizeFields(this.model, {
+      ...this.draft, distanceFromCentrePc: R, angleRad: theta < 0 ? theta + 2 * Math.PI : theta, distanceFromPlanePc: result.positionPc.z,
+    });
+    this.render(true);
+    new Notice(`Found ${result.sysid}, ${result.distancePc.toFixed(1)} pc away - centred.`);
+  }
+
+  /** `syncCount` (31 Aug 2026) - `true` only when a sector has just been
+   *  ESTABLISHED (open / view new sector / history-load / search), so
+   *  `paintSector` writes the generator's real placed count into the Total
+   *  systems box. `false` for a control-driven re-render, where the user's
+   *  own typed / reconciled value must not be clobbered. */
+  private render(syncCount = false): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    this.totalSystemsInput = null;
+    // Full-bleed SQUARE preview (31 Aug 2026, a direct user follow-up: fill
+    // the entire top of the modal, at the modal's OWN width, kept square).
+    // `.modal-content`'s padding is dropped here and re-added on the `body`
+    // wrapper below, so only the preview goes edge to edge; `aspect-ratio`
+    // makes its height track that width. The modal's rounded corners clip
+    // the square/hex sector corners; the user accepted that.
+    contentEl.style.padding = '0';
+    contentEl.style.margin = '0';
+
+    const mapPane = contentEl.createDiv();
+    mapPane.style.cssText = 'position:relative;width:100%;aspect-ratio:1 / 1;background:#05050a;';
+    this.mapPane = mapPane;
+    // Backing-store size is set in `paintSector` once the pane has been laid
+    // out (it fills the pane); CSS keeps it stretched to that box.
+    this.canvas = mapPane.createEl('canvas');
+    this.canvas.style.cssText = 'display:block;width:100%;height:100%;';
+
+    const body = contentEl.createDiv();
+    body.style.cssText = 'padding:12px 16px 16px;';
+
+    // System count + rolled-centre coordinates, both under the preview and
+    // centred (31 Aug 2026, a direct user follow-up). The coordinates are
+    // read-only provenance, not a control, so they sit muted.
+    this.countEl = body.createEl('p', { text: 'Placing systems…' });
+    this.countEl.style.cssText = 'text-align:center;margin:0 0 0;';
+    const coordEl = body.createEl('p', {
+      text: solSectorCoordLabel(this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc),
+    });
+    coordEl.style.cssText = 'text-align:center;margin:2px 0 8px;color:var(--text-muted);font-size:var(--font-ui-small);';
+
+    const actions = body.createDiv();
+    actions.style.cssText = 'display:flex;gap:8px;margin:8px 0;';
+    actions.createEl('button', { text: 'view new sector' }).onclick = () => this.viewNewSector();
+    actions.createEl('button', { text: 'previously viewed sectors' }).onclick = () => {
+      new SolNeighbourhoodHistoryModal(
+        this.app, this.settings.solNeighbourhoodHistory,
+        solSectorKey(this.seed, this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc),
+        (entry) => this.loadEntry(entry),
+      ).open();
+    };
+
+    renderShapeAndDensityRow(
+      body, this.draft.footprintShape, (shape) => this.setDraft({ footprintShape: shape }),
+      this.draft.sysDensity, (density) => this.setDraft({ sysDensity: density }),
+    );
+
+    // Total systems / Size (pc) - identical debounced reactive pair to
+    // Screen 2's own (see its handlers for the debounce rationale). Each
+    // `Setting` is restyled into a centred label-over-input stack (31 Aug
+    // 2026, a direct user follow-up: the two were not lining up) - the
+    // default `Setting` layout pushes name hard-left and control hard-
+    // right, which reads as two mismatched halves at this width.
+    const sizeRow = body.createDiv();
+    sizeRow.style.cssText = 'display:flex;gap:16px;align-items:flex-start;';
+    const centreHalf = (s: Setting): void => {
+      s.settingEl.style.cssText = 'flex:1 1 0;min-width:0;border:none;padding:6px 0;flex-direction:column;align-items:center;gap:3px;';
+      s.infoEl.style.cssText = 'margin:0;text-align:center;';
+      s.controlEl.style.cssText = 'margin:0;padding:0;justify-content:center;';
+    };
+    const totalSystemsSetting = new Setting(sizeRow).setName('Total systems');
+    centreHalf(totalSystemsSetting);
+    totalSystemsSetting.addText((t) => {
+      this.totalSystemsInput = t;
+      t.setValue(String(this.draft.totalSystems))
+        .onChange((v) => {
+          const n = Number(v);
+          if (!Number.isFinite(n) || n < 0) return;
+          if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
+          this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'totalSystems', totalSystems: Math.round(n) }), 400);
+        });
+    });
+    const sizeInPcSetting = new Setting(sizeRow).setName('Size (pc)');
+    centreHalf(sizeInPcSetting);
+    sizeInPcSetting.addText((t) => t.setValue(this.draft.sizeInPc.toFixed(1))
+      .onChange((v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) return;
+        if (this.sizeFieldRefreshTimer !== null) window.clearTimeout(this.sizeFieldRefreshTimer);
+        this.sizeFieldRefreshTimer = window.setTimeout(() => this.setDraft({ sizeEditMode: 'sizeInPc', sizeInPc: n }), 400);
+      }));
+
+    new Setting(body).setName('System at centre').setDesc('Search for a specific system to centre the sector on, instead of the rolled point')
+      .addToggle((t) => t.setValue(this.draft.systemAtCentre).onChange((v) => this.setDraft({ systemAtCentre: v })));
+    if (this.draft.systemAtCentre) {
+      new Setting(body).setName('Multiplicity')
+        .addDropdown((d) => d.addOption('any', 'Any').addOption('solo', 'Solo').addOption('binary', 'Binary or more')
+          .setValue(this.draft.multiplicity).onChange((v) => this.setDraft({ multiplicity: v as Screen2Draft['multiplicity'] })));
+      new Setting(body).setName('Sys type')
+        .addDropdown((d) => d.addOption('nearest', 'Nearest').addOption('interesting', 'Interesting')
+          .addOption('marginal', 'Nearest Marginal').addOption('tolerable', 'Nearest Tolerable').addOption('earthLike', 'Nearest Earth-like')
+          .setValue(this.draft.sysType).onChange((v) => this.setDraft({ sysType: v as Screen2Draft['sysType'] })));
+      new Setting(body).addButton((b) => b.setButtonText('Search').setCta().onClick(() => this.runSearch()));
+    }
+
+    const nav = body.createDiv();
+    nav.style.cssText = 'display:flex;gap:8px;margin-top:12px;';
+    nav.createEl('button', { text: '← back' }).onclick = () => {
+      this.close();
+      new GalaxyStartModal(this.app, this.settings, this.onSettingsChange).open();
+    };
+    const generateBtn = nav.createEl('button', { text: 'generate sector', cls: 'mod-cta' });
+    generateBtn.style.marginLeft = 'auto';   // right-aligned, "<- back" stays left
+    generateBtn.onclick = () => { void this.commit(); };
+
+    void this.paintSector(syncCount);
+  }
+
+  private async paintSector(syncCount: boolean): Promise<void> {
+    const overlay = showBusyOverlay(this.mapPane, 'Rendering preview…');
+    await nextPaint();
+    // Match the backing store to the laid-out pane (it fills the modal's
+    // top). `renderPositionOnlyCanvas` fits the sector to the SHORTER axis,
+    // so a non-square pane just letterboxes rather than cropping.
+    this.canvas.width = Math.max(1, Math.round(this.mapPane.clientWidth));
+    this.canvas.height = Math.max(1, Math.round(this.mapPane.clientHeight));
+    const centre = centrePcFromPolar(this.draft);
+    const thickness = thicknessPcFor(this.draft.sysDensity);
+    const sector = generateSector(this.seed, this.model, centre, this.draft.sizeInPc, thickness, this.draft.footprintShape);
+    this.countEl.setText(`${sector.length} systems in this sector`);
+    renderPositionOnlyCanvas(this.canvas, centre, this.draft.sizeInPc * 1.15, sector.map((s) => s.positionPc));
+    hideBusyOverlay(overlay);
+
+    // The generator's REAL placed count (31 Aug 2026, a direct user ask -
+    // the Total systems box was showing `reconcileSizeFields`' density
+    // ESTIMATE). Only on a freshly-established sector, and only into the
+    // box + draft - `sizeEditMode` stays 'sizeInPc' so Size (pc) keeps the
+    // requested circumradius the generator was actually given, and
+    // `setValue` does not re-fire the field's own `onChange`, so this
+    // cannot loop back into another generate.
+    if (syncCount && sector.length !== this.draft.totalSystems) {
+      this.draft = { ...this.draft, sizeEditMode: 'sizeInPc', totalSystems: sector.length };
+      this.totalSystemsInput?.setValue(String(sector.length));
+    }
+  }
+
+  /** Same guard + delayed-spinner pattern as Screen 3's own commit; the
+   *  generation/write itself is the shared `writeSectorDocument`. */
+  private async commit(): Promise<void> {
+    if (this.generating) return;
+    this.generating = true;
+    const spinnerTimer = window.setTimeout(() => { this.busyOverlay = showBusyOverlay(this.contentEl, 'Generating…'); }, SPINNER_DELAY_MS);
+    try {
+      await writeSectorDocument(this.app, this.screen1Draft(), this.draft, this.model);
+      this.close();
+    } finally {
+      window.clearTimeout(spinnerTimer);
+      hideBusyOverlay(this.busyOverlay);
+      this.busyOverlay = null;
+      this.generating = false;
+    }
+  }
+}
+
+/**
+ * `SolNeighbourhoodHistoryModal` (31 Aug 2026, a direct user follow-up:
+ * "previously viewed sectors should be in a separate modal") - a plain
+ * scrollable list of every past sol-neighbourhood roll, newest first.
+ * Picking one closes this modal and hands the entry back to the still-open
+ * `GalaxySolNeighbourhoodModal` via `onPick`, which reloads it (seed +
+ * centre). Read-only otherwise: it never rolls, records or commits.
+ */
+class SolNeighbourhoodHistoryModal extends Modal {
+  constructor(
+    app: App,
+    private readonly history: readonly SolNeighbourhoodSector[],
+    private readonly currentKey: string,
+    private readonly onPick: (entry: SolNeighbourhoodSector) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl('h3', { text: 'previously viewed sectors' });
+
+    if (this.history.length === 0) {
+      contentEl.createEl('p', { text: 'No sectors viewed yet.' });
+      return;
+    }
+
+    const listEl = contentEl.createDiv();
+    listEl.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:60vh;overflow-y:auto;';
+    for (const entry of this.history) {
+      const isCurrent = solSectorKey(entry.worldSeed, entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc) === this.currentKey;
+      const row = listEl.createEl('button', { text: solSectorCoordLabel(entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc) });
+      row.style.cssText = `text-align:left;padding:6px 10px;${isCurrent ? 'font-weight:bold;' : ''}`;
+      row.onclick = () => { this.close(); this.onPick(entry); };
+    }
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    super.onClose();
   }
 }
 
@@ -1506,9 +2113,13 @@ export class GalaxyScreen2Modal extends Modal {
     this.params = built.params;
     this.previewScale = previewScaleFor(this.model, this.params);
     if (this.model.morphology === 'spiral' || this.model.morphology === 'barredSpiral') {
-      this.solRadiusPc = this.params.R0Pc * this.previewScale;
-      this.solRHalfWidthPc = this.params.R0Pc * 0.1 * this.previewScale;
-      this.solZHalfWidthPc = this.params.juric.hThin * this.previewScale;
+      // The SAME band the sol-neighbourhood sector flow rolls a centre from
+      // (`solNeighbourhoodBand`, galaxyCreationState) - one definition, so
+      // the reference mark drawn here and the roll there cannot disagree.
+      const band = solNeighbourhoodBand(this.params.R0Pc, this.params.juric.hThin, this.previewScale);
+      this.solRadiusPc = band.rCentrePc;
+      this.solRHalfWidthPc = band.rHalfWidthPc;
+      this.solZHalfWidthPc = band.zHalfWidthPc;
     }
   }
 
@@ -1764,7 +2375,7 @@ export class GalaxyScreen3Modal extends Modal {
       this.close();
       new GalaxyScreen2Modal(this.app, this.screen1, this.settings, this.onSettingsChange).open();
     };
-    nav.createEl('button', { text: 'Generate Sector', cls: 'mod-cta' }).onclick = () => { void this.commit(centre); };
+    nav.createEl('button', { text: 'Generate Sector', cls: 'mod-cta' }).onclick = () => { void this.commit(); };
 
     void this.paintSector(centre);
   }
@@ -1780,133 +2391,31 @@ export class GalaxyScreen3Modal extends Modal {
   }
 
   /**
-   * `sectorFootprint.assembleSector` (16 Aug 2026) is called ONLY here, not
-   * from the cheap position-only preview above - it composes the stellar,
-   * remnant AND co-natal-chemistry layers together, which costs real
-   * computation the preview does not need to pay. This is the fix for a
-   * real gap an audit found: `remnants.ts`/`conatal.ts` were both fully
-   * built and gated but never called from anything that produced an actual
-   * sector, so every sector this GUI generated had zero remnants and no
-   * shared birth chemistry despite both being finished science.
-   *
    * Guarded against a second concurrent commit (`this.generating`), and
    * shows a busy overlay (spinner + label) ONLY if the commit is still
    * running after `SPINNER_DELAY_MS` - a commit fast enough to finish
    * before then never flashes it at all. Safe to race a plain `setTimeout`
    * here (unlike Screen 1/2's own recompute, see `showBusyOverlay`'s own
-   * header) because `commitInner` is a sequence of `await`ed I/O calls, not
-   * one long synchronous block - the event loop gets real chances to run
-   * the pending timer between them.
+   * header) because `writeSectorDocument` is a sequence of `await`ed I/O
+   * calls, not one long synchronous block - the event loop gets real
+   * chances to run the pending timer between them.
+   *
+   * The actual generation + write is `writeSectorDocument` (module scope) -
+   * shared verbatim with the sol-neighbourhood sector flow so there is
+   * exactly one commit path, not two that could drift.
    */
-  private async commit(centrePc: { x: number; y: number; z: number }): Promise<void> {
+  private async commit(): Promise<void> {
     if (this.generating) return;
     this.generating = true;
     const spinnerTimer = window.setTimeout(() => { this.busyOverlay = showBusyOverlay(this.contentEl, 'Generating…'); }, SPINNER_DELAY_MS);
     try {
-      await this.commitInner(centrePc);
+      await writeSectorDocument(this.app, this.screen1, this.screen2, this.model);
+      this.close();
     } finally {
       window.clearTimeout(spinnerTimer);
       hideBusyOverlay(this.busyOverlay);
       this.busyOverlay = null;
       this.generating = false;
     }
-  }
-
-  /**
-   * Best `HabTier` across a system's own planets - `null` when there is
-   * nothing to grade (no planets, or no planet carries a habitability
-   * verdict) - same convention `types.ts`'s own `SystemSummary.bestHabTier`
-   * already establishes; this is that convention's first real consumer.
-   */
-  private bestHabTierOf(core: SystemCore): HabTier | null {
-    let best: HabTier | null = null;
-    for (const h of core.humanHabitability) {
-      if (h && (best === null || h.tier > best)) best = h.tier;
-    }
-    return best;
-  }
-
-  private async commitInner(centrePc: { x: number; y: number; z: number }): Promise<void> {
-    const thickness = thicknessPcFor(this.screen2.sysDensity);
-    const assembled = assembleSector(this.screen1.worldSeed, this.model, centrePc, this.screen2.sizeInPc, thickness, this.screen2.footprintShape);
-    const total = assembled.stellar.length + assembled.remnants.length;
-    new Notice(`Generating ${total} systems (${assembled.remnants.length} remnants) - this may take a moment...`);
-
-    // Sector creation (17 Aug 2026) now writes ONLY the sector-list document
-    // - see vault.ts's own header for why the per-system canonical/authored
-    // writes below were removed from THIS flow specifically (they remain
-    // real, gated infrastructure for a future lazy on-click detail note,
-    // not deleted). `generateSystemCore` still runs for real, for every
-    // stellar system - that is where the list's own rich columns
-    // (habitability, planet types, belts) come from; only the WRITTEN
-    // artifact changed, not the computation.
-    const rows: SectorListRow[] = [];
-
-    // Yields the event loop every YIELD_EVERY systems (17 Aug 2026) - the
-    // old loop's own per-system `await writeSystemNote` gave the busy
-    // overlay's `setTimeout` (`commit`'s own SPINNER_DELAY_MS race) real
-    // chances to run between iterations; a single list write at the very
-    // end removes those chances entirely, so a large sector's generation
-    // (still real CPU work, `generateSystemCore` unchanged) would freeze
-    // the UI with no spinner for its whole duration. A macrotask yield
-    // (`setTimeout(0)`, not `nextPaint`'s costlier double-rAF) restores
-    // that without materially slowing generation for a typical sector.
-    const YIELD_EVERY = 25;
-    const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, 0));
-
-    for (let mi = 0; mi < assembled.stellar.length; mi++) {
-      if (mi > 0 && mi % YIELD_EVERY === 0) await yieldToEventLoop();
-      const m = assembled.stellar[mi]!;
-      const s = m.placed;
-      const populationMeta = this.model.populations.find((p) => p.key === s.population);
-      if (!populationMeta) continue;
-      const inputs: GenerateSystemInputs = {
-        sysid: s.sysid, genVersion: CURRENT_GEN_VERSION, worldSeed: this.screen1.worldSeed, positionPc: s.positionPc,
-        population: s.population, populationMeta, formationRank: s.formationRank,
-        terraformScale: this.screen1.terraformScale, terraformIntensity: this.screen1.terraformIntensity,
-        conatal: m.conatal,
-      };
-      const core = generateSystemCore(inputs);
-      rows.push({
-        sysid: s.sysid,
-        // TRUE distance from the SECTOR's own origin (centrePc) - the
-        // owner's own explicit spec for this list's sort order (17 Aug
-        // 2026, corrected - an earlier draft measured from the galactic
-        // origin (0,0,0) instead, a real misreading of the spec).
-        distancePc: trueDistance3dPc(s.positionPc, centrePc),
-        multiplicity: core.stars.length,
-        primaryType: core.stars[0]!.class,
-        bestHabTier: this.bestHabTierOf(core),
-        planetTypes: formatPlanetTypesCell(core.planets),
-        belts: formatBeltsCell(core.belts),
-      });
-    }
-
-    // Remnants get a row too - position/kind only, same honest scoping the
-    // per-system note used to carry for them (full remnant detail is a
-    // separately-scoped remaining gap, unaffected by this change).
-    for (const r of assembled.remnants) {
-      rows.push({
-        sysid: r.sysid,
-        distancePc: trueDistance3dPc(r.positionPc, centrePc),
-        multiplicity: 1,
-        primaryType: r.kind,
-        bestHabTier: null,
-        planetTypes: formatPlanetTypesCell([]),
-        belts: formatBeltsCell([]),
-      });
-    }
-
-    const meta: SectorListMeta = {
-      worldSeed: this.screen1.worldSeed, centrePc, radiusPc: this.screen2.sizeInPc, thicknessPc: thickness,
-      footprintShape: this.screen2.footprintShape, stellarCount: assembled.stellar.length,
-      remnantCount: assembled.remnants.length, generatedIso: new Date().toISOString(),
-    };
-    const content = buildSectorListContent(meta, rows);
-    const filename = `Sector - ${sanitiseFilenamePart(this.screen1.worldSeed)} - ${filenameTimestamp()}`;
-    await writeSectorList(this.app.vault, filename, content);
-
-    new Notice(`StarForge: wrote a ${rows.length}-system sector list to ${SECTOR_FOLDER}/${filename}.md`);
-    this.close();
   }
 }

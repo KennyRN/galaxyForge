@@ -59,6 +59,7 @@ export type ModuleName =
   | 'galacticDensity'
   | 'placement'
   | 'starFormingComplexes'
+  | 'nebulaMorphology'
   | 'conatal'
   | 'remnants'
   | 'sectorFootprint'
@@ -100,6 +101,7 @@ export const MODULE_TIER: Readonly<Record<ModuleName, ModuleTier>> = {
   galacticDensity: 'G',
   placement: 'G',
   starFormingComplexes: 'G',
+  nebulaMorphology: 'G',   // P17 - sculpts complex-organised young star positions
   conatal: 'G',
   remnants: 'G',
   sectorFootprint: 'G',

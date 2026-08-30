@@ -62,6 +62,7 @@ import {
   type ArmDefinition, type ArmWidthParams, type ArmResponseSet, type ArmContrastSet, type ArmClass, type ArmModulationParams,
 } from './spiralArms';
 import { degToRad } from './units';
+import { DEFAULT_NEBULA_PARAMS, type NebulaParams } from './nebulaMorphology';
 
 /* --------------------------------- arm block ---------------------------------- */
 
@@ -312,6 +313,11 @@ export interface GalaxyParameters {
 
   // -- star-forming complexes --
   readonly complexTier: ComplexTierParams;
+  /** P17 - nebular sculpting of complex-organised young stars. `nebula
+   *  .fractalDimensionD` is a hidden knob (no UI, no glossary) but a real
+   *  field-shaping / config-hash input. WIRED into `starFormingComplexes
+   *  .placeYoungClustered` via `sectorFootprint.assembleSector`. */
+  readonly nebula: NebulaParams;
 
   // -- disc/bar/halo (patch S5, migrated from prior module-level consts) --
   readonly R0Pc: number;              // sourced, GRAVITY Collaboration 2019
@@ -388,8 +394,18 @@ export function makeDefaultGalaxyParameters(
     // for two morphologies (unbarred-spiral attach radius; both seeded
     // classes' arm count), a dedicated stamp for exactly this kind of
     // change moving alongside CURRENT_GEN_VERSION's own 14 -> 15 bump.
-    fieldShapeVersion: 2,
-    placementShapeVersion: 1,
+    // P16 (29 Aug 2026): 2 -> 3 - the young thin disc's field shape changes
+    // for every spiral-family morphology (morphological quenching turns the
+    // R=0 peak into a molecular-ring-like turnover), moving alongside
+    // CURRENT_GEN_VERSION's own 16 -> 17 bump. Provenance/lineage only - no
+    // runtime path reads this stamp yet, so the bump forces nothing.
+    fieldShapeVersion: 3,
+    // P17 (30 Aug 2026): 1 -> 2 - the placement ALGORITHM changes (the
+    // group-around-complex and offspring-around-group scatters are now drawn
+    // from the per-complex nebular field, not isotropic Gaussians), alongside
+    // CURRENT_GEN_VERSION's own 17 -> 18 bump. `fieldShapeVersion` is
+    // unchanged: the SMOOTH density field itself is untouched.
+    placementShapeVersion: 2,
     parameterSetVersion: '2026.08.15',
     worldSeed,
     morphology: 'spiral',
@@ -407,6 +423,7 @@ export function makeDefaultGalaxyParameters(
     referenceThetaDeg,
     nLocalPerPc3: 0.0606380,   // verification/reyle_anchor_result.json, 15 Aug 2026 (stars_only, adopted)
     complexTier: DEFAULT_COMPLEX_TIER,
+    nebula: DEFAULT_NEBULA_PARAMS,
     R0Pc: 8178,
     juric: DEFAULT_JURIC,
     fHalo: 0.01,

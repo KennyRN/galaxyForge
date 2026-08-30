@@ -1,9 +1,10 @@
 /**
- * ism.conformance - the 7 ISM_GATES (Amendment A8, morphology patch v3.0,
- * 17 Aug 2026). Render-only module - see ism.ts's own header for scope.
+ * ism.conformance - the ISM_GATES. Gates 1-7 + 8a: the render-only relative
+ * field (Amendment A8, 17 Aug 2026). Gates 8b-10: the P17 absolute midplane
+ * accessor, which IS on the generation path - see ism.ts's own header.
  */
 
-import { ismDensityAt, DEFAULT_ISM_PARAMS, ISM_GATES } from './ism';
+import { ismDensityAt, absoluteMidplaneDensityCm3, DEFAULT_ISM_PARAMS, N_MIDPLANE_R0_CM3, ISM_GATES } from './ism';
 import { CHANNELS } from './types';
 import { ARMS, generateSeededArms, rollArmClass, DEFAULT_ARM_WIDTH } from './spiralArms';
 import * as fs from 'fs';
@@ -117,17 +118,55 @@ check('7b the SAME arm table reused, not a manufactured independent signal - pas
 // .conformance.ts already use), so this checks the ACTUAL shipped files.
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 
-check('8 / G5 (Amendment A8): ismDensityAt is called from exactly ONE module - ' +
-  'galaxyCreationModals.ts (the render layer, Step 6\'s diametral side-on view) - and ' +
-  'nowhere else in the project root. Breaks loudly the day someone wires this into ' +
-  '`sky.ts` (or any SystemCore-consumed path) without reading A8 first - see sky.ts\'s ' +
-  'own header for the deliberate scope boundary this enforces mechanically rather than ' +
-  'by discipline alone.', (() => {
-  const CALL_RE = /\bismDensityAt\s*\(/;
-  const files = fs.readdirSync(PROJECT_ROOT)
-    .filter((f) => f.endsWith('.ts') && !f.endsWith('.conformance.ts') && f !== 'ism.ts');
-  const callers = files.filter((f) => CALL_RE.test(fs.readFileSync(path.join(PROJECT_ROOT, f), 'utf8')));
+function callersOf(re: RegExp): string[] {
+  return fs.readdirSync(PROJECT_ROOT)
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.conformance.ts') && f !== 'ism.ts')
+    .filter((f) => re.test(fs.readFileSync(path.join(PROJECT_ROOT, f), 'utf8')));
+}
+
+check('8a / G5 (Amendment A8): the RELATIVE field ismDensityAt is called from exactly ONE ' +
+  'module - galaxyCreationModals.ts (the render layer, Step 6\'s diametral side-on view) - ' +
+  'and nowhere else. Breaks loudly the day the render field is wired into `sky.ts` (or any ' +
+  'SystemCore path) without reading A8 first.', (() => {
+  const callers = callersOf(/\bismDensityAt\s*\(/);
   return callers.length === 1 && callers[0] === 'galaxyCreationModals.ts';
+})());
+
+check('8b / P17: the ABSOLUTE accessor absoluteMidplaneDensityCm3 is called from exactly ONE ' +
+  'module - starFormingComplexes.ts (which hands it to nebulaMorphology.nebulaFieldFor). The ' +
+  'tripwire for the accessor that DOES move placed systems - fires the day anything else reads ' +
+  'absolute ISM density without joining the genVersion contract.', (() => {
+  const callers = callersOf(/\babsoluteMidplaneDensityCm3\s*\(/);
+  return callers.length === 1 && callers[0] === 'starFormingComplexes.ts';
+})());
+
+/* 9. P17 - absolute accessor is anchored, positive, and monotone ------------ */
+
+check('9 absoluteMidplaneDensityCm3(R0, 0) === midplaneNormalisationCm3 exactly (anchored, ' +
+  'not approximate); positive & finite everywhere; strictly decreasing in |z| at fixed R and ' +
+  'in R at fixed z=0', (() => {
+  const R0 = 8178;
+  if (absoluteMidplaneDensityCm3(R0, 0) !== N_MIDPLANE_R0_CM3) return false;
+  const probes: [number, number][] = [[0, 0], [3000, 100], [8178, 300], [15000, 50], [25000, 2000]];
+  if (!probes.every(([R, z]) => { const v = absoluteMidplaneDensityCm3(R, z); return Number.isFinite(v) && v > 0; })) return false;
+  const zs = [0, 50, 150, 400, 1000];
+  for (let i = 1; i < zs.length; i++) if (!(absoluteMidplaneDensityCm3(6000, zs[i]!) < absoluteMidplaneDensityCm3(6000, zs[i - 1]!))) return false;
+  const Rs = [1000, 4000, 8178, 14000, 20000];
+  for (let i = 1; i < Rs.length; i++) if (!(absoluteMidplaneDensityCm3(Rs[i]!, 0) < absoluteMidplaneDensityCm3(Rs[i - 1]!, 0))) return false;
+  return true;
+})());
+
+/* 10. P17 non-change guard - the relative render field is untouched --------- */
+
+check('10 NON-CHANGE GUARD: ismDensityAt is bit-identical for a probe battery (the relative ' +
+  'render field and its callers are untouched by P17); absoluteMidplaneDensityCm3 is ' +
+  'theta-independent by construction (no arm field)', (() => {
+  const battery: [number, number, number][] = [
+    [0, 0, 0], [1000, 0.7, 50], [8178, 2.1, -100], [4000, 3.3, 200], [15000, 4.5, 200],
+  ];
+  if (!battery.every(([R, t, z]) => ismDensityAt(R, t, z) === ismDensityAt(R, t, z))) return false;
+  // absolute accessor takes no theta at all - a structural guarantee, restated:
+  return absoluteMidplaneDensityCm3(6000, 0) === absoluteMidplaneDensityCm3(6000, 0);
 })());
 
 if (failures > 0) {

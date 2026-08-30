@@ -5,7 +5,9 @@
  * -- WHAT THIS IS, HONESTLY -----------------------------------------------------
  * A REAL, loadable plugin, not a mock-up. `onload` registers TWO entry
  * points into the same galaxy-creation flow - a command AND a ribbon icon,
- * both opening `GalaxyScreen1Modal` - plus the older single-command test
+ * both opening `GalaxyStartModal` (the "whole galaxy" vs "sol-neighbourhood
+ * sector template" chooser, 30 Aug 2026, which then opens `GalaxyScreen1Modal`
+ * or jumps straight to Screen 3) - plus the older single-command test
  * harness kept for direct pipeline exercise. The three-screen GUI
  * (`galaxyCreationModals.ts`) drives the full built pipeline: morphology ->
  * `galaxyModel` -> `sectorSearch`/`sectorFootprint` -> `systemConductor` ->
@@ -53,8 +55,8 @@ import { generateSystemCore, type GenerateSystemInputs } from './systemConductor
 import { CURRENT_GEN_VERSION } from './genVersion';
 import { writeSystemNote, CANONICAL_FOLDER } from './vault';
 import type { RenderSystemInput } from './render';
-import { GalaxyScreen1Modal } from './galaxyCreationModals';
-import type { MorphologyChoice, LenticularBulgeType, Screen2Draft } from './galaxyCreationState';
+import { GalaxyStartModal } from './galaxyCreationModals';
+import type { MorphologyChoice, LenticularBulgeType, Screen2Draft, SolNeighbourhoodSector } from './galaxyCreationState';
 
 const TEST_WORLD_SEED = 'starforge-default-seed';
 const TEST_CENTRE_PC = { x: 8178, y: 0, z: 0 };   // the Sun's own canonical placement default
@@ -89,10 +91,17 @@ export interface StarForgeSettings {
    *  report: "when leave and come back to the 2nd page... everything is
    *  reset"). Optional: absent until Screen 2 has been visited once. */
   lastScreen2Draft?: Screen2Draft;
+  /** Every sol-neighbourhood sector the "create a sector using
+   *  sol-neighbourhood as a template" flow has rolled (30 Aug 2026),
+   *  newest first, capped by that modal's own `SOL_NEIGHBOURHOOD_HISTORY_MAX`.
+   *  Persisted so its "view new sector" history - and the ability to jump
+   *  back to an earlier roll - survives a restart. Each entry carries its
+   *  own `worldSeed` (see `SolNeighbourhoodSector`). */
+  solNeighbourhoodHistory: SolNeighbourhoodSector[];
 }
 
 export const DEFAULT_SETTINGS: StarForgeSettings = {
-  lastWorldSeed: '', defaultTerraformScale: 3, defaultTerraformIntensity: 3,
+  lastWorldSeed: '', defaultTerraformScale: 3, defaultTerraformIntensity: 3, solNeighbourhoodHistory: [],
 };
 
 export default class StarForgePlugin extends Plugin {
@@ -118,7 +127,7 @@ export default class StarForgePlugin extends Plugin {
   }
 
   private openGalaxyCreation(): void {
-    new GalaxyScreen1Modal(this.app, this.settings, (updated) => {
+    new GalaxyStartModal(this.app, this.settings, (updated) => {
       this.settings = updated;
       void this.saveSettings();
     }).open();
