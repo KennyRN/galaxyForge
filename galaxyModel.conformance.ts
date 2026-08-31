@@ -490,6 +490,24 @@ check('G3b: armClass genuinely VARIES across worldSeeds (not manufactured stabil
       const b = smoothDiscDensityTotal(SPIRAL_POPULATIONS, 12000, 0, qParams);
       return a > 0 && b > 0 && b < a;
     })());
+
+  // G-P16-g (E4, ruling): the physical claim "more spheroid -> more suppression"
+  // (Martig et al. 2009) rendered falsifiable. The other G-P16 gates all pin the
+  // DEFAULT-parameter profile; none varies the bulge and asserts the quench
+  // responds. Sweep bulge.strength up and assert the inner-disc quench deepens
+  // strictly monotonically.
+  check('G-P16-g: increasing the bulge mass (bulge.strength 0.25 -> 4) strictly deepens the ' +
+    'inner-disc quench - quench(1 kpc) is monotonically decreasing, and the ' +
+    'bulge-dominated case is far below the disc-dominated one',
+    (() => {
+      const strengths = [0.25, 0.5, 1, 2, 4];
+      const qs = strengths.map((s) => {
+        const p = { ...qParams, bulge: { ...qParams.bulge, strength: s } };
+        return morphologicalQuench(SPIRAL_POPULATIONS, p, qUps, 1000, 0);
+      });
+      const strictlyDown = qs.every((q, i) => i === 0 || (q < qs[i - 1]! && q > 0 && q <= 1));
+      return strictlyDown && qs[qs.length - 1]! < 0.5 * qs[0]!;
+    })());
 }
 
 if (failures > 0) throw new Error(`${failures} galaxyModel conformance failure(s)`);

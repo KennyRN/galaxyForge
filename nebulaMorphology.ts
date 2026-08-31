@@ -56,12 +56,11 @@
  *   ALPHA_B_CM3_S            2.59e-13 cm^3 s^-1, Case B, 1e4 K - Osterbrock &
  *                            Ferland 2006, AGN^3 2nd ed.
  *   PROTON_MASS_G            1.67262e-24 g - CODATA.
- *   N_MIDPLANE_R0_CM3        1.0 cm^-3 total-H midplane density at R0 - McKee,
- *                            Parravano & Hollenbach 2015, ApJ 814, 13
- *                            (Sigma_gas 13.7, Sigma_HI 7.8, Sigma_H2 0.7
- *                            Msol/pc^2). FLAG: the exact midplane decimal must
- *                            be read off Table 2 of the PDF before it enters
- *                            a header claim - 1.0 stands, decimal pending.
+ *   N_MIDPLANE_R0_CM3        1.17 cm^-3 total-H (H-nuclei) midplane density at
+ *                            R0 - McKee, Parravano & Hollenbach 2015, ApJ 814,
+ *                            13, Section 5.4 verbatim (cross-checked vs the
+ *                            Table 2 component sum). No pending decimal.
+ *                            (Owned by `ism.ts`; quoted here for the ledger.)
  *   Stromgren R_S = (3 Q / (4 pi n^2 alpha_B))^(1/3)  - Stromgren 1939, ApJ 89, 526.
  *   Weaver  R_w = (250/(308 pi))^(1/5) (L_w/rho_0)^(1/5) t^(3/5)
  *                            - Weaver et al. 1977, ApJ 218, 377; Mac Low &
@@ -90,9 +89,9 @@
  *   NEBULA_NATAL_DENSITY_CONTRAST  1000. The region-expansion laws run
  *                            against the NATAL molecular clump density
  *                            (10^2-10^4 cm^-3, Lada & Lada 2003), NOT the
- *                            diffuse midplane (~1). Implemented as a contrast
+ *                            diffuse midplane (1.17). Implemented as a contrast
  *                            over the local absolute ISM density so it tracks
- *                            the galactic gradient; = 1e3 cm^-3 at R0. No
+ *                            the galactic gradient; ~= 1.17e3 cm^-3 at R0. No
  *                            single sourced value (natal densities span 2 dex).
  *   DEFAULT_PHASE_BOUNDARIES_MYR  [0.5, 3, 8, 20]. Anchored to expansion
  *                            timescales and to Churchwell et al. 2006/2007
@@ -154,7 +153,7 @@ export const L_WIND_PER_MEMBER_ERG_S = 1.03e34;
 
 /** Multiplier on the local absolute ISM density giving the natal molecular
  *  clump density the region-expansion laws run against. `calibrated` -
- *  = 1e3 cm^-3 at R0 (McKee et al. 2015 midplane ~ 1 cm^-3). */
+ *  ~= 1.17e3 cm^-3 at R0 (McKee et al. 2015 midplane 1.17 cm^-3). */
 export const NEBULA_NATAL_DENSITY_CONTRAST = 1000;
 
 /** Dimensionless. `tunable + RE-AUDIT` - hidden (see header). */
@@ -402,7 +401,7 @@ export function nebulaFieldFor(
  *  5. D HIDDEN BUT HASHED - not in any UI/glossary surface; changing it
  *     changes the field.
  *  6. STROMGREN SANITY - stromgrenRadiusPc live-computed matches the closed
- *     form; `nebulaNatalDensityCm3` = contrast x local ISM (= 1e3 at R0),
+ *     form; `nebulaNatalDensityCm3` = contrast x local ISM (~1.17e3 at R0),
  *     exercising `ism.absoluteMidplaneDensityCm3`.
  *  7. FRACTAL FORM - H = 3 - D gives valid H in (0,1) across the band, and a
  *     higher D yields a rougher field (more small-scale power).

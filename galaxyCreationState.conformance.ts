@@ -12,6 +12,8 @@ import {
   type MorphologyChoice, type Screen2Draft,
 } from './galaxyCreationState';
 import { createSpiralModel } from './galaxyModel';
+import * as fs from 'fs';
+import * as path from 'path';
 
 let failures = 0;
 function check(name: string, cond: boolean) {
@@ -183,6 +185,33 @@ check('assembleSearchCriteria carries the draft\'s own multiplicity and sysType 
   const d: Screen2Draft = { ...defaultScreen2Draft(), multiplicity: 'binary', sysType: 'tolerable' };
   const c = assembleSearchCriteria(d);
   return c.multiplicity === 'binary' && c.sysType.kind === 'habitable' && (c.sysType as { minTier: number }).minTier === 3;
+})());
+
+/* -- B1 (P17): the Sol-neighbourhood modal does no size/count reconcile ------ */
+
+check('Gate B1: GalaxySolNeighbourhoodModal calls reconcileSizeFields nowhere, and ' +
+  'reads draft.totalSystems nowhere - the field is write-only on every Sol path ' +
+  '(no Total-systems control, never persisted in SolNeighbourhoodSector)', (() => {
+  let src: string;
+  try {
+    src = fs.readFileSync(path.join(__dirname, '..', 'galaxyCreationModals.ts'), 'utf8');
+  } catch {
+    try { src = fs.readFileSync(path.join(__dirname, '..', '..', 'galaxyCreationModals.ts'), 'utf8'); }
+    catch { return false; }
+  }
+  const start = src.indexOf('export class GalaxySolNeighbourhoodModal');
+  if (start < 0) return false;
+  // class body ends at the next top-level class declaration
+  const after = src.slice(start + 40);
+  const endRel = after.search(/\n(?:export )?class \w/);
+  const body = endRel < 0 ? after : after.slice(0, endRel);
+  // strip block + line comments so the prose in the class doc comment (which
+  // legitimately names reconcileSizeFields to explain why it is absent) does
+  // not trip the check
+  const code = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  if (/\breconcileSizeFields\s*\(/.test(code)) return false;
+  if (/\.totalSystems\b/.test(code)) return false;
+  return true;
 })());
 
 /* --------------------------------- result ------------------------------------ */

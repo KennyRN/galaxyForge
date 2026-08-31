@@ -1526,7 +1526,22 @@ function solSectorKey(worldSeed: string, angleRad: number, distanceFromCentrePc:
  * the rest the controls own. "generate sector" (on one row with "<- back",
  * a direct user follow-up) commits through the shared `writeSectorDocument`
  * - the byte-identical path Screen 3 uses, no second copy.
+ *
+ * SIZE/COUNT REACTIVITY IS NOT USED HERE (P17 preview-responsiveness, items
+ * B1/B2). `reconcileSizeFields` keeps `sizeInPc` <-> `totalSystems` in step
+ * for Screen 2's Total-systems box by running a 32x32xZ_SAMPLES `projectSlab`
+ * on every edit. This modal has no Total-systems box, never reads
+ * `draft.totalSystems`, and does not persist it (`SolNeighbourhoodSector`
+ * stores only seed + angle/R/z + rolledIso). So every `reconcileSizeFields`
+ * call on a Sol path was pure discarded work - up to several seconds per
+ * shape/history click. All removed; `solNeighbourhoodDraft` stamps
+ * `totalSystems: NaN` so a future reader who wires the box in gets a loud
+ * signal rather than a plausible-looking 0.
  */
+function solNeighbourhoodDraft(d: Screen2Draft): Screen2Draft {
+  return { ...d, totalSystems: NaN };
+}
+
 export class GalaxySolNeighbourhoodModal extends Modal {
   private settings: GalaxyForgeSettings;
   private seed!: string;
@@ -1580,7 +1595,7 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       // so it is genuinely the same sector, not just the same point.
       this.seed = recent.worldSeed;
       this.rebuildModel();
-      this.draft = reconcileSizeFields(this.model, defaultScreen2Draft({
+      this.draft = solNeighbourhoodDraft(defaultScreen2Draft({
         angleRad: recent.angleRad, distanceFromCentrePc: recent.distanceFromCentrePc, distanceFromPlanePc: recent.distanceFromPlanePc,
         sizeInPc: circumradiusFromCharacteristic('circle', SOL_DEFAULT_CHARACTERISTIC_PC),
       }));
@@ -1589,7 +1604,7 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       this.seed = Math.random().toString(36).slice(2);
       this.rebuildModel();
       const p = this.roll();
-      this.draft = reconcileSizeFields(this.model, defaultScreen2Draft({
+      this.draft = solNeighbourhoodDraft(defaultScreen2Draft({
         angleRad: p.angleRad, distanceFromCentrePc: p.distanceFromCentrePc, distanceFromPlanePc: p.distanceFromPlanePc,
         sizeInPc: circumradiusFromCharacteristic('circle', SOL_DEFAULT_CHARACTERISTIC_PC),
       }));
@@ -1649,9 +1664,9 @@ export class GalaxySolNeighbourhoodModal extends Modal {
   private applyEntry(entry: SolNeighbourhoodSector): void {
     this.seed = entry.worldSeed;
     this.rebuildModel();
-    this.draft = reconcileSizeFields(this.model, {
+    this.draft = {
       ...this.draft, angleRad: entry.angleRad, distanceFromCentrePc: entry.distanceFromCentrePc, distanceFromPlanePc: entry.distanceFromPlanePc,
-    });
+    };
     this.render(true);
   }
 
@@ -1705,9 +1720,9 @@ export class GalaxySolNeighbourhoodModal extends Modal {
    *  end - the double-right-arrow's action regardless of tape position. */
   private rollNew(): void {
     const p = this.roll();
-    this.draft = reconcileSizeFields(this.model, {
+    this.draft = {
       ...this.draft, angleRad: p.angleRad, distanceFromCentrePc: p.distanceFromCentrePc, distanceFromPlanePc: p.distanceFromPlanePc,
-    });
+    };
     this.recordCurrent();
     this.historyCursor = this.chronoHistory().length - 1;
     this.render(true);
@@ -1747,11 +1762,12 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     }
     const R = Math.hypot(result.positionPc.x, result.positionPc.y);
     const theta = Math.atan2(result.positionPc.y, result.positionPc.x);
-    // A search re-establishes the sector centre, so the count refreshes
-    // from the generator too (render(true)) - same as a fresh roll.
-    this.draft = reconcileSizeFields(this.model, {
+    // A search re-establishes the sector centre; the count under the map
+    // refreshes from the generator on the next paint (render(true)) - same as
+    // a fresh roll. No size/count reconcile (B1 - this modal has no count box).
+    this.draft = {
       ...this.draft, distanceFromCentrePc: R, angleRad: theta < 0 ? theta + 2 * Math.PI : theta, distanceFromPlanePc: result.positionPc.z,
-    });
+    };
     this.render(true);
     new Notice(`Found ${result.sysid}, ${result.distancePc.toFixed(1)} pc away - centred.`);
   }

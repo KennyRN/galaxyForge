@@ -126,35 +126,56 @@ function turnoffMassSol(ageGyr: number, fehDex: number): number {
 }
 
 /**
- * IMF-INTEGRAL MEMO (P17 preview-responsiveness package, item A).
+ * IMF-INTEGRAL MEMO (P17 preview-responsiveness package, items A1/A2/A4;
+ * By-law M - memoisation, provisional letter).
  *
  * `upsilonFor` and `deadStarFraction` are each a ~60-step bisection plus two
  * 2000-step log-space integrations of the Kroupa IMF - and a V8 profile of a
  * spiral-model preview puts ~72% of every `densityAt` evaluation inside these
- * two functions. Yet each reads EXACTLY TWO fields of `Population`
- * (`ageMeanGyr`, `fehMeanDex`), and a galaxy's population list is fixed for
- * its life, so the whole result space is a handful of numbers recomputed
- * millions of times per slab projection. These maps collapse that.
+ * two functions. Yet each depends on EXACTLY TWO numbers (`ageMeanGyr`,
+ * `fehMeanDex`), and a galaxy's population list is fixed for its life, so the
+ * whole result space is a handful of numbers recomputed millions of times per
+ * slab projection. These maps collapse that.
  *
- * This is MEMOISATION, not approximation: the cached value is the value the
- * uncached body would have returned, bit for bit (galacticDensity Gate 6
- * proves it over 1,040 paired evaluations), so there is no `genVersion`
- * consequence and the `derived` grade is unchanged - a cache is an
- * implementation detail of an existing derived quantity, not a new value.
+ * By-law M licenses the unbounded, process-lifetime, module-level cache
+ * BECAUSE the key is the complete input set: a memo keyed on everything the
+ * value depends on is indistinguishable from recomputation and so cannot
+ * violate Amendment P (pinned worlds). No galaxy-scoped clearing, no
+ * eviction. (Contrast `remnants.cachedCalibration`, which caches a
+ * galaxy-specific value under NO key - a live determinism defect, raised as
+ * its own erratum, out of this package's blast radius.)
  *
- * THE ONE INVARIANT THAT CAN ROT: the key is `${ageMeanGyr}|${fehMeanDex}`
- * and NOTHING ELSE. If either function is ever changed to read a third field
- * of `Population`, this key becomes incomplete and the cache silently
- * returns wrong answers for every galaxy whose populations vary in that
- * field. galacticDensity Gate 7 exists solely to catch that - it perturbs
- * every other field of a `Population` and asserts the result does not move.
- * Extend the key here BEFORE adding any such dependency.
+ * KEY COMPLETENESS IS ENFORCED TWO WAYS:
+ *  - structurally (A2): `upsilonFor` / `deadStarFraction` take `ImfInputs`,
+ *    not `Population`, so a third dependency is un-referenceable without a
+ *    signature change that forces this key to be revisited;
+ *  - by gate (Gate 7 / handoff "Gate 6"): perturb every other `Population`
+ *    field, assert neither result moves.
+ * `imfTotalNumber()` (A4) is the IMF number integral over the FULL mass
+ * range - zero inputs, so it is a lazily-evaluated module constant, not a
+ * per-key cache entry.
+ *
+ * MEMOISATION, not approximation: the cached value is bit-for-bit what the
+ * uncached body returns (Gate 6 / handoff "Gate 4" proves it over a
+ * population x age x feh grid), so no `genVersion` consequence and the
+ * `derived` grade is unchanged.
  */
-const imfMemoKey = (pop: Population): string => `${pop.ageMeanGyr}|${pop.fehMeanDex}`;
+export type ImfInputs = { readonly ageMeanGyr: number; readonly fehMeanDex: number };
+
+const imfMemoKey = (p: ImfInputs): string => `${p.ageMeanGyr}|${p.fehMeanDex}`;
 const upsilonMemo = new Map<string, number>();
 const deadStarFractionMemo = new Map<string, number>();
 
-/** TEST-ONLY (galacticDensity Gates 6/7). Clears both IMF-integral memos. */
+/** IMF star-count integral over the FULL Kroupa mass range - no population
+ *  dependence, so an empty-key constant (A4). Lazily evaluated so a build
+ *  that never asks for a dead-star fraction never runs it. */
+let imfTotalNumberCache: number | null = null;
+export function imfTotalNumber(): number {
+  return (imfTotalNumberCache ??= integrate(kroupaImfDensity, IMF_MIN_MSUN, IMF_MAX_MSUN));
+}
+
+/** TEST-ONLY (galacticDensity Gates 6/7). Clears the two per-key IMF memos.
+ *  Does NOT touch `imfTotalNumber`'s constant - it has no inputs to vary. */
 export function __clearImfCaches(): void {
   upsilonMemo.clear();
   deadStarFractionMemo.clear();
@@ -173,10 +194,10 @@ export function __clearImfCaches(): void {
  * denominator, which cancels. See the header for why no separate
  * living-mass-fraction correction is needed on top of this.
  *
- * Memoised on `(ageMeanGyr, fehMeanDex)` - see the IMF-INTEGRAL MEMO note
- * above before adding any dependency on a third `Population` field.
+ * Takes `ImfInputs` (age + feh only), memoised on both - see the
+ * IMF-INTEGRAL MEMO note. Widen the parameter type and you must widen the key.
  */
-export function upsilonFor(pop: Population): number {
+export function upsilonFor(pop: ImfInputs): number {
   const key = imfMemoKey(pop);
   const hit = upsilonMemo.get(key);
   if (hit !== undefined) return hit;
@@ -195,16 +216,15 @@ export function upsilonFor(pop: Population): number {
  * (S5.2) reuses this directly rather than re-deriving turnoff machinery a
  * second time (Law 1: one IMF/turnoff composition, here).
  *
- * Memoised on `(ageMeanGyr, fehMeanDex)` - see the IMF-INTEGRAL MEMO note.
+ * Takes `ImfInputs`, memoised on both - see the IMF-INTEGRAL MEMO note.
  */
-export function deadStarFraction(pop: Population): number {
+export function deadStarFraction(pop: ImfInputs): number {
   const key = imfMemoKey(pop);
   const hit = deadStarFractionMemo.get(key);
   if (hit !== undefined) return hit;
   const turnoff = Math.min(turnoffMassSol(pop.ageMeanGyr, pop.fehMeanDex), IMF_MAX_MSUN);
   const numberOfLiving = integrate(kroupaImfDensity, IMF_MIN_MSUN, turnoff);
-  const numberOfTotal = integrate(kroupaImfDensity, IMF_MIN_MSUN, IMF_MAX_MSUN);
-  const fraction = Math.max(0, Math.min(1, 1 - numberOfLiving / numberOfTotal));
+  const fraction = Math.max(0, Math.min(1, 1 - numberOfLiving / imfTotalNumber()));
   deadStarFractionMemo.set(key, fraction);
   return fraction;
 }
@@ -256,17 +276,24 @@ export function densityByPopulationAtCartesian(model: GalaxyModel, x: number, y:
  *  4. COORDINATE TRANSFORM ROUND-TRIPS - polar<->Cartesian to 1e-9, and the
  *     origin does not throw.
  *  5. densityAtCartesian AGREES with `model.densityAt` via the same transform.
- *  6. MEMOISED EQUALS RAW - `upsilonFor` / `deadStarFraction` return the
- *     bit-identical value with the IMF-integral memo warm vs freshly cleared
- *     (`__clearImfCaches`), across the full population set crossed with a
- *     grid of ages and metallicities. This is the gate that licenses leaving
- *     `genVersion` untouched: the cache is memoisation, not approximation.
- *  7. CACHE KEY IS COMPLETE - perturbing any `Population` field OTHER than
- *     `ageMeanGyr` / `fehMeanDex` does not move either result. Fails loudly
- *     the day someone adds a third dependency to those functions without
- *     extending `imfMemoKey` (see the IMF-INTEGRAL MEMO note).
+ *  6. MEMOISED EQUALS RAW (handoff global label: "Gate 4") - `upsilonFor` /
+ *     `deadStarFraction` return the bit-identical value with the IMF-integral
+ *     memo warm vs freshly cleared (`__clearImfCaches`), across the full
+ *     population set crossed with a grid of ages and metallicities. This is
+ *     the gate that licenses leaving `genVersion` untouched: the cache is
+ *     memoisation, not approximation (By-law M).
+ *  7. CACHE KEY IS COMPLETE (handoff global label: "Gate 6") - perturbing any
+ *     `Population` field OTHER than `ageMeanGyr` / `fehMeanDex` does not move
+ *     either result. Backs up the structural guard (`ImfInputs` param type,
+ *     A2): fails loudly the day someone widens the parameter and adds a third
+ *     dependency without extending `imfMemoKey`.
+ *  8. IMF TOTAL IS A CONSTANT (A4) - `imfTotalNumber()` returns the same
+ *     value on every call and equals the full-range IMF number integral;
+ *     `deadStarFraction({ageMeanGyr: 0})` is exactly 0 (turnoff = IMF_MAX,
+ *     numerator == denominator), proving the hoisted constant stays
+ *     consistent with the live numerator integrator.
  */
-export const GALACTIC_DENSITY_GATES = 7 as const;
+export const GALACTIC_DENSITY_GATES = 8 as const;
 
 /* -------------------------------- glossary ----------------------------------- */
 

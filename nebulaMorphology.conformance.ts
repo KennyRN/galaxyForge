@@ -13,6 +13,7 @@ import {
 } from './nebulaMorphology';
 import { mulberry32 } from './rng';
 import { cmToPc } from './units';
+import { N_MIDPLANE_R0_CM3, absoluteMidplaneDensityCm3 } from './ism';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -147,14 +148,16 @@ check(`G-P17-f: sampleGroupPos and sampleOffspringPos each consume EXACTLY ${SAM
 
 check('G-P17-g: stromgrenRadiusPc matches the closed form to 1e-9 relative; ' +
   'nebulaNatalDensityCm3 = contrast x local absolute ISM density, and equals ' +
-  `${NEBULA_NATAL_DENSITY_CONTRAST} cm^-3 at R0 (= contrast x 1.0)`, (() => {
+  `contrast x N_MIDPLANE_R0_CM3 (${NEBULA_NATAL_DENSITY_CONTRAST} x ${N_MIDPLANE_R0_CM3}) at R0`, (() => {
   const Q = 1e49, n = 1e3;
   const expectedPc = cmToPc(Math.cbrt((3 * Q) / (4 * Math.PI * n * n * ALPHA_B_CM3_S)));
   const got = stromgrenRadiusPc(Q, n);
   if (!(Math.abs(got - expectedPc) / expectedPc < 1e-9 && got > 0)) return false;
-  // n_natal at R0 (8178 pc) - absoluteMidplaneDensityCm3(R0,0) === 1.0 by anchor
+  // n_natal at R0 (8178 pc) = contrast x absoluteMidplaneDensityCm3(R0,0),
+  // and the ISM accessor is anchored to N_MIDPLANE_R0_CM3 exactly at R0.
+  if (absoluteMidplaneDensityCm3(8178, 0) !== N_MIDPLANE_R0_CM3) return false;
   const nR0 = nebulaNatalDensityCm3(8178);
-  if (Math.abs(nR0 - NEBULA_NATAL_DENSITY_CONTRAST) > 1e-9) return false;
+  if (Math.abs(nR0 - NEBULA_NATAL_DENSITY_CONTRAST * N_MIDPLANE_R0_CM3) > 1e-9) return false;
   // it tracks the ISM gradient: denser toward the centre, thinner outward
   return nebulaNatalDensityCm3(3000) > nR0 && nebulaNatalDensityCm3(16000) < nR0;
 })());
@@ -184,10 +187,11 @@ check('G-P17-h: the derived per-member ionising & wind budgets give physically s
   'few-to-tens-pc wind shell at 5 Myr, and a larger superbubble (boosted, dispersed medium) ' +
   'at 15 Myr', (() => {
   const nMembers = 72;
-  const nNatal = nebulaNatalDensityCm3(8178);          // ~1e3
+  const nNatal = nebulaNatalDensityCm3(8178);          // ~1.17e3
   const rS = stromgrenRadiusPc(nMembers * K_Q_PER_MEMBER_S, nNatal);
   const rWind = weaverShellRadiusPc(nMembers * L_WIND_PER_MEMBER_ERG_S, nNatal, 5);
-  const rSuper = weaverShellRadiusPc(nMembers * L_WIND_PER_MEMBER_ERG_S, 1.0, 15, SUPERBUBBLE_LW_BOOST);
+  // the superbubble expands into the DISPERSED diffuse medium, ~= the ISM backdrop
+  const rSuper = weaverShellRadiusPc(nMembers * L_WIND_PER_MEMBER_ERG_S, N_MIDPLANE_R0_CM3, 15, SUPERBUBBLE_LW_BOOST);
   const sane = rS > 0.3 && rS < 20 && rWind > 1 && rWind < 60 && rSuper > rWind && rSuper < 400;
   // single O star (Q ~ 1e49) in a dense clump -> sub-pc compact HII
   const rCompact = stromgrenRadiusPc(1e49, 1e3);

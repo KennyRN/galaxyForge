@@ -1,6 +1,6 @@
 import {
   upsilonFor, deadStarFraction, cartesianToPolar, polarToCartesian, densityAtCartesian,
-  __clearImfCaches, GALACTIC_DENSITY_GATES,
+  __clearImfCaches, imfTotalNumber, GALACTIC_DENSITY_GATES, type ImfInputs,
 } from './galacticDensity';
 import {
   createSpiralModel, SPIRAL_POPULATIONS, ELLIPTICAL_POPULATIONS, LENTICULAR_POPULATIONS,
@@ -131,7 +131,27 @@ check('7 perturbing any Population field other than ageMeanGyr/fehMeanDex leaves
     return true;
   })());
 
-check(`gate count matches GALACTIC_DENSITY_GATES`, GALACTIC_DENSITY_GATES === 7);
+// 8. IMF TOTAL IS A CONSTANT (A4) - hoisted out of deadStarFraction's body.
+check('8 imfTotalNumber() is idempotent and deadStarFraction stays consistent with it ' +
+  '(zero-age population -> exactly 0 dead: numerator == the hoisted denominator)',
+  (() => {
+    const a = imfTotalNumber();
+    const b = imfTotalNumber();
+    if (a !== b || !(Number.isFinite(a) && a > 0)) return false;
+    __clearImfCaches();
+    // turnoff = IMF_MAX at age 0, so numberOfLiving === imfTotalNumber() and 1 - 1 === 0
+    return deadStarFraction({ ageMeanGyr: 0, fehMeanDex: 0 }) === 0;
+  })());
+
+// A2 (compile-time): upsilonFor / deadStarFraction accept ImfInputs, not the
+// full Population. If either signature is ever widened back to require a third
+// field, these assignments stop compiling and the gate suite fails to build -
+// which is the structural half of "the memo key is complete".
+const _a2_upsilon: (p: ImfInputs) => number = upsilonFor;
+const _a2_dead: (p: ImfInputs) => number = deadStarFraction;
+void _a2_upsilon; void _a2_dead;
+
+check(`gate count matches GALACTIC_DENSITY_GATES`, GALACTIC_DENSITY_GATES === 8);
 
 if (failures > 0) throw new Error(`${failures} galacticDensity conformance failure(s)`);
 console.log('\nall galacticDensity conformance checks passed');

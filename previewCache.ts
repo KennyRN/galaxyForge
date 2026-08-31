@@ -84,12 +84,18 @@ export function __resetCoverFieldCache(): void { slot = null; generations = 0; }
  *  1. PARTITION IS TOTAL AND DISJOINT - every cover-field system lands in
  *     exactly one of {in-sector, ghost}, and the two never overlap. The
  *     white and grey layers cannot disagree at the seam.
- *  2. THE PREVIEW INVENTS NOTHING - every system the partition shows as
- *     in-sector also appears in a direct `generateSector(footprintShape)`
- *     call; the counts differ only by systems within one `EXCLUSION_RADIUS_PC`
- *     (0.1 pc) of the footprint edge, i.e. sub-pixel at preview scale.
- *  3. SHAPE SWITCH DOES NO GENERATION - cycling circle -> square -> hexagon
+ *  2. POSITION-IDENTICAL TO NATIVE - the in-sector layer equals a native
+ *     `generateSector(footprintShape)` call exactly, by sysid (measured
+ *     shortfall 0 to ~19k systems; `EXCLUSION_RADIUS_PC` = 0.1 pc is far
+ *     below the system spacing, so cover-square exclusion drops nothing
+ *     native keeps). C1 structural invariant.
+ *  3. NEGATIVE CONTROL - an undersized cover that fails to contain the
+ *     footprint provably makes the partition under-count, so gate 2 is not
+ *     passing vacuously.
+ *  4. SHAPE SWITCH DOES NO GENERATION - cycling circle -> square -> hexagon
  *     -> circle at a fixed across runs `compute` exactly once (the sqrt(2)
  *     last-ULP key trap does not bite).
+ *  5. BUDGET (ruling D) - the synchronous cache-hit re-partition for the
+ *     largest battery cover field stays under one 60 Hz frame.
  */
-export const PREVIEW_CACHE_GATES = 3 as const;
+export const PREVIEW_CACHE_GATES = 5 as const;

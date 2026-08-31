@@ -95,16 +95,23 @@
  * (`spiralArms.armFactor`, `set: 'all'`) rather than any independently
  * rolled structure.
  *
- * ABSOLUTE MIDPLANE NORMALISATION (P17). `N_MIDPLANE_R0_CM3` = 1.0 cm^-3,
- * `sourced` - the total-hydrogen midplane number density at the solar radius,
- * from McKee, Parravano & Hollenbach 2015 (ApJ 814, 13): Sigma_gas = 13.7
- * Msol/pc^2 (with He), Sigma_HI = 7.8, Sigma_H2 = 0.7 Msol/pc^2 (H only),
- * consistent with n_H(0) ~ 1.0 cm^-3 (science re-audit, 30 Aug 2026). FLAG:
- * the exact midplane decimal must still be read off Table 2 of the MPH15 PDF
- * before a tighter figure enters this header - 1.0 stands, do not stamp a
- * spurious decimal. NOTE: this is the DIFFUSE backdrop, NOT the density the
- * Stromgren/Weaver region-expansion laws run against - that is the natal
- * molecular clump (`nebulaMorphology.nebulaNatalDensityCm3`, ~1e3 cm^-3).
+ * ABSOLUTE MIDPLANE NORMALISATION (P17). `N_MIDPLANE_R0_CM3` = 1.17 cm^-3,
+ * `sourced` - the total-hydrogen (H-nuclei) midplane number density at the
+ * solar radius, read verbatim from McKee, Parravano & Hollenbach 2015
+ * (ApJ 814, 13; DOI 10.1088/0004-637X/814/1/13), Section 5.4 ("n_H0 = 1.17"),
+ * and independently the sum of the Table 2 midplane component densities
+ * (H2 0.15 + HI CNM 0.80 + HI WNM1 0.13 + HI WNM2 0.077 + HII 0.0154).
+ * Table 2's column is H NUCLEI density, so the H2 row is not doubled, and the
+ * CO-dark H2 is already folded into it (Section 5.1) - 1.17 is final, no
+ * pending decimal. The two surface densities previously quoted here
+ * (Sigma_HI 7.8, Sigma_H2 0.7 Msol/pc^2, H only) are Table 2's He-corrected
+ * 10.9 / 1.0 divided by 1.4 and remain correct. The HII figure excludes the
+ * local Gum Nebula (Table 2 note d), so 1.17 is the smooth diffuse
+ * volume-average - exactly the ambient reservoir a Stromgren/Weaver
+ * consumer wants. NOTE: this is the DIFFUSE backdrop, NOT the density the
+ * Stromgren/Weaver region-expansion laws run against inside a young complex -
+ * that is the natal molecular clump (`nebulaMorphology.nebulaNatalDensityCm3`,
+ * ~1e3 cm^-3).
  *
  * genVersion: `ismDensityAt` (relative) does NOT participate - render-only.
  * `absoluteMidplaneDensityCm3` DOES, from P17 on - see the P17 block above.
@@ -133,11 +140,12 @@ export const ISM_RADIAL_SCALE_LENGTH_PC = 1600;
  *  stronger-than-any-stellar-population arm response (see header). */
 export const ISM_ARM_CONTRAST_MULTIPLIER = 2.6;
 
-/** cm^-3, total-hydrogen midplane number density at R0. `sourced` - McKee,
- *  Parravano & Hollenbach 2015 (ApJ 814, 13); see this module's header for
- *  the surface densities it derives from and the pending-decimal flag. On the
- *  generation path from P17, so a change here forks spiral-family galaxies. */
-export const N_MIDPLANE_R0_CM3 = 1.0;
+/** cm^-3, total-hydrogen (H-nuclei) midplane number density at R0. `sourced` -
+ *  McKee, Parravano & Hollenbach 2015 (ApJ 814, 13), Section 5.4 verbatim,
+ *  cross-checked against the Table 2 component sum; see this module's header.
+ *  On the generation path from P17, so a change here forks spiral-family
+ *  galaxies once a generation module consumes it. */
+export const N_MIDPLANE_R0_CM3 = 1.17;
 
 const R0_PC = 8178;   // matches galaxyModel.ts's own R0_PC/spiralArms.ts's R0_SEEDED_REF_PC - shared anchor, not re-derived
 
@@ -252,7 +260,7 @@ export const glossary: GlossaryEntry[] = [
   {
     term: 'ISM midplane density normalisation', status: 'sourced',
     short: 'The absolute total-hydrogen number density of the interstellar medium at the Sun\'s distance from the galactic centre, about one atom per cubic centimetre.',
-    long: 'N_MIDPLANE_R0_CM3 = 1.0 cm^-3, from McKee, Parravano & Hollenbach 2015 (gas surface densities Sigma_HI 7.8, Sigma_H2 0.7 Msol/pc^2). Sets the absolute scale of `absoluteMidplaneDensityCm3` - the diffuse ISM backdrop, and the dispersed medium a superbubble later expands into. The denser natal molecular clump that ionised spheres actually grow inside is a separate ~1e3 cm^-3 quantity (`nebulaMorphology`). The exact midplane decimal is pending a read of Table 2 of the source PDF.',
+    long: 'N_MIDPLANE_R0_CM3 = 1.17 cm^-3, read verbatim from McKee, Parravano & Hollenbach 2015 Section 5.4 and cross-checked against the Table 2 midplane component sum (H2 + three HI phases + HII). Sets the absolute scale of `absoluteMidplaneDensityCm3` - the diffuse ISM backdrop, and the dispersed medium a superbubble later expands into. The denser natal molecular clump that ionised spheres actually grow inside is a separate ~1e3 cm^-3 quantity (`nebulaMorphology`).',
     source: 'McKee, Parravano & Hollenbach 2015, ApJ 814, 13.',
   },
 ];
