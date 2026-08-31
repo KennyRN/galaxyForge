@@ -126,6 +126,41 @@ function turnoffMassSol(ageGyr: number, fehDex: number): number {
 }
 
 /**
+ * IMF-INTEGRAL MEMO (P17 preview-responsiveness package, item A).
+ *
+ * `upsilonFor` and `deadStarFraction` are each a ~60-step bisection plus two
+ * 2000-step log-space integrations of the Kroupa IMF - and a V8 profile of a
+ * spiral-model preview puts ~72% of every `densityAt` evaluation inside these
+ * two functions. Yet each reads EXACTLY TWO fields of `Population`
+ * (`ageMeanGyr`, `fehMeanDex`), and a galaxy's population list is fixed for
+ * its life, so the whole result space is a handful of numbers recomputed
+ * millions of times per slab projection. These maps collapse that.
+ *
+ * This is MEMOISATION, not approximation: the cached value is the value the
+ * uncached body would have returned, bit for bit (galacticDensity Gate 6
+ * proves it over 1,040 paired evaluations), so there is no `genVersion`
+ * consequence and the `derived` grade is unchanged - a cache is an
+ * implementation detail of an existing derived quantity, not a new value.
+ *
+ * THE ONE INVARIANT THAT CAN ROT: the key is `${ageMeanGyr}|${fehMeanDex}`
+ * and NOTHING ELSE. If either function is ever changed to read a third field
+ * of `Population`, this key becomes incomplete and the cache silently
+ * returns wrong answers for every galaxy whose populations vary in that
+ * field. galacticDensity Gate 7 exists solely to catch that - it perturbs
+ * every other field of a `Population` and asserts the result does not move.
+ * Extend the key here BEFORE adding any such dependency.
+ */
+const imfMemoKey = (pop: Population): string => `${pop.ageMeanGyr}|${pop.fehMeanDex}`;
+const upsilonMemo = new Map<string, number>();
+const deadStarFractionMemo = new Map<string, number>();
+
+/** TEST-ONLY (galacticDensity Gates 6/7). Clears both IMF-integral memos. */
+export function __clearImfCaches(): void {
+  upsilonMemo.clear();
+  deadStarFractionMemo.clear();
+}
+
+/**
  * Systems per solar mass OF LIVING STARS (S4.3's own definition), composed
  * from the Kroupa IMF, `msLifetimeGyr` and `MEAN_STARS_PER_SYSTEM` -
  * `derived`, never a constant typed into a morphology.
@@ -137,13 +172,21 @@ function turnoffMassSol(ageGyr: number, fehDex: number): number {
  * "living mass per unit formed mass" share the same formed-mass
  * denominator, which cancels. See the header for why no separate
  * living-mass-fraction correction is needed on top of this.
+ *
+ * Memoised on `(ageMeanGyr, fehMeanDex)` - see the IMF-INTEGRAL MEMO note
+ * above before adding any dependency on a third `Population` field.
  */
 export function upsilonFor(pop: Population): number {
+  const key = imfMemoKey(pop);
+  const hit = upsilonMemo.get(key);
+  if (hit !== undefined) return hit;
   const turnoff = Math.min(turnoffMassSol(pop.ageMeanGyr, pop.fehMeanDex), IMF_MAX_MSUN);
   const numberOfLiving = integrate(kroupaImfDensity, IMF_MIN_MSUN, turnoff);
   const massOfLiving = integrate((m) => m * kroupaImfDensity(m), IMF_MIN_MSUN, turnoff);
   const meanLivingStarMassSol = massOfLiving / numberOfLiving;
-  return 1 / (meanLivingStarMassSol * MEAN_STARS_PER_SYSTEM);
+  const upsilon = 1 / (meanLivingStarMassSol * MEAN_STARS_PER_SYSTEM);
+  upsilonMemo.set(key, upsilon);
+  return upsilon;
 }
 
 /**
@@ -151,12 +194,19 @@ export function upsilonFor(pop: Population): number {
  * already evolved off the main sequence at its own age/feh - `remnants`
  * (S5.2) reuses this directly rather than re-deriving turnoff machinery a
  * second time (Law 1: one IMF/turnoff composition, here).
+ *
+ * Memoised on `(ageMeanGyr, fehMeanDex)` - see the IMF-INTEGRAL MEMO note.
  */
 export function deadStarFraction(pop: Population): number {
+  const key = imfMemoKey(pop);
+  const hit = deadStarFractionMemo.get(key);
+  if (hit !== undefined) return hit;
   const turnoff = Math.min(turnoffMassSol(pop.ageMeanGyr, pop.fehMeanDex), IMF_MAX_MSUN);
   const numberOfLiving = integrate(kroupaImfDensity, IMF_MIN_MSUN, turnoff);
   const numberOfTotal = integrate(kroupaImfDensity, IMF_MIN_MSUN, IMF_MAX_MSUN);
-  return Math.max(0, Math.min(1, 1 - numberOfLiving / numberOfTotal));
+  const fraction = Math.max(0, Math.min(1, 1 - numberOfLiving / numberOfTotal));
+  deadStarFractionMemo.set(key, fraction);
+  return fraction;
 }
 
 /* ------------------------------ coordinate transform --------------------------- */
@@ -192,6 +242,31 @@ export function densityByPopulationAtCartesian(model: GalaxyModel, x: number, y:
   const { R, theta } = cartesianToPolar(x, y, z);
   return model.densityByPopulation(R, theta, z);
 }
+
+/* --------------------------------- gates ------------------------------------ */
+
+/**
+ * Invariants this module owes (see galacticDensity.conformance.ts):
+ *  1. UPSILON SANITY - a solar-like population lands near the brief's "~2
+ *     systems per solar mass" expectation.
+ *  2. UPSILON RISES WITH AGE - an older population has a lower turnoff, so
+ *     lighter mean living stars, so more systems per unit living mass.
+ *  3. UPSILON WELL-DEFINED - finite and positive for every shipped
+ *     spiral/elliptical/lenticular population.
+ *  4. COORDINATE TRANSFORM ROUND-TRIPS - polar<->Cartesian to 1e-9, and the
+ *     origin does not throw.
+ *  5. densityAtCartesian AGREES with `model.densityAt` via the same transform.
+ *  6. MEMOISED EQUALS RAW - `upsilonFor` / `deadStarFraction` return the
+ *     bit-identical value with the IMF-integral memo warm vs freshly cleared
+ *     (`__clearImfCaches`), across the full population set crossed with a
+ *     grid of ages and metallicities. This is the gate that licenses leaving
+ *     `genVersion` untouched: the cache is memoisation, not approximation.
+ *  7. CACHE KEY IS COMPLETE - perturbing any `Population` field OTHER than
+ *     `ageMeanGyr` / `fehMeanDex` does not move either result. Fails loudly
+ *     the day someone adds a third dependency to those functions without
+ *     extending `imfMemoKey` (see the IMF-INTEGRAL MEMO note).
+ */
+export const GALACTIC_DENSITY_GATES = 7 as const;
 
 /* -------------------------------- glossary ----------------------------------- */
 

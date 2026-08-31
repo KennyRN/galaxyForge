@@ -1,5 +1,10 @@
-import { upsilonFor, cartesianToPolar, polarToCartesian, densityAtCartesian } from './galacticDensity';
-import { createSpiralModel, SPIRAL_POPULATIONS } from './galaxyModel';
+import {
+  upsilonFor, deadStarFraction, cartesianToPolar, polarToCartesian, densityAtCartesian,
+  __clearImfCaches, GALACTIC_DENSITY_GATES,
+} from './galacticDensity';
+import {
+  createSpiralModel, SPIRAL_POPULATIONS, ELLIPTICAL_POPULATIONS, LENTICULAR_POPULATIONS,
+} from './galaxyModel';
 import type { Population } from './galaxyModel';
 
 let failures = 0;
@@ -64,6 +69,69 @@ check('5 densityAtCartesian(model, x, y, z) equals model.densityAt(R, theta, z) 
       return densityAtCartesian(model, x, y, z) === model.densityAt(R, theta, z);
     });
   })());
+
+// 6. MEMOISED EQUALS RAW - the IMF-integral memo returns the bit-identical
+// value it would have computed cold. Over the full shipped population set
+// crossed with a grid of ages and metallicities: compute warm, clear the
+// cache, compute cold, assert strict === both ways. This is the gate that
+// licenses leaving genVersion untouched.
+check('6 upsilonFor / deadStarFraction are bit-identical cached vs freshly cleared, ' +
+  'across every shipped population x an age/feh grid (memoisation, not approximation)',
+  (() => {
+    const pops = [...SPIRAL_POPULATIONS, ...ELLIPTICAL_POPULATIONS, ...LENTICULAR_POPULATIONS];
+    const ages = [0.1, 0.5, 1, 3, 7, 10, 13, 13.8];
+    const fehs = [-2.5, -1, -0.3, 0, 0.3];
+    let pairs = 0;
+    for (const base of pops) {
+      for (const ageMeanGyr of ages) {
+        for (const fehMeanDex of fehs) {
+          const pop: Population = { ...base, ageMeanGyr, fehMeanDex };
+          __clearImfCaches();
+          const u1 = upsilonFor(pop);
+          const d1 = deadStarFraction(pop);
+          const u2 = upsilonFor(pop);           // warm
+          const d2 = deadStarFraction(pop);     // warm
+          __clearImfCaches();
+          const u3 = upsilonFor(pop);           // cold again
+          const d3 = deadStarFraction(pop);
+          pairs++;
+          if (!(u1 === u2 && u2 === u3 && d1 === d2 && d2 === d3)) return false;
+        }
+      }
+    }
+    console.log(`    (${pairs} paired evaluations, 0 differing)`);
+    return true;
+  })());
+
+// 7. CACHE KEY IS COMPLETE - upsilonFor / deadStarFraction depend on EXACTLY
+// ageMeanGyr and fehMeanDex. Perturb every other numeric field of a Population
+// and assert neither result moves. Fails the day a third dependency is added
+// without extending imfMemoKey.
+check('7 perturbing any Population field other than ageMeanGyr/fehMeanDex leaves ' +
+  'upsilonFor and deadStarFraction exactly unchanged (memo key is complete)',
+  (() => {
+    __clearImfCaches();
+    const base: Population = { ...SOLAR_LIKE };
+    const u0 = upsilonFor(base);
+    const d0 = deadStarFraction(base);
+    let perturbed = 0;
+    for (const k of Object.keys(base)) {
+      if (k === 'ageMeanGyr' || k === 'fehMeanDex') continue;
+      const rec = { ...base } as Record<string, unknown>;
+      const v = rec[k];
+      if (typeof v !== 'number') continue;
+      rec[k] = v * 1.7 + 1;
+      const probe = rec as unknown as Population;
+      __clearImfCaches();
+      perturbed++;
+      if (upsilonFor(probe) !== u0 || deadStarFraction(probe) !== d0) return false;
+    }
+    console.log(`    (${perturbed} other numeric fields perturbed, 0 leaks)`);
+    __clearImfCaches();
+    return true;
+  })());
+
+check(`gate count matches GALACTIC_DENSITY_GATES`, GALACTIC_DENSITY_GATES === 7);
 
 if (failures > 0) throw new Error(`${failures} galacticDensity conformance failure(s)`);
 console.log('\nall galacticDensity conformance checks passed');

@@ -71,6 +71,7 @@ import {
   type DensityDisplayField, type IsophotePalette,
 } from './isophoteRenderer';
 import { generateSector, assembleSector } from './sectorFootprint';
+import { coverFieldCacheKey, coverFieldIsCached, coverField } from './previewCache';
 import { searchNearestSystem } from './sectorSearch';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
 import { CURRENT_GEN_VERSION } from './genVersion';
@@ -1621,10 +1622,22 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     return rollSolNeighbourhoodCentre(band, Math.random);
   }
 
-  /** Re-derives the non-primary of the size/count pair after any change,
-   *  exactly as Screen 2's own `setDraft` does. */
+  /**
+   * Merge a control change into the draft and repaint. Unlike Screen 2's own
+   * `setDraft`, this does NOT call `reconcileSizeFields` (P17 preview-
+   * responsiveness package, item B): that reconcile runs a 32x32xZ_SAMPLES
+   * `projectSlab` - thousands of `densityAt` calls - purely to keep
+   * `draft.totalSystems` in step, and this modal has no Total-systems control.
+   * Its own comment already records why: "the Total systems box that used to
+   * consume it is gone; the preview count under the map is always the
+   * generator." The count under the map is `field`'s own length, set in
+   * `paintSector`; `totalSystems` is written and never read here, and the
+   * commit path (`writeSectorDocument` -> `assembleSector`) takes
+   * `sizeInPc` / `footprintShape` only. So the reconcile's entire result is
+   * discarded - dropping it removes ~4.7 s of work per shape/density click.
+   */
   private setDraft(partial: Partial<Screen2Draft>): void {
-    this.draft = reconcileSizeFields(this.model, { ...this.draft, ...partial });
+    this.draft = { ...this.draft, ...partial };
     this.render();
   }
 
@@ -1920,29 +1933,59 @@ export class GalaxySolNeighbourhoodModal extends Modal {
   }
 
   private async paintSector(_syncCount: boolean): Promise<void> {
-    const overlay = showBusyOverlay(this.mapPane, 'Rendering preview…');
-    await nextPaint();
-    // Match the backing store to the laid-out pane (it fills the modal's
-    // top). `renderPositionOnlyCanvas` fits the sector to the SHORTER axis,
-    // so a non-square pane just letterboxes rather than cropping.
-    this.canvas.width = Math.max(1, Math.round(this.mapPane.clientWidth));
-    this.canvas.height = Math.max(1, Math.round(this.mapPane.clientHeight));
     const centre = centrePcFromPolar(this.draft);
     const thickness = thicknessPcFor(this.draft.sysDensity);
     const radiusPc = this.draft.sizeInPc;
-    const characteristicPc = characteristicFromCircumradius(this.draft.footprintShape, radiusPc);
+    const shape = this.draft.footprintShape;
+    const characteristicPc = characteristicFromCircumradius(shape, radiusPc);
     const viewHalfPc = (characteristicPc / 2) / (1 - 2 * SOL_PREVIEW_MARGIN_FRACTION);
     const coverCircumradiusPc = viewHalfPc * Math.SQRT2;
-    const sector = generateSector(this.seed, this.model, centre, radiusPc, thickness, this.draft.footprintShape);
-    const field = generateSector(this.seed, this.model, centre, coverCircumradiusPc, thickness, 'square');
-    const ghostPositions = field
-      .filter((s) => !isWithinFootprint(s.positionPc.x - centre.x, s.positionPc.y - centre.y, radiusPc, this.draft.footprintShape))
-      .map((s) => s.positionPc);
-    this.countEl.setText(`${sector.length} systems in this sector`);
-    renderPositionOnlyCanvas(
-      this.canvas, centre, viewHalfPc, sector.map((s) => s.positionPc), ghostPositions,
+    const key = coverFieldCacheKey(this.seed, centre, characteristicPc, thickness);
+    const willGenerate = !coverFieldIsCached(key);
+
+    // Delayed spinner (item D): the overlay is only ever inserted if the work
+    // outlasts SPINNER_DELAY_MS. A shape/density click hits the cover-field
+    // cache and re-partitions ~1800 systems in ~1.5 ms, so the timer is
+    // always cleared first and the spinner never flashes - which is the
+    // symptom the user actually reported.
+    let overlay: HTMLElement | null = null;
+    const spinnerTimer = window.setTimeout(
+      () => { overlay = showBusyOverlay(this.mapPane, 'Rendering preview…'); }, SPINNER_DELAY_MS,
     );
-    hideBusyOverlay(overlay);
+    try {
+      // Yield one paint so the spinner can show BEFORE the synchronous
+      // generation block - but only when we are about to generate. On a cache
+      // hit there is no long block to hide, so no yield at all (item D).
+      if (willGenerate) await nextPaint();
+
+      // Match the backing store to the laid-out pane (it fills the modal's
+      // top). `renderPositionOnlyCanvas` fits the sector to the SHORTER axis,
+      // so a non-square pane just letterboxes rather than cropping.
+      this.canvas.width = Math.max(1, Math.round(this.mapPane.clientWidth));
+      this.canvas.height = Math.max(1, Math.round(this.mapPane.clientHeight));
+
+      // ONE generation for the whole visible square (item C). Every footprint
+      // shape sits inside this cover square, so `isWithinFootprint`
+      // partitions the SAME merged, exclusion-resolved set into white
+      // (in-sector) and ghost-grey (context) - the two layers cannot
+      // disagree at the seam, and switching shape just re-partitions this
+      // cached field.
+      const field = coverField(key, () =>
+        generateSector(this.seed, this.model, centre, coverCircumradiusPc, thickness, 'square'));
+
+      const inSector: { x: number; y: number; z: number }[] = [];
+      const ghost: { x: number; y: number; z: number }[] = [];
+      for (const s of field) {
+        const p = s.positionPc;
+        if (isWithinFootprint(p.x - centre.x, p.y - centre.y, radiusPc, shape)) inSector.push(p);
+        else ghost.push(p);
+      }
+      this.countEl.setText(`${inSector.length} systems in this sector`);
+      renderPositionOnlyCanvas(this.canvas, centre, viewHalfPc, inSector, ghost);
+    } finally {
+      window.clearTimeout(spinnerTimer);
+      hideBusyOverlay(overlay);
+    }
   }
 
   /** Same guard + delayed-spinner pattern as Screen 3's own commit; the
