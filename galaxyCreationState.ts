@@ -119,7 +119,7 @@ export interface Screen1Draft {
 }
 
 /** `overrides` (16 Aug 2026) lets a caller seed the draft from persisted
- *  settings (`main.ts`'s own `StarForgeSettings`) without this module
+ *  settings (`main.ts`'s own `GalaxyForgeSettings`) without this module
  *  knowing anything about settings/plugin persistence exists - the
  *  dependency runs one way, caller reads this module's own shape and
  *  supplies a partial override, never the reverse. */
@@ -171,7 +171,7 @@ export interface Screen2Draft {
 
 /** `overrides` (16 Aug 2026, mirroring `defaultScreen1Draft`'s own pattern
  *  exactly) lets a caller seed the draft from a persisted settings value
- *  (`main.ts`'s own `StarForgeSettings.lastScreen2Draft`) without this
+ *  (`main.ts`'s own `GalaxyForgeSettings.lastScreen2Draft`) without this
  *  module knowing anything about settings/plugin persistence exists - the
  *  dependency runs one way, caller reads this module's own shape and
  *  supplies a partial override, never the reverse. Closes a direct user
@@ -238,7 +238,7 @@ export function rollSolNeighbourhoodCentre(
 
 /**
  * One remembered sol-neighbourhood roll (30 Aug 2026) - persisted in
- * `StarForgeSettings.solNeighbourhoodHistory` so the sector flow's own
+ * `GalaxyForgeSettings.solNeighbourhoodHistory` so the sector flow's own
  * "view new sector" history survives a restart. Carries `worldSeed`
  * alongside the coordinates: re-selecting an entry must reproduce the SAME
  * sector, which means the same galaxy, not just the same point in a fresh

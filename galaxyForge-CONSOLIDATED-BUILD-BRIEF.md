@@ -1,4 +1,4 @@
-# StarForge - Consolidated Build Brief
+# galaxyForge - Consolidated Build Brief
 
 **Assembled 1 August 2026. One document, for one coding agent, to build the plugin.**
 
@@ -197,7 +197,7 @@ Thirteen. C1-C9 are from the 1 August morning pass; **C10-C13 were added by the 
 
 **C1 - APPLIED.** `types.ts`'s `conatalGroupId` doc comment described the design the owner rejected (a chance-alignment branch the Build 2 realism ruling deleted). Replaced with the realism-ruling text, verbatim, in the shipped `types.ts`. Gates re-run green after the edit.
 
-**C2 - the 2.6 kpc coincidence.** Three disc scale lengths sit at 2.1-2.6 kpc and two are numerically identical while measuring different quantities: **2600 pc** is Juric's **number**-density scale length (correct for StarForge, which stores systems); **2.6 kpc** is Bland-Hawthorn & Gerhard's **luminosity** scale length; **2.1 kpc** is Lian's **mass** scale length. Nothing is currently wrong in the code, but write the quantity beside the number in every scale-length ledger row - number, light or mass - and never substitute one for another because the figures agree.
+**C2 - the 2.6 kpc coincidence.** Three disc scale lengths sit at 2.1-2.6 kpc and two are numerically identical while measuring different quantities: **2600 pc** is Juric's **number**-density scale length (correct for galaxyForge, which stores systems); **2.6 kpc** is Bland-Hawthorn & Gerhard's **luminosity** scale length; **2.1 kpc** is Lian's **mass** scale length. Nothing is currently wrong in the code, but write the quantity beside the number in every scale-length ledger row - number, light or mass - and never substitute one for another because the figures agree.
 
 **C3 - Lian's total-mass stochastic error is internally inconsistent in the paper itself:** abstract 0.085e10, S3.2/summary 0.148e10, Table 2 0.11e10 Msun. Nothing consumes the total mass. Record the three-way disagreement.
 
@@ -209,7 +209,7 @@ Thirteen. C1-C9 are from the 1 August morning pass; **C10-C13 were added by the 
 
 **C7 - the 3D-half-mass trap needs a direction.** Substituting 2.4142a for 1.8153a makes every derived scale radius **24.8 % too small** (reciprocal framing +33 %). Write the direction, not just the magnitude, into the ledger row.
 
-**C8 - RESOLVED, a trap not a discrepancy.** Kamdar's published abstract carries both: the *simulation* prediction envelope is dv < 1.5 km/s, the *observational* criterion is dv < 2 km/s AND d[Fe/H] < 0.05 dex. Write both into the `conatal` header with the quantity beside each. StarForge consumes neither directly; it consumes the < 1 Gyr coherence window.
+**C8 - RESOLVED, a trap not a discrepancy.** Kamdar's published abstract carries both: the *simulation* prediction envelope is dv < 1.5 km/s, the *observational* criterion is dv < 2 km/s AND d[Fe/H] < 0.05 dex. Write both into the `conatal` header with the quantity beside each. galaxyForge consumes neither directly; it consumes the < 1 Gyr coherence window.
 
 **C9 - trivial.** Pass, Charbonneau & Vanderburg 2025 is ApJL 986, L3, not ApJ.
 
@@ -683,7 +683,7 @@ N_thick / N_thin = f * exp(R0/L_thick - R0/L_thin) * (L_thick/L_thin)^2 * (H_thi
 
 **The `exp` term is load-bearing.** Omitting it gives ratio 0.690 -> a thick-disc fraction of 40.8 %, implausible and undetected by a fractions-sum-to-one test alone.
 
-**Frame consistency: only R0/L is physical.** R0 and any fitted scale length must come from the same frame - StarForge's R0 (8178 pc) with Juric's unrescaled L is a ~1.9 % error (0.2936 vs 0.2881); the rule generalises to every future imported disc fit.
+**Frame consistency: only R0/L is physical.** R0 and any fitted scale length must come from the same frame - galaxyForge's R0 (8178 pc) with Juric's unrescaled L is a ~1.9 % error (0.2936 vs 0.2881); the rule generalises to every future imported disc fit.
 
 **The lenticular gains a halo (S0 category error, not omission).** Erwin's 0.61/0.33/0.06 sum to 1.00 because they are fractions of *decomposed light*; a stellar halo at 28-30 mag/arcsec^2 is invisible to that decomposition, so carrying the three raw asserts a **zero-mass halo**, not an omitted one. Without a halo, the lenticular is the only morphology of four with no pressure-supported old metal-poor component, and the outskirts (Hernquist ~r^-4 bulges, exponential discs) generate an empty sky where a halo (~r^-2.8) would dominate.
 
@@ -799,7 +799,7 @@ Expose `galaxyMassSol` as **named categories, never a raw number** (S7 ruling 1b
 
 **Spiral and barred scale from the Milky Way.** Every spiral number in this brief is a Milky Way measurement, so categories scale from **Licquia & Newman 2015**: total stellar mass 6.08 +/- 1.14e10 Msun (bulge 0.91 +/- 0.07e10, disc 5.17 +/- 1.11e10), with disc scale lengths scaled via Shen's late-type relation (gamma=0.1, alpha=0.14, beta=0.39, M0=3.98e10).
 
-**Two caveats.** The Milky Way is atypical (compact) for its mass - siblings generally span 3.2-5.7 kpc scale length against BH&G's 2.6 +/- 0.5 kpc; scaling from a compact anchor makes every generated spiral inherit that compactness. **And see C2**: 2.6 kpc is a *luminosity* scale length, not the number-density one StarForge actually uses (Juric's 2600 pc). **The Milky Way's own stellar mass is contested**: Lian et al. 2025 finds roughly half the previous estimates (2.607 +/- 0.353e10 Msun from the Gaia local density, or 3.55e10 with the higher APOGEE density) because previous work assumed a single-exponential disc - **which is what our spiral model also is**, so the assumption under challenge is our own. Use Licquia & Newman as the anchor and record the dispute.
+**Two caveats.** The Milky Way is atypical (compact) for its mass - siblings generally span 3.2-5.7 kpc scale length against BH&G's 2.6 +/- 0.5 kpc; scaling from a compact anchor makes every generated spiral inherit that compactness. **And see C2**: 2.6 kpc is a *luminosity* scale length, not the number-density one galaxyForge actually uses (Juric's 2600 pc). **The Milky Way's own stellar mass is contested**: Lian et al. 2025 finds roughly half the previous estimates (2.607 +/- 0.353e10 Msun from the Gaia local density, or 3.55e10 with the higher APOGEE density) because previous work assumed a single-exponential disc - **which is what our spiral model also is**, so the assumption under challenge is our own. Use Licquia & Newman as the anchor and record the dispute.
 
 **Elliptical and lenticular normalise by mass** directly, via Shen's early-type relation and Upsilon - no Milky Way anchor. **Warning: the bar ADDS mass** (`barFactor` is never below 1) - harmless for the locally-anchored spiral (taper closes well inside R0), but would silently inflate a hypothetical mass-normalised `barredSpiral` unless compensated; grade `derived`, flag before anyone builds one.
 
@@ -870,7 +870,7 @@ export interface SkySource {
 
 > **OWNER RULING - THE REALISM VARIANT IS ADOPTED.** Placement itself is gated on coherence: **co-natal remnants are the only clustered structure the sampler places**; old populations come out near-Poisson. The chance-alignment branch of the earlier draft is deleted, not deferred. `clusteredFraction?`/`meanGroupSize?` migrate to `Population`, settable only where the age interval reaches below the coherence window (structurally, `youngThin` alone among shipped placeholders). Effective group rate = `clusteredFraction * P(age < window | population)`. Rides the stage-10 bump; not a user toggle without joining `galaxyConfigHash`.
 
-**Honesty clause for the header:** Kamdar validates position-AND-velocity comovers at ~80 % conatal; StarForge has no velocity dimension, so it places groups conatal by construction and implicitly comoving - it does not claim "nearby systems are conatal" from proximity alone (Kamdar's own simulations underestimate clustering below 5 pc, exactly where the 1.5 pc jitter puts the median pair). Jitter stays `tunable`, never `sourced`.
+**Honesty clause for the header:** Kamdar validates position-AND-velocity comovers at ~80 % conatal; galaxyForge has no velocity dimension, so it places groups conatal by construction and implicitly comoving - it does not claim "nearby systems are conatal" from proximity alone (Kamdar's own simulations underestimate clustering below 5 pc, exactly where the 1.5 pc jitter puts the median pair). Jitter stays `tunable`, never `sourced`.
 
 **Physical model, per group, on `CHANNELS.conatalGroup` seeded from (worldSeed, cell, parentOrdinal):** population drawn per cell's clustering-weighted weights; group age via `truncGaussQuantile` truncated at the coherence window (no rejection); group [Fe/H] drawn once with the AMR coupling applied **at group level** (not suppressed the way it is at member level); members inherit age exactly, [Fe/H] = groupFeh + N(0, 0.02 dex) on each member's own `metallicity` channel, `formationRank` and `population` from the group, `ctx.conatalGroupId` stamped. Members' own age-channel draws go deliberately unconsumed (harmless - channels are private).
 

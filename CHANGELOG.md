@@ -1,4 +1,4 @@
-# StarForge - what changed since the 1 August bundle
+# galaxyForge - what changed since the 1 August bundle
 
 **This package supersedes `2026-08-01_-_galaxyForge_pm.zip` entirely. Discard that
 zip and anything derived from it.** Every file it contained is here, either

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * StarForge conformance gates.
+ * galaxyForge conformance gates.
  *
  *     npm install          # once - pins the compiler exactly
  *     npm run gates

@@ -1,10 +1,10 @@
 {
-  "id": "starforge",
-  "name": "StarForge",
+  "id": "galaxyforge",
+  "name": "galaxyForge",
   "version": "0.0.1",
   "minAppVersion": "1.4.0",
   "description": "Procedurally generates scientifically grounded galactic sectors as vault notes, from a deterministic (worldSeed, sysid, genVersion) triple.",
-  "author": "StarForge",
+  "author": "KennyRN",
   "authorUrl": "",
   "isDesktopOnly": false
 }

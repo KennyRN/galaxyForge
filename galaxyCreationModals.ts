@@ -87,7 +87,7 @@ import {
   solNeighbourhoodBand, rollSolNeighbourhoodCentre,
 } from './galaxyCreationState';
 import type { FootprintShape } from './sectorFootprint';
-import type { StarForgeSettings } from './main';
+import type { GalaxyForgeSettings } from './main';
 
 /**
  * svg-spinners-eclipse (MIT licensed, from the "svg-spinners" icon set) -
@@ -220,14 +220,14 @@ function renderShapeAndDensityRow(
   row.style.cssText = 'display:flex;align-items:center;gap:10px;margin:8px 0 12px;';
   for (const shape of ['circle', 'square', 'hexagon'] as FootprintShape[]) {
     const isSelected = shape === selectedShape;
-    // `.sf-shape-icon`/`.is-selected` (styles.css) - a direct user follow-up
+    // `.gf-shape-icon`/`.is-selected` (styles.css) - a direct user follow-up
     // to the FIRST version of this row, which highlighted the selected icon
     // with a filled background box. That still read as "a button" - the
     // ask was for the icon's own colour to change on hover/selection, no
     // box at all - which needs a real stylesheet (`:hover` has no inline-
     // style equivalent), not more `cssText`.
     const icon = row.createDiv({
-      cls: isSelected ? 'sf-shape-icon is-selected' : 'sf-shape-icon',
+      cls: isSelected ? 'gf-shape-icon is-selected' : 'gf-shape-icon',
       attr: { title: SHAPE_LABELS[shape], 'aria-label': SHAPE_LABELS[shape], role: 'button', tabindex: '0' },
     });
     icon.style.cssText = 'flex:0 0 40px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
@@ -367,7 +367,7 @@ function renderSliderRow(
   const pill = row.createDiv();
   pill.style.cssText = 'flex:0 0 auto;display:flex;border-radius:999px;overflow:hidden;background:var(--interactive-normal);';
   const makeHalf = (glyph: string, title: string, delta: number): void => {
-    const btn = pill.createEl('button', { cls: 'sf-pill-btn', attr: { title, 'aria-label': title } });
+    const btn = pill.createEl('button', { cls: 'gf-pill-btn', attr: { title, 'aria-label': title } });
     btn.style.cssText = 'flex:0 0 auto;width:22px;height:22px;padding:0;border-radius:0;border:none;' +
       'display:flex;align-items:center;justify-content:center;background:transparent;color:var(--text-normal);';
     btn.innerHTML = glyph;
@@ -1362,7 +1362,7 @@ async function writeSectorDocument(app: App, screen1: Screen1Draft, screen2: Scr
   const filename = `Sector - ${sanitiseFilenamePart(screen1.worldSeed)} - ${filenameTimestamp()}`;
   await writeSectorList(app.vault, filename, content);
 
-  new Notice(`StarForge: wrote a ${rows.length}-system sector list to ${SECTOR_FOLDER}/${filename}.md`);
+  new Notice(`galaxyForge: wrote a ${rows.length}-system sector list to ${SECTOR_FOLDER}/${filename}.md`);
 }
 
 /* --------------------------------- start screen -------------------------------- */
@@ -1374,11 +1374,18 @@ async function writeSectorDocument(app: App, screen1: Screen1Draft, screen2: Scr
  * (Gate S1's URL-literal scanner cannot tell an XML namespace from a fetch
  * target - same treatment `SHAPE_ICONS`/`ANGLE_ICON` already get).
  */
-const GALAXY_ICON = '<svg width="50" height="50" viewBox="0 0 48 48"><path fill="currentColor" fill-rule="evenodd" d="M31.85 1.466C32.22.97 32.894.675 33.61.99c9.6 4.23 14.948 14.94 12.149 25.387c-2.925 10.917-14.124 17.407-25.042 14.533c-7.525-2.641-10.687-9.47-9.883-15.538c.41-3.099 1.852-5.958 4.245-7.964c2.378-1.993 5.798-3.23 10.338-2.911a1.5 1.5 0 1 0 .21-2.993c-5.222-.366-9.434 1.055-12.476 3.605c-3.027 2.538-4.793 6.109-5.29 9.869c-.759 5.72 1.408 11.975 6.614 15.958a27 27 0 0 0 1.783 3.763c.364.63.255 1.35-.107 1.835c-.37.498-1.044.792-1.758.478c-9.6-4.23-14.949-14.94-12.15-25.387c2.926-10.92 14.13-17.41 25.05-14.53c7.52 2.642 10.679 9.467 9.875 15.534c-.41 3.099-1.852 5.958-4.245 7.964c-2.378 1.993-5.798 3.23-10.337 2.911a1.5 1.5 0 0 0-.21 2.993c5.22.366 9.433-1.055 12.475-3.605c3.027-2.538 4.793-6.109 5.29-9.869c.759-5.72-1.408-11.975-6.614-15.958a27 27 0 0 0-1.782-3.762a1.67 1.67 0 0 1 .106-1.836M24 29a5 5 0 1 0 0-10a5 5 0 0 0 0 10" clip-rule="evenodd"/></svg>';
+/** Just the `<path>` of the galaxy glyph, in a 0 0 48 48 coordinate space -
+ *  shared by `GALAXY_ICON` (below, for the modal's own route button) and by
+ *  `main.ts`'s `addIcon` call, which scales it into Obsidian's fixed
+ *  0 0 100 100 icon viewport for the ribbon. */
+export const GALAXY_ICON_BODY = '<path fill="currentColor" fill-rule="evenodd" d="M31.85 1.466C32.22.97 32.894.675 33.61.99c9.6 4.23 14.948 14.94 12.149 25.387c-2.925 10.917-14.124 17.407-25.042 14.533c-7.525-2.641-10.687-9.47-9.883-15.538c.41-3.099 1.852-5.958 4.245-7.964c2.378-1.993 5.798-3.23 10.338-2.911a1.5 1.5 0 1 0 .21-2.993c-5.222-.366-9.434 1.055-12.476 3.605c-3.027 2.538-4.793 6.109-5.29 9.869c-.759 5.72 1.408 11.975 6.614 15.958a27 27 0 0 0 1.783 3.763c.364.63.255 1.35-.107 1.835c-.37.498-1.044.792-1.758.478c-9.6-4.23-14.949-14.94-12.15-25.387c2.926-10.92 14.13-17.41 25.05-14.53c7.52 2.642 10.679 9.467 9.875 15.534c-.41 3.099-1.852 5.958-4.245 7.964c-2.378 1.993-5.798 3.23-10.337 2.911a1.5 1.5 0 0 0-.21 2.993c5.22.366 9.433-1.055 12.475-3.605c3.027-2.538 4.793-6.109 5.29-9.869c.759-5.72-1.408-11.975-6.614-15.958a27 27 0 0 0-1.782-3.762a1.67 1.67 0 0 1 .106-1.836M24 29a5 5 0 1 0 0-10a5 5 0 0 0 0 10" clip-rule="evenodd"/>';
+export const GALAXY_ICON = `<svg width="50" height="50" viewBox="0 0 48 48">${GALAXY_ICON_BODY}</svg>`;
+/** `GALAXY_ICON_BODY` scaled 48 -> 100 for Obsidian's `addIcon` viewport. */
+export const GALAXY_ICON_100 = `<g transform="scale(2.0833)">${GALAXY_ICON_BODY}</g>`;
 const STARS_ICON = '<svg width="50" height="50" viewBox="0 0 16 16"><path fill="currentColor" d="M6.5 8.75L9 10l-2.5 1.25L5 15l-1.5-3.75L1 10l2.5-1.25L5 5zM10 12a1 1 0 1 1 0 2a1 1 0 0 1 0-2m3-3a1 1 0 1 1 0 2a1 1 0 0 1 0-2m.269-5.692L15 4l-1.731.691L12.5 7l-.77-2.309L10 4l1.73-.692L12.5 1zM3 2a1 1 0 1 1 0 2a1 1 0 0 1 0-2"/></svg>';
 
 /** How many past sol-neighbourhood rolls `GalaxySolNeighbourhoodModal`
- *  keeps in `StarForgeSettings.solNeighbourhoodHistory` - newest first,
+ *  keeps in `GalaxyForgeSettings.solNeighbourhoodHistory` - newest first,
  *  older entries dropped off the end. Generous enough to be a real
  *  "sectors I've looked at" list, bounded so the settings file cannot
  *  grow without limit. */
@@ -1400,8 +1407,8 @@ const SOL_NEIGHBOURHOOD_HISTORY_MAX = 30;
  * No header, no primary/secondary distinction (31 Aug 2026, a direct user
  * follow-up): both rows are the SAME plain, chrome-free target - a 50px
  * left-aligned icon whose `currentColor` lifts from muted to normal on
- * hover, the whole row clickable, styled by `.sf-start-route` (styles.css,
- * since :hover has no inline equivalent - same reason `.sf-shape-icon`
+ * hover, the whole row clickable, styled by `.gf-start-route` (styles.css,
+ * since :hover has no inline equivalent - same reason `.gf-shape-icon`
  * exists). The rows are DIVs with `role="button"`, NOT `<button>`s - a real
  * button in a modal inherits Obsidian's own centring, background and
  * min-height (which beat a single-class rule on specificity), the exact
@@ -1413,8 +1420,8 @@ const SOL_NEIGHBOURHOOD_HISTORY_MAX = 30;
 export class GalaxyStartModal extends Modal {
   constructor(
     app: App,
-    private readonly settings: StarForgeSettings,
-    private readonly onSettingsChange: (s: StarForgeSettings) => void,
+    private readonly settings: GalaxyForgeSettings,
+    private readonly onSettingsChange: (s: GalaxyForgeSettings) => void,
   ) {
     super(app);
   }
@@ -1429,9 +1436,9 @@ export class GalaxyStartModal extends Modal {
     const addRoute = (icon: string, label: string, onPick: () => void): void => {
       // No `title`/`aria-label` - the visible label span IS the accessible
       // name; a tooltip here would only echo the text already on screen.
-      const row = list.createDiv({ cls: 'sf-start-route', attr: { role: 'button', tabindex: '0' } });
-      row.createSpan({ cls: 'sf-start-route-icon' }).innerHTML = icon;
-      row.createSpan({ cls: 'sf-start-route-label', text: label });
+      const row = list.createDiv({ cls: 'gf-start-route', attr: { role: 'button', tabindex: '0' } });
+      row.createSpan({ cls: 'gf-start-route-icon' }).innerHTML = icon;
+      row.createSpan({ cls: 'gf-start-route-label', text: label });
       row.onclick = onPick;
       row.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onPick(); } };
     };
@@ -1497,7 +1504,7 @@ function solSectorKey(worldSeed: string, angleRad: number, distanceFromCentrePc:
  * - the byte-identical path Screen 3 uses, no second copy.
  */
 export class GalaxySolNeighbourhoodModal extends Modal {
-  private settings: StarForgeSettings;
+  private settings: GalaxyForgeSettings;
   private seed!: string;
   /** Full sector draft. `angleRad`/`distanceFromCentrePc`/
    *  `distanceFromPlanePc` are owned by the roll (and by history-load /
@@ -1523,7 +1530,7 @@ export class GalaxySolNeighbourhoodModal extends Modal {
    */
   private historyCursor = 0;
 
-  constructor(app: App, settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void) {
+  constructor(app: App, settings: GalaxyForgeSettings, private readonly onSettingsChange: (s: GalaxyForgeSettings) => void) {
     super(app);
     this.settings = settings;
   }
@@ -1534,10 +1541,10 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     // banner). For the preview to sit flush to the TOP edge, three separate
     // bits of default modal chrome have to go: the close cross, the (empty
     // but still space-taking) `.modal-title`/`.modal-header`, and the
-    // `.modal`/`.modal-content` padding - the last via `.sf-sol-modal` in
+    // `.modal`/`.modal-content` padding - the last via `.gf-sol-modal` in
     // styles.css since Obsidian may set it `!important`. "<- back", Escape
     // and click-outside all still dismiss the modal.
-    this.modalEl.addClass('sf-sol-modal');
+    this.modalEl.addClass('gf-sol-modal');
     this.modalEl.querySelector('.modal-close-button')?.remove();
     this.modalEl.querySelector('.modal-title')?.remove();
     this.modalEl.querySelector('.modal-header')?.remove();
@@ -1707,35 +1714,35 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     const body = contentEl.createDiv();
     body.style.cssText = 'padding:12px 16px 16px;';
 
-    const metaRow = body.createDiv({ cls: 'sf-sol-meta-row' });
+    const metaRow = body.createDiv({ cls: 'gf-sol-meta-row' });
     const olderBtn = metaRow.createEl('button', {
-      cls: 'sf-sol-hist-arrow',
+      cls: 'gf-sol-hist-arrow',
       attr: { type: 'button', 'aria-label': 'Previous previewed sector' },
     });
     olderBtn.innerHTML = CHEVRON_LEFT_SVG;
     olderBtn.disabled = this.historyCursor <= 0;
     olderBtn.onclick = () => this.viewOlder();
 
-    const metaText = metaRow.createDiv({ cls: 'sf-sol-meta-text' });
+    const metaText = metaRow.createDiv({ cls: 'gf-sol-meta-text' });
     this.countEl = metaText.createEl('p', { text: 'Placing systems…' });
     metaText.createEl('p', {
-      cls: 'sf-sol-coord',
+      cls: 'gf-sol-coord',
       text: solSectorCoordLabel(this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc),
     });
 
     const newerBtn = metaRow.createEl('button', {
-      cls: 'sf-sol-hist-arrow',
+      cls: 'gf-sol-hist-arrow',
       attr: { type: 'button', 'aria-label': 'Next previewed sector, or a new one' },
     });
     newerBtn.innerHTML = CHEVRON_RIGHT_SVG;
     newerBtn.onclick = () => this.viewNewerOrNew();
 
-    const chromeRow = body.createDiv({ cls: 'sf-sol-chrome-row' });
-    const cluster = chromeRow.createDiv({ cls: 'sf-sol-shape-cluster' });
+    const chromeRow = body.createDiv({ cls: 'gf-sol-chrome-row' });
+    const cluster = chromeRow.createDiv({ cls: 'gf-sol-shape-cluster' });
     for (const shape of ['circle', 'square', 'hexagon'] as FootprintShape[]) {
       const isSelected = shape === this.draft.footprintShape;
       const icon = cluster.createDiv({
-        cls: isSelected ? 'sf-shape-icon is-selected' : 'sf-shape-icon',
+        cls: isSelected ? 'gf-shape-icon is-selected' : 'gf-shape-icon',
         attr: { title: SHAPE_LABELS[shape], 'aria-label': SHAPE_LABELS[shape], role: 'button', tabindex: '0' },
       });
       icon.style.cssText = 'flex:0 0 40px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
@@ -1752,11 +1759,11 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       icon.onclick = pickShape;
       icon.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pickShape(); } };
     }
-    cluster.createDiv({ cls: 'sf-sol-chrome-split' });
+    cluster.createDiv({ cls: 'gf-sol-chrome-split' });
     for (const density of SYS_DENSITY_ORDER) {
       const isSelected = density === this.draft.sysDensity;
       const icon = cluster.createDiv({
-        cls: isSelected ? 'sf-shape-icon is-selected' : 'sf-shape-icon',
+        cls: isSelected ? 'gf-shape-icon is-selected' : 'gf-shape-icon',
         attr: { title: SYS_DENSITY_LABELS[density], 'aria-label': SYS_DENSITY_LABELS[density], role: 'button', tabindex: '0' },
       });
       icon.style.cssText = 'flex:0 0 40px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
@@ -1769,9 +1776,9 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       icon.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pickDensity(); } };
     }
 
-    const sizeCluster = chromeRow.createDiv({ cls: 'sf-sol-size-cluster' });
+    const sizeCluster = chromeRow.createDiv({ cls: 'gf-sol-size-cluster' });
     const ruler = sizeCluster.createDiv({
-      cls: 'sf-sol-size-ruler',
+      cls: 'gf-sol-size-ruler',
       attr: {
         title: SIZE_DIMENSION_LABEL[this.draft.footprintShape],
         'aria-hidden': 'true',
@@ -1779,7 +1786,7 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     });
     ruler.innerHTML = RULER_ICON;
     const sizeInput = sizeCluster.createEl('input', {
-      cls: 'sf-sol-size-input',
+      cls: 'gf-sol-size-input',
       type: 'text',
       attr: {
         inputmode: 'decimal',
@@ -1797,34 +1804,34 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       });
     });
 
-    const centreRow = body.createDiv({ cls: 'sf-sol-centre-row' });
-    const centreCol = centreRow.createDiv({ cls: 'sf-sol-centre-label-col' });
-    centreCol.createDiv({ cls: 'sf-sol-centre-heading', text: 'System at centre' });
-    const toggleHost = centreCol.createDiv({ cls: 'sf-sol-centre-toggle' });
+    const centreRow = body.createDiv({ cls: 'gf-sol-centre-row' });
+    const centreCol = centreRow.createDiv({ cls: 'gf-sol-centre-label-col' });
+    centreCol.createDiv({ cls: 'gf-sol-centre-heading', text: 'System at centre' });
+    const toggleHost = centreCol.createDiv({ cls: 'gf-sol-centre-toggle' });
     new Setting(toggleHost)
       .addToggle((t) => t.setValue(this.draft.systemAtCentre).onChange((v) => this.setDraft({ systemAtCentre: v })));
-    const centreAside = centreRow.createDiv({ cls: 'sf-sol-centre-aside' });
+    const centreAside = centreRow.createDiv({ cls: 'gf-sol-centre-aside' });
     if (!this.draft.systemAtCentre) {
       centreAside.createEl('p', {
-        cls: 'sf-sol-centre-desc',
+        cls: 'gf-sol-centre-desc',
         text: 'Search for a specific system to centre the sector on, instead of the rolled point',
       });
     } else {
-      const multiplicityField = centreAside.createDiv({ cls: 'sf-sol-centre-field' });
+      const multiplicityField = centreAside.createDiv({ cls: 'gf-sol-centre-field' });
       const multiplicity = new DropdownComponent(multiplicityField)
         .addOption('any', 'Any').addOption('solo', 'Solo').addOption('binary', 'Binary or more')
         .setValue(this.draft.multiplicity)
         .onChange((v) => this.setDraft({ multiplicity: v as Screen2Draft['multiplicity'] }));
       multiplicity.selectEl.setAttribute('aria-label', 'Multiplicity');
-      multiplicityField.createDiv({ cls: 'sf-sol-centre-field-label', text: 'Multiplicity' });
-      const sysTypeField = centreAside.createDiv({ cls: 'sf-sol-centre-field' });
+      multiplicityField.createDiv({ cls: 'gf-sol-centre-field-label', text: 'Multiplicity' });
+      const sysTypeField = centreAside.createDiv({ cls: 'gf-sol-centre-field' });
       const sysType = new DropdownComponent(sysTypeField)
         .addOption('nearest', 'Nearest').addOption('interesting', 'Interesting')
         .addOption('marginal', 'Nearest Marginal').addOption('tolerable', 'Nearest Tolerable').addOption('earthLike', 'Nearest Earth-like')
         .setValue(this.draft.sysType)
         .onChange((v) => this.setDraft({ sysType: v as Screen2Draft['sysType'] }));
       sysType.selectEl.setAttribute('aria-label', 'Sys type');
-      sysTypeField.createDiv({ cls: 'sf-sol-centre-field-label', text: 'Sys type' });
+      sysTypeField.createDiv({ cls: 'gf-sol-centre-field-label', text: 'Sys type' });
       centreAside.createEl('button', { text: 'Search', cls: 'mod-cta' }).addEventListener('click', () => this.runSearch());
     }
 
@@ -1834,9 +1841,9 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       this.close();
       new GalaxyStartModal(this.app, this.settings, this.onSettingsChange).open();
     };
-    const generateWrap = nav.createDiv({ cls: 'sf-sol-generate-wrap' });
+    const generateWrap = nav.createDiv({ cls: 'gf-sol-generate-wrap' });
     const historyBtn = generateWrap.createEl('button', {
-      cls: 'sf-sol-hist-down',
+      cls: 'gf-sol-hist-down',
       attr: { type: 'button', 'aria-label': 'Previously viewed sectors' },
     });
     historyBtn.innerHTML = CHEVRON_DOWN_SVG;
@@ -1929,13 +1936,13 @@ class SolNeighbourhoodHistoryModal extends Modal {
     listEl.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:60vh;overflow-y:auto;';
     for (const entry of this.history) {
       const isCurrent = solSectorKey(entry.worldSeed, entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc) === this.currentKey;
-      const row = listEl.createDiv({ cls: 'sf-sol-hist-row' });
+      const row = listEl.createDiv({ cls: 'gf-sol-hist-row' });
       const label = row.createSpan({
         text: solSectorCoordLabel(entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc),
       });
       if (isCurrent) label.style.fontWeight = 'bold';
       const load = row.createEl('button', {
-        cls: 'sf-sol-hist-load',
+        cls: 'gf-sol-hist-load',
         attr: { type: 'button', 'aria-label': 'Load this preview' },
       });
       load.innerHTML = ARROW_INTO_BOX_SVG;
@@ -1987,13 +1994,13 @@ export class GalaxyScreen1Modal extends Modal {
 
   /**
    * `settings`/`onSettingsChange` (16 Aug 2026) are a plain data + callback
-   * pair, not the whole `StarForgePlugin` instance - this modal only ever
+   * pair, not the whole `GalaxyForgePlugin` instance - this modal only ever
    * needs to READ two persisted values and report the ones it changed,
    * never anything else a Plugin object carries (vault access, other
    * commands, ...). Keeps this file's own dependency on `main.ts` to a
    * single type-only import.
    */
-  constructor(app: App, private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void) {
+  constructor(app: App, private readonly settings: GalaxyForgeSettings, private readonly onSettingsChange: (s: GalaxyForgeSettings) => void) {
     super(app);
     this.draft = defaultScreen1Draft({
       worldSeed: settings.lastWorldSeed,
@@ -2270,7 +2277,7 @@ export class GalaxyScreen2Modal extends Modal {
 
   constructor(
     app: App, private readonly screen1: Screen1Draft,
-    private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void,
+    private readonly settings: GalaxyForgeSettings, private readonly onSettingsChange: (s: GalaxyForgeSettings) => void,
   ) {
     super(app);
     // Seeded from the persisted draft (16 Aug 2026, a direct user report:
@@ -2511,7 +2518,7 @@ export class GalaxyScreen3Modal extends Modal {
    *  chain back to Screen 1 - this screen never reads or changes them. */
   constructor(
     app: App, private readonly screen1: Screen1Draft, private readonly screen2: Screen2Draft, private readonly model: GalaxyModel,
-    private readonly settings: StarForgeSettings, private readonly onSettingsChange: (s: StarForgeSettings) => void,
+    private readonly settings: GalaxyForgeSettings, private readonly onSettingsChange: (s: GalaxyForgeSettings) => void,
   ) { super(app); }
 
   onOpen(): void {

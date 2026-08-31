@@ -1,5 +1,5 @@
 /**
- * StarForge - canonical shared contracts.
+ * galaxyForge - canonical shared contracts.
  *
  * THIS FILE SUPERSEDES every `types.ts` fragment in every prior document.
  * Where an earlier spec disagrees with this file, this file wins. The first

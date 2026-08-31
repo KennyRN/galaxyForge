@@ -28,7 +28,7 @@
  * genuinely separate space S5.6 asks for.
  *
  * -- BACKSTAGE LOCATION, RENAMED (17 Aug 2026) --------------------------------
- * `StarForge/` -> `_backstage/galaxyforge/` for every folder this module
+ * `<PluginName>/` -> `_backstage/galaxyforge/` for every folder this module
  * owns - a leading underscore is Obsidian's own convention for a folder a
  * vault's file explorer sorts to the top/bottom and a user recognises as
  * plugin-managed machinery, not their own worldbuilding space (S5.6's own

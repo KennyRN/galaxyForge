@@ -7,7 +7,7 @@ import esbuild from 'esbuild';
 import process from 'process';
 import builtins from 'builtin-modules';
 
-const banner = `/* StarForge - built ${new Date().toISOString()}. Do not edit main.js directly; edit the .ts sources and rebuild. */`;
+const banner = `/* galaxyForge - built ${new Date().toISOString()}. Do not edit main.js directly; edit the .ts sources and rebuild. */`;
 
 const watch = process.argv.includes('--watch') || process.argv.includes('-w');
 const production = process.argv.includes('production');

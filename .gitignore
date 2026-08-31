@@ -5,7 +5,7 @@ dist/
 main.js
 
 # Obsidian vault runtime state - present here because the vault's own
-# .obsidian/plugins/starforge/ is a symlink to this repo's root (28 Aug
+# .obsidian/plugins/galaxyforge/ is a symlink to this repo's root (28 Aug
 # 2026), so Obsidian writes these directly alongside the source. Per-vault
 # settings/hot-reload marker, not plugin source - never committed.
 data.json

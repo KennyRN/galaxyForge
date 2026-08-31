@@ -1,8 +1,8 @@
-# StarForge - read this first
+# galaxyForge - read this first
 
 You are building an Obsidian plugin (TypeScript) that procedurally generates
 scientifically grounded galactic sectors. This file is the orientation. The
-authority is `StarForge-CONSOLIDATED-BUILD-BRIEF.md` - 1700 lines, and you should
+authority is `galaxyForge-CONSOLIDATED-BUILD-BRIEF.md` - 1700 lines, and you should
 read the sections you need rather than all of it. This file tells you which.
 
 ## The loop

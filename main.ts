@@ -26,9 +26,11 @@
  * work, now real: a proper circumradius-clipped, exclusion-resolved
  * sector, not a crude cell-block approximation.
  *
- * UPDATED 16 Aug 2026: added the ribbon icon (`sparkles`) alongside the
- * command palette entry - both open the same modal, so neither is more
- * "canonical" than the other.
+ * UPDATED 16 Aug 2026: added the ribbon icon alongside the command palette
+ * entry - both open the same modal, so neither is more "canonical" than the
+ * other. (30 Aug 2026: the ribbon now uses `galaxyCreationModals.ts`'s own
+ * `GALAXY_ICON` - the same glyph as `GalaxyStartModal`'s "create an entire
+ * galaxy" route - registered via `addIcon` as `galaxyforge-galaxy`.)
  *
  * UPDATED 16 Aug 2026 (later the same day): this test command's own
  * generated notes now carry full `SystemCore` detail too (stars, planets,
@@ -43,27 +45,27 @@
  * that this GUI doesn't already ask for every time is the world seed
  * (rerolling it by hand every session is real friction; every other
  * screen-1 choice is cheap to reset) and the default terraforming
- * prevalence. `StarForgeSettings` is intentionally NOT the place for
+ * prevalence. `GalaxyForgeSettings` is intentionally NOT the place for
  * anything Tier-G-pinned (`GalaxyParameters` already owns that, per-galaxy,
  * once created) - this is plugin-wide UI convenience only.
  */
 
-import { Plugin, PluginSettingTab, Notice, Setting, type App, type TFile } from 'obsidian';
+import { Plugin, PluginSettingTab, Notice, Setting, addIcon, type App, type TFile } from 'obsidian';
 import { createSpiralModel } from './galaxyModel';
 import { assembleSector } from './sectorFootprint';
 import { generateSystemCore, type GenerateSystemInputs } from './systemConductor';
 import { CURRENT_GEN_VERSION } from './genVersion';
 import { writeSystemNote, CANONICAL_FOLDER } from './vault';
 import type { RenderSystemInput } from './render';
-import { GalaxyStartModal } from './galaxyCreationModals';
+import { GalaxyStartModal, GALAXY_ICON_100 } from './galaxyCreationModals';
 import type { MorphologyChoice, LenticularBulgeType, Screen2Draft, SolNeighbourhoodSector } from './galaxyCreationState';
 
-const TEST_WORLD_SEED = 'starforge-default-seed';
+const TEST_WORLD_SEED = 'galaxyforge-default-seed';
 const TEST_CENTRE_PC = { x: 8178, y: 0, z: 0 };   // the Sun's own canonical placement default
 const TEST_RADIUS_PC = 25;
 const TEST_THICKNESS_PC = 10;
 
-export interface StarForgeSettings {
+export interface GalaxyForgeSettings {
   /** The last world seed used to open the galaxy-creation flow - pre-fills
    *  Screen 1's own seed field so re-opening the GUI does not silently
    *  reset to a fresh random seed every time. Empty string means "no
@@ -100,30 +102,35 @@ export interface StarForgeSettings {
   solNeighbourhoodHistory: SolNeighbourhoodSector[];
 }
 
-export const DEFAULT_SETTINGS: StarForgeSettings = {
+export const DEFAULT_SETTINGS: GalaxyForgeSettings = {
   lastWorldSeed: '', defaultTerraformScale: 3, defaultTerraformIntensity: 3, solNeighbourhoodHistory: [],
 };
 
-export default class StarForgePlugin extends Plugin {
-  settings: StarForgeSettings = DEFAULT_SETTINGS;
+export default class GalaxyForgePlugin extends Plugin {
+  settings: GalaxyForgeSettings = DEFAULT_SETTINGS;
 
   async onload(): Promise<void> {
     await this.loadSettings();
 
     this.addCommand({
-      id: 'starforge-generate-test-region',
-      name: 'StarForge: generate a small test region',
+      id: 'galaxyforge-generate-test-region',
+      name: 'galaxyForge: generate a small test region',
       callback: () => { void this.generateTestRegion(); },
     });
     this.addCommand({
-      id: 'starforge-create-galaxy',
-      name: 'StarForge: create a galaxy',
+      id: 'galaxyforge-create-galaxy',
+      name: 'galaxyForge: create a galaxy',
       callback: () => { this.openGalaxyCreation(); },
     });
-    this.addRibbonIcon('sparkles', 'StarForge: create a galaxy', () => {
+    // The ribbon glyph is `GalaxyStartModal`'s own "create an entire galaxy"
+    // icon, registered under a stable id. `addIcon` renders into a fixed
+    // 0 0 100 100 viewport, so `GALAXY_ICON_100` is the glyph pre-scaled
+    // from its native 48-unit space - see `GALAXY_ICON_BODY`'s own note.
+    addIcon('galaxyforge-galaxy', GALAXY_ICON_100);
+    this.addRibbonIcon('galaxyforge-galaxy', 'galaxyForge: create a galaxy', () => {
       this.openGalaxyCreation();
     });
-    this.addSettingTab(new StarForgeSettingTab(this.app, this));
+    this.addSettingTab(new GalaxyForgeSettingTab(this.app, this));
   }
 
   private openGalaxyCreation(): void {
@@ -183,7 +190,7 @@ export default class StarForgePlugin extends Plugin {
       await writeSystemNote(this.app.vault, input, null);
       written++;
     }
-    new Notice(`StarForge: wrote ${written} system note(s) (${assembled.remnants.length} remnants) to ${CANONICAL_FOLDER}/`);
+    new Notice(`galaxyForge: wrote ${written} system note(s) (${assembled.remnants.length} remnants) to ${CANONICAL_FOLDER}/`);
   }
 
   onunload(): void {
@@ -192,13 +199,13 @@ export default class StarForgePlugin extends Plugin {
   }
 }
 
-class StarForgeSettingTab extends PluginSettingTab {
-  constructor(app: App, private readonly plugin: StarForgePlugin) { super(app, plugin); }
+class GalaxyForgeSettingTab extends PluginSettingTab {
+  constructor(app: App, private readonly plugin: GalaxyForgePlugin) { super(app, plugin); }
 
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl('h2', { text: 'StarForge' });
+    containerEl.createEl('h2', { text: 'galaxyForge' });
 
     new Setting(containerEl)
       .setName('Last world seed')

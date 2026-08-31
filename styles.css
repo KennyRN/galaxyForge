@@ -1,4 +1,4 @@
-/* StarForge - plugin-wide styles, auto-loaded by Obsidian from this file
+/* galaxyForge - plugin-wide styles, auto-loaded by Obsidian from this file
  * next to main.js/manifest.json (standard community-plugin convention, no
  * registration code needed). Kept to the one thing inline styles genuinely
  * cannot do from `galaxyCreationModals.ts` - :hover state - everything else
@@ -10,24 +10,24 @@
  * hover are colour-only, on the icon's own currentColor stroke/fill, no
  * background/border box at all.
  */
-.sf-shape-icon {
+.gf-shape-icon {
   color: var(--text-muted);
   transition: color 100ms ease-in-out;
 }
-.sf-shape-icon:hover {
+.gf-shape-icon:hover {
   color: var(--text-normal);
 }
-.sf-shape-icon.is-selected {
+.gf-shape-icon.is-selected {
   color: var(--interactive-accent);
 }
-.sf-shape-icon.is-selected:hover {
+.gf-shape-icon.is-selected:hover {
   color: var(--interactive-accent-hover);
 }
 
 /* Slider stepper pill (16 Aug 2026) - the two halves are plain, undecorated
  * buttons clipped to their outer container's own pill shape; this is just
  * their hover feedback, the one thing inline styles cannot express. */
-.sf-pill-btn:hover {
+.gf-pill-btn:hover {
   background: var(--interactive-hover);
 }
 
@@ -37,10 +37,10 @@
  * --text-muted at rest and lift to --text-normal on hover/focus - a
  * colour-only change, nothing else (the icon follows via
  * fill="currentColor"). Same "colour-only hover, no button box" language as
- * .sf-shape-icon above, at row scale. DIVs, not <button>s (see
+ * .gf-shape-icon above, at row scale. DIVs, not <button>s (see
  * GalaxyStartModal's own header) - so no Obsidian button rule is in play
  * and a single-class selector wins. */
-.sf-start-route {
+.gf-start-route {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -55,24 +55,24 @@
   font-size: var(--font-ui-medium);
   transition: color 100ms ease-in-out;
 }
-.sf-start-route:hover,
-.sf-start-route:focus-visible {
+.gf-start-route:hover,
+.gf-start-route:focus-visible {
   color: var(--text-normal);
   outline: none;
 }
 /* Fixed 50px box so both icons - the 48-unit galaxy glyph and the 16-unit
  * stars glyph - sit on the same left edge and the labels start at one x. */
-.sf-start-route-icon {
+.gf-start-route-icon {
   flex: 0 0 50px;
   height: 50px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.sf-start-route-icon svg {
+.gf-start-route-icon svg {
   display: block;
 }
-.sf-start-route-label {
+.gf-start-route-label {
   flex: 1 1 auto;
 }
 
@@ -83,12 +83,12 @@
  * is added to the `.modal` element itself in GalaxySolNeighbourhoodModal's
  * onOpen; the controls below the preview get their own padding from an
  * inner wrapper, so only the preview goes edge to edge. */
-.modal.sf-sol-modal,
-.sf-sol-modal .modal-content {
+.modal.gf-sol-modal,
+.gf-sol-modal .modal-content {
   padding: 0 !important;
 }
 
-.sf-sol-chrome-row {
+.gf-sol-chrome-row {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
@@ -97,7 +97,7 @@
   margin: 8px 0 12px;
 }
 
-.sf-sol-shape-cluster {
+.gf-sol-shape-cluster {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -107,14 +107,14 @@
   background: var(--background-secondary);
 }
 
-.sf-sol-chrome-split {
+.gf-sol-chrome-split {
   width: 1px;
   align-self: stretch;
   margin: 4px 2px;
   background: var(--background-modifier-border);
 }
 
-.sf-sol-size-cluster {
+.gf-sol-size-cluster {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -125,7 +125,7 @@
   flex: 0 0 auto;
 }
 
-.sf-sol-size-ruler {
+.gf-sol-size-ruler {
   flex: 0 0 26px;
   width: 26px;
   height: 26px;
@@ -135,11 +135,11 @@
   color: var(--text-muted);
 }
 
-.sf-sol-size-ruler svg {
+.gf-sol-size-ruler svg {
   display: block;
 }
 
-.sf-sol-size-input {
+.gf-sol-size-input {
   width: 11ch;
   min-width: 11ch;
   max-width: 11ch;
@@ -152,14 +152,14 @@
   border-radius: 4px;
 }
 
-.sf-sol-centre-row {
+.gf-sol-centre-row {
   display: flex;
   align-items: center;
   gap: 16px;
   margin: 8px 0 12px;
 }
 
-.sf-sol-centre-label-col {
+.gf-sol-centre-label-col {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -167,26 +167,26 @@
   gap: 4px;
 }
 
-.sf-sol-centre-heading {
+.gf-sol-centre-heading {
   font-weight: 600;
 }
 
-.sf-sol-centre-toggle .setting-item {
+.gf-sol-centre-toggle .setting-item {
   border: none;
   padding: 0;
   margin: 0;
 }
 
-.sf-sol-centre-toggle .setting-item-info {
+.gf-sol-centre-toggle .setting-item-info {
   display: none;
 }
 
-.sf-sol-centre-toggle .setting-item-control {
+.gf-sol-centre-toggle .setting-item-control {
   justify-content: flex-start;
   padding: 0;
 }
 
-.sf-sol-centre-aside {
+.gf-sol-centre-aside {
   flex: 1 1 auto;
   display: flex;
   flex-wrap: wrap;
@@ -195,7 +195,7 @@
   min-width: 0;
 }
 
-.sf-sol-centre-field {
+.gf-sol-centre-field {
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -203,27 +203,27 @@
   min-width: 0;
 }
 
-.sf-sol-centre-field-label {
+.gf-sol-centre-field-label {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   line-height: 1.3;
 }
 
-.sf-sol-centre-desc {
+.gf-sol-centre-desc {
   margin: 0;
   color: var(--text-muted);
   font-size: var(--font-ui-small);
   line-height: 1.4;
 }
 
-.sf-sol-meta-row {
+.gf-sol-meta-row {
   display: flex;
   align-items: stretch;
   gap: 8px;
   margin: 0 0 8px;
 }
 
-.sf-sol-meta-text {
+.gf-sol-meta-text {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -232,19 +232,19 @@
   min-width: 0;
 }
 
-.sf-sol-meta-text p {
+.gf-sol-meta-text p {
   margin: 0;
 }
 
-.sf-sol-coord {
+.gf-sol-coord {
   color: var(--text-muted);
   font-size: var(--font-ui-small);
   margin-top: 2px;
 }
 
-.sf-sol-hist-arrow,
-.sf-sol-hist-down,
-.sf-sol-hist-load {
+.gf-sol-hist-arrow,
+.gf-sol-hist-down,
+.gf-sol-hist-load {
   background-color: transparent !important;
   box-shadow: none !important;
   border: none;
@@ -252,7 +252,7 @@
   color: var(--text-muted);
 }
 
-.sf-sol-hist-arrow {
+.gf-sol-hist-arrow {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -260,7 +260,7 @@
   padding: 0 2px;
 }
 
-.sf-sol-hist-arrow svg {
+.gf-sol-hist-arrow svg {
   display: block;
   height: 100%;
   width: auto;
@@ -268,23 +268,23 @@
   aspect-ratio: 0.6 / 1;
 }
 
-.sf-sol-hist-arrow:hover:not(:disabled) {
+.gf-sol-hist-arrow:hover:not(:disabled) {
   color: var(--text-normal);
 }
 
-.sf-sol-hist-arrow:disabled {
+.gf-sol-hist-arrow:disabled {
   opacity: 0.28;
   cursor: default;
 }
 
-.sf-sol-generate-wrap {
+.gf-sol-generate-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-left: auto;
 }
 
-.sf-sol-hist-down {
+.gf-sol-hist-down {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -296,29 +296,29 @@
   color: var(--text-muted);
 }
 
-.sf-sol-hist-down svg {
+.gf-sol-hist-down svg {
   display: block;
   width: 22px;
   height: 22px;
 }
 
-.sf-sol-hist-down:hover {
+.gf-sol-hist-down:hover {
   color: var(--text-normal);
 }
 
-.sf-sol-hist-row {
+.gf-sol-hist-row {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 4px 0;
 }
 
-.sf-sol-hist-row span {
+.gf-sol-hist-row span {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.sf-sol-hist-load {
+.gf-sol-hist-load {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -331,13 +331,13 @@
   color: var(--text-muted);
 }
 
-.sf-sol-hist-load svg {
+.gf-sol-hist-load svg {
   display: block;
   width: 20px;
   height: 20px;
 }
 
-.sf-sol-hist-load:hover {
+.gf-sol-hist-load:hover {
   color: var(--text-normal);
 }
 

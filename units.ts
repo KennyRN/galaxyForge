@@ -150,7 +150,7 @@ export function linearRatioToDex(ratio: number): number { return Math.log10(rati
  * for every azimuth/arc/pitch-angle quantity (`tracedSpanDeg`, `armTipArcDeg`,
  * `betaKink`, `pitchOuterDeg`, pitch angle generally) - matching every
  * sourced table this project draws from (Reid 2019, Honig & Reid 2015,
- * Hyland 2026 all report in degrees) and the existing `StarForge-
+ * Hyland 2026 all report in degrees) and the existing `galaxyForge-
  * CONSOLIDATED-BUILD-BRIEF.md` law's own human-readability principle (the
  * same one that made AU and Rsun canonical over metres). Radians are a
  * MATH-ONLY intermediate, never stored - convert via these two functions,
@@ -175,7 +175,7 @@ export function radToDeg(rad: number): number { return rad * 180 / Math.PI; }
  *
  * Volume density (`systems pc^-3`, the arms-bundle package-01 solar
  * anchor) was ALREADY canonical in the governing law's table before this
- * ruling - see `StarForge-CONSOLIDATED-BUILD-BRIEF.md` section 1, "stellar
+ * ruling - see `galaxyForge-CONSOLIDATED-BUILD-BRIEF.md` section 1, "stellar
  * density". No new function needed there; Ruling 7 only cross-references
  * an existing decision, it does not make a new one.
  */

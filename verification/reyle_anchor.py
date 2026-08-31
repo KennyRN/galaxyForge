@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-StarForge - Reyle 10 pc anchor query.
+galaxyForge - Reyle 10 pc anchor query.
 
 Runs the system-count anchor against GAVO's TAP service and emits a provenance
 record in the form S4.1 requires: the DATASET version and the retrieval date

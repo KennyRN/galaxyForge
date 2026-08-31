@@ -1,8 +1,8 @@
 {
-  "name": "starforge",
+  "name": "galaxyforge",
   "version": "0.0.1",
   "private": true,
-  "description": "StarForge - a procedural galactic-sector generator for Obsidian. The TypeScript version is pinned EXACTLY, not by range: the gates are a provenance artefact and their toolchain is part of the result (audit correction C11).",
+  "description": "galaxyForge - a procedural galactic-sector generator for Obsidian. The TypeScript version is pinned EXACTLY, not by range: the gates are a provenance artefact and their toolchain is part of the result (audit correction C11).",
   "scripts": {
     "gates": "node verification/run-gates.js",
     "status": "node verification/module-status.js",

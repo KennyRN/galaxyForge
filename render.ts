@@ -39,8 +39,8 @@ import { pcToLy } from './units';
 import type { SystemCore } from './types';
 import { HAB_TIER_LABELS, type HabTier } from './humanHabitability';
 
-export const GENERATED_START = '%% STARFORGE:GENERATED:START - do not edit below this line, your changes will be overwritten %%';
-export const GENERATED_END = '%% STARFORGE:GENERATED:END - your own notes go BELOW this line and are never touched %%';
+export const GENERATED_START = '%% GALAXYFORGE:GENERATED:START - do not edit below this line, your changes will be overwritten %%';
+export const GENERATED_END = '%% GALAXYFORGE:GENERATED:END - your own notes go BELOW this line and are never touched %%';
 
 /** True 3D distance from stored coordinates - NEVER map distance (S4.8's
  *  own repeated warning: two systems can sit adjacent on a flattened map
@@ -183,7 +183,7 @@ export function buildAuthoredStub(sysid: string, name: string | null): string {
     `Canonical data: [[${sysid}]]`,
     '',
     '_Your own notes about this system go here. This file is created once and',
-    'never touched again by StarForge - regenerating the sector will never',
+    'never touched again by galaxyForge - regenerating the sector will never',
     'overwrite anything you write below this line._',
     '',
   ].join('\n');
