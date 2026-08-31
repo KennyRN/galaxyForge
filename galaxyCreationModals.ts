@@ -1259,10 +1259,21 @@ function renderPositionOnlyCanvas(
   plotPositions(ctx, w, h, pcToPx, centrePc, positions);
 }
 
-/** Chevrons for the sol-neighbourhood history tape (xmlns omitted: gate S1). */
-const CHEVRON_LEFT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 5L8 12l7 7"/></svg>';
-const CHEVRON_RIGHT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7l-7 7"/></svg>';
-const CHEVRON_DOWN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 9l7 7l7-7"/></svg>';
+/** Sector-tape navigation glyphs (Tabler "reicon" set; xmlns omitted: gate
+ *  S1). Single chevrons step one sector; the duotone double-arrows jump to
+ *  the first roll / straight to a fresh one. The history glyph opens the
+ *  full tape; the globe-search glyph runs the centre-system search.
+ *
+ *  The double-arrow art only fills ~15 of its 24-unit box vertically, vs
+ *  ~18 for the filled chevrons - so the arrows carry a tightened
+ *  `viewBox="2 2 20 20"` that crops the dead margin and makes all four
+ *  glyphs render at one height (user follow-up 31 Aug 2026). */
+const NAV_CHEVRON_LEFT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none"/><path fill="currentColor" d="M15.333 21.333a1 1 0 0 1-.706-.293l-8.334-8.333a1 1 0 0 1 0-1.415l8.334-8.332a1 1 0 1 1 1.414 1.415L8.415 12l7.626 7.627a1 1 0 0 1-.706 1.708Z"/></svg>';
+const NAV_CHEVRON_RIGHT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none"/><path fill="currentColor" d="M17.707 11.293L9.373 2.96A1 1 0 1 0 7.96 4.375L15.585 12L7.96 19.628a1 1 0 0 0 1.413 1.415l8.333-8.334a1 1 0 0 0 0-1.414Z"/></svg>';
+const NAV_ARROWS_LEFT_SVG = '<svg viewBox="2 2 20 20" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none"/><g fill="currentColor"><path d="M17.75 19a.75.75 0 0 1-1.32.488l-6-7a.75.75 0 0 1 0-.976l6-7A.75.75 0 0 1 17.75 5z" opacity=".5"/><path fill-rule="evenodd" d="M13.488 19.57a.75.75 0 0 0 .081-1.058L7.988 12l5.581-6.512a.75.75 0 1 0-1.138-.976l-6 7a.75.75 0 0 0 0 .976l6 7a.75.75 0 0 0 1.057.082" clip-rule="evenodd"/></g></svg>';
+const NAV_ARROWS_RIGHT_SVG = '<svg viewBox="2 2 20 20" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none"/><g fill="currentColor"><path d="M6.25 19a.75.75 0 0 0 1.32.488l6-7a.75.75 0 0 0 0-.976l-6-7A.75.75 0 0 0 6.25 5z" opacity=".5"/><path fill-rule="evenodd" d="M10.512 19.57a.75.75 0 0 1-.081-1.058L16.012 12l-5.581-6.512a.75.75 0 1 1 1.139-.976l6 7a.75.75 0 0 1 0 .976l-6 7a.75.75 0 0 1-1.058.082" clip-rule="evenodd"/></g></svg>';
+const GLOBAL_SEARCH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none"/><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M22 12c0-5.52-4.48-10-10-10S2 6.48 2 12s4.48 10 10 10"/><path d="M8 3h1a28.42 28.42 0 0 0 0 18H8m7-18c.97 2.92 1.46 5.96 1.46 9"/><path d="M3 16v-1c2.92.97 5.96 1.46 9 1.46M3 9a28.42 28.42 0 0 1 18 0m-2.8 12.4a3.2 3.2 0 1 0 0-6.4a3.2 3.2 0 0 0 0 6.4m3.8.6l-1-1"/></g></svg>';
+const HISTORY_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none"/><g fill="currentColor"><path fill-rule="evenodd" d="M5.079 5.069c3.795-3.79 9.965-3.75 13.783.069c3.82 3.82 3.86 9.993.064 13.788s-9.968 3.756-13.788-.064a9.81 9.81 0 0 1-2.798-8.28a.75.75 0 1 1 1.487.203a8.31 8.31 0 0 0 2.371 7.017c3.245 3.244 8.468 3.263 11.668.064c3.199-3.2 3.18-8.423-.064-11.668c-3.243-3.242-8.463-3.263-11.663-.068l.748.003a.75.75 0 1 1-.007 1.5l-2.546-.012a.75.75 0 0 1-.746-.747L3.575 4.33a.75.75 0 1 1 1.5-.008z" clip-rule="evenodd"/><path d="M12 7.25a.75.75 0 0 1 .75.75v3.69l2.28 2.28a.75.75 0 1 1-1.06 1.06l-2.427-2.426a1 1 0 0 1-.293-.708V8a.75.75 0 0 1 .75-.75" opacity=".5"/></g></svg>';
 /** Arrow pointing into a box - load this preview from the history list. */
 const ARROW_INTO_BOX_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5M3 12h12M11 8l4 4l-4 4"/></svg>';
 
@@ -1461,13 +1472,23 @@ export class GalaxyStartModal extends Modal {
 
 /* ------------------------ sol-neighbourhood sector flow ----------------------- */
 
-/** `θ ...°  ·  R ... pc  ·  z ±... pc` - the rolled sector centre in
- *  galactic polar coordinates, shared by `GalaxySolNeighbourhoodModal` and
- *  its history modal so both label a sector the same way. */
-function solSectorCoordLabel(angleRad: number, distanceFromCentrePc: number, distanceFromPlanePc: number): string {
+/** The rolled sector centre in galactic polar coordinates, as three fields
+ *  `[θ ...°, R ... pc, z ±... pc]` - shared by `GalaxySolNeighbourhoodModal`
+ *  and its history modal so both label a sector the same way. The history
+ *  modal lays the three out as columns; everywhere else joins them with a
+ *  dot. */
+function solSectorCoordParts(angleRad: number, distanceFromCentrePc: number, distanceFromPlanePc: number): [string, string, string] {
   const z = distanceFromPlanePc.toFixed(0);
   const signedZ = distanceFromPlanePc >= 0 ? `+${z}` : z;
-  return `θ ${radToDeg(angleRad).toFixed(1)}°  ·  R ${distanceFromCentrePc.toFixed(0)} pc  ·  z ${signedZ} pc`;
+  return [
+    `θ ${radToDeg(angleRad).toFixed(1)}°`,
+    `R ${distanceFromCentrePc.toFixed(0)} pc`,
+    `z ${signedZ} pc`,
+  ];
+}
+
+function solSectorCoordLabel(angleRad: number, distanceFromCentrePc: number, distanceFromPlanePc: number): string {
+  return solSectorCoordParts(angleRad, distanceFromCentrePc, distanceFromPlanePc).join('  ·  ');
 }
 
 function solSectorKey(worldSeed: string, angleRad: number, distanceFromCentrePc: number, distanceFromPlanePc: number): string {
@@ -1488,8 +1509,10 @@ function solSectorKey(worldSeed: string, angleRad: number, distanceFromCentrePc:
  * (`solNeighbourhoodBand` - R within +/-10% of R0, z within one thin-disc
  * scale height either side of the plane, so a sector can land above OR
  * below it), theta anywhere on the circle. Left/right chevrons walk a
- * persisted history tape (oldest → newest); right at the newest end
- * rolls a new centre. A down-chevron next to Generate opens
+ * persisted history tape one step at a time (oldest → newest); right at
+ * the newest end rolls a new centre. Flanking them, the duotone
+ * double-arrows jump to the first roll / straight to a fresh one. A
+ * history glyph next to Generate opens
  * `SolNeighbourhoodHistoryModal` to jump to any past roll. Each entry
  * carries its own worldSeed so re-selecting one is the SAME sector, not
  * just the same point in a different galaxy.
@@ -1619,11 +1642,37 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     this.render(true);
   }
 
+  /** Hover-icon (not a button) for the sector tape - a div carrying the
+   *  shared `.gf-sol-nav-icon` colour rules, keyboard-activated like the
+   *  shape selector's own icons. `disabled` greys it out and drops the
+   *  handler. */
+  private addNavIcon(host: HTMLElement, svg: string, label: string, disabled: boolean, onActivate: () => void, extraCls?: string): void {
+    const cls = ['gf-sol-nav-icon'];
+    if (disabled) cls.push('is-disabled');
+    if (extraCls) cls.push(extraCls);
+    const icon = host.createDiv({
+      cls: cls.join(' '),
+      attr: { title: label, 'aria-label': label, role: 'button', tabindex: disabled ? '-1' : '0' },
+    });
+    icon.innerHTML = svg;
+    if (disabled) return;
+    icon.onclick = onActivate;
+    icon.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onActivate(); } };
+  }
+
   private viewOlder(): void {
     if (this.historyCursor <= 0) return;
     const chrono = this.chronoHistory();
     this.historyCursor -= 1;
     const entry = chrono[this.historyCursor];
+    if (entry) this.applyEntry(entry);
+  }
+
+  /** Jump straight to the oldest roll on the tape. */
+  private viewFirst(): void {
+    if (this.historyCursor <= 0) return;
+    const entry = this.chronoHistory()[0];
+    this.historyCursor = 0;
     if (entry) this.applyEntry(entry);
   }
 
@@ -1636,6 +1685,12 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       if (entry) this.applyEntry(entry);
       return;
     }
+    this.rollNew();
+  }
+
+  /** Roll a brand-new sector, record it, and park the cursor at the newest
+   *  end - the double-right-arrow's action regardless of tape position. */
+  private rollNew(): void {
     const p = this.roll();
     this.draft = reconcileSizeFields(this.model, {
       ...this.draft, angleRad: p.angleRad, distanceFromCentrePc: p.distanceFromCentrePc, distanceFromPlanePc: p.distanceFromPlanePc,
@@ -1714,14 +1769,17 @@ export class GalaxySolNeighbourhoodModal extends Modal {
     const body = contentEl.createDiv();
     body.style.cssText = 'padding:12px 16px 16px;';
 
+    // Sector-tape nav: the four glyphs cluster either side of the centre
+    // text (a small gap, not flush - user follow-up 31 Aug 2026). They are
+    // hover-icons, not buttons - grey (--text-muted, matching an unselected
+    // shape/density icon) at rest, --interactive-accent on hover, exactly
+    // like the shape selector's own selected state.
     const metaRow = body.createDiv({ cls: 'gf-sol-meta-row' });
-    const olderBtn = metaRow.createEl('button', {
-      cls: 'gf-sol-hist-arrow',
-      attr: { type: 'button', 'aria-label': 'Previous previewed sector' },
-    });
-    olderBtn.innerHTML = CHEVRON_LEFT_SVG;
-    olderBtn.disabled = this.historyCursor <= 0;
-    olderBtn.onclick = () => this.viewOlder();
+    const atFirst = this.historyCursor <= 0;
+
+    const navLeft = metaRow.createDiv({ cls: 'gf-sol-meta-nav' });
+    this.addNavIcon(navLeft, NAV_ARROWS_LEFT_SVG, 'Back to the first previewed sector', atFirst, () => this.viewFirst());
+    this.addNavIcon(navLeft, NAV_CHEVRON_LEFT_SVG, 'Previous previewed sector', atFirst, () => this.viewOlder());
 
     const metaText = metaRow.createDiv({ cls: 'gf-sol-meta-text' });
     this.countEl = metaText.createEl('p', { text: 'Placing systems…' });
@@ -1730,12 +1788,9 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       text: solSectorCoordLabel(this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc),
     });
 
-    const newerBtn = metaRow.createEl('button', {
-      cls: 'gf-sol-hist-arrow',
-      attr: { type: 'button', 'aria-label': 'Next previewed sector, or a new one' },
-    });
-    newerBtn.innerHTML = CHEVRON_RIGHT_SVG;
-    newerBtn.onclick = () => this.viewNewerOrNew();
+    const navRight = metaRow.createDiv({ cls: 'gf-sol-meta-nav' });
+    this.addNavIcon(navRight, NAV_CHEVRON_RIGHT_SVG, 'Next previewed sector, or a new one', false, () => this.viewNewerOrNew());
+    this.addNavIcon(navRight, NAV_ARROWS_RIGHT_SVG, 'Find a new sector', false, () => this.rollNew());
 
     const chromeRow = body.createDiv({ cls: 'gf-sol-chrome-row' });
     const cluster = chromeRow.createDiv({ cls: 'gf-sol-shape-cluster' });
@@ -1832,7 +1887,10 @@ export class GalaxySolNeighbourhoodModal extends Modal {
         .onChange((v) => this.setDraft({ sysType: v as Screen2Draft['sysType'] }));
       sysType.selectEl.setAttribute('aria-label', 'Sys type');
       sysTypeField.createDiv({ cls: 'gf-sol-centre-field-label', text: 'Sys type' });
-      centreAside.createEl('button', { text: 'Search', cls: 'mod-cta' }).addEventListener('click', () => this.runSearch());
+      // Search is a hover-icon (globe-search glyph), formatted exactly like
+      // the history icon - button-height, grey → accent on hover. It sits
+      // inside the bounding box, pushed to its right edge, vertically centred.
+      this.addNavIcon(centreRow, GLOBAL_SEARCH_SVG, 'Search for the centre system', false, () => this.runSearch(), 'gf-sol-nav-icon--btn-height gf-sol-centre-search');
     }
 
     const nav = body.createDiv();
@@ -1842,18 +1900,19 @@ export class GalaxySolNeighbourhoodModal extends Modal {
       new GalaxyStartModal(this.app, this.settings, this.onSettingsChange).open();
     };
     const generateWrap = nav.createDiv({ cls: 'gf-sol-generate-wrap' });
-    const historyBtn = generateWrap.createEl('button', {
-      cls: 'gf-sol-hist-down',
-      attr: { type: 'button', 'aria-label': 'Previously viewed sectors' },
-    });
-    historyBtn.innerHTML = CHEVRON_DOWN_SVG;
-    historyBtn.onclick = () => {
-      new SolNeighbourhoodHistoryModal(
-        this.app, this.settings.solNeighbourhoodHistory,
-        solSectorKey(this.seed, this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc),
-        (entry) => this.loadEntry(entry),
-      ).open();
-    };
+    // Hover-icon (not a button), same colour language as the tape arrows,
+    // sized to match the button height beside it.
+    this.addNavIcon(
+      generateWrap, HISTORY_SVG, 'Previously viewed sectors', false,
+      () => {
+        new SolNeighbourhoodHistoryModal(
+          this.app, this.settings.solNeighbourhoodHistory,
+          solSectorKey(this.seed, this.draft.angleRad, this.draft.distanceFromCentrePc, this.draft.distanceFromPlanePc),
+          (entry) => this.loadEntry(entry),
+        ).open();
+      },
+      'gf-sol-nav-icon--btn-height',
+    );
     const generateBtn = generateWrap.createEl('button', { text: 'generate sector', cls: 'mod-cta' });
     generateBtn.onclick = () => { void this.commit(); };
 
@@ -1907,8 +1966,10 @@ export class GalaxySolNeighbourhoodModal extends Modal {
 /**
  * `SolNeighbourhoodHistoryModal` (31 Aug 2026, a direct user follow-up:
  * "previously viewed sectors should be in a separate modal") - a plain
- * scrollable list of every past sol-neighbourhood roll, newest first.
- * Picking one closes this modal and hands the entry back to the still-open
+ * scrollable list of every past sol-neighbourhood roll, newest first,
+ * numbered 1..N with 1 = oldest, laid out as number + θ / R / z columns.
+ * The current sector is pinned above the scroll pane. Picking one closes
+ * this modal and hands the entry back to the still-open
  * `GalaxySolNeighbourhoodModal` via `onPick`, which reloads it (seed +
  * centre). Read-only otherwise: it never rolls, records or commits.
  */
@@ -1924,30 +1985,51 @@ class SolNeighbourhoodHistoryModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    this.modalEl.addClass('gf-sol-hist-modal');
     contentEl.empty();
-    contentEl.createEl('h3', { text: 'previously viewed sectors' });
 
     if (this.history.length === 0) {
       contentEl.createEl('p', { text: 'No sectors viewed yet.' });
       return;
     }
 
-    const listEl = contentEl.createDiv();
-    listEl.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:60vh;overflow-y:auto;';
-    for (const entry of this.history) {
-      const isCurrent = solSectorKey(entry.worldSeed, entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc) === this.currentKey;
-      const row = listEl.createDiv({ cls: 'gf-sol-hist-row' });
-      const label = row.createSpan({
-        text: solSectorCoordLabel(entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc),
-      });
-      if (isCurrent) label.style.fontWeight = 'bold';
-      const load = row.createEl('button', {
-        cls: 'gf-sol-hist-load',
-        attr: { type: 'button', 'aria-label': 'Load this preview' },
-      });
-      load.innerHTML = ARROW_INTO_BOX_SVG;
-      load.onclick = () => { this.close(); this.onPick(entry); };
+    // `this.history` is newest-first; walk it in reverse so the list reads
+    // oldest → newest, numbered 1..N (user follow-up 31 Aug 2026).
+    const chrono = [...this.history].reverse();
+    const currentIndex = chrono.findIndex((e) =>
+      solSectorKey(e.worldSeed, e.angleRad, e.distanceFromCentrePc, e.distanceFromPlanePc) === this.currentKey);
+
+    // The current sector is pinned above the scroll pane so it stays in
+    // view no matter how far the rest is scrolled; the pane shows ~10 rows
+    // before it scrolls (user follow-up 31 Aug 2026).
+    if (currentIndex >= 0) {
+      const pinned = contentEl.createDiv({ cls: 'gf-sol-hist-grid gf-sol-hist-pinned' });
+      this.renderRow(pinned, chrono[currentIndex], currentIndex + 1, true);
     }
+
+    // List runs newest → oldest so the newest rows sit right under the
+    // pinned current one (user follow-up 31 Aug 2026); numbers still count
+    // 1 = oldest.
+    const listEl = contentEl.createDiv({ cls: 'gf-sol-hist-grid gf-sol-hist-list' });
+    for (let i = chrono.length - 1; i >= 0; i--) {
+      if (i === currentIndex) continue;
+      this.renderRow(listEl, chrono[i], i + 1, false);
+    }
+  }
+
+  private renderRow(host: HTMLElement, entry: SolNeighbourhoodSector, number: number, isCurrent: boolean): void {
+    const row = host.createDiv({ cls: isCurrent ? 'gf-sol-hist-row is-current' : 'gf-sol-hist-row' });
+    row.createSpan({ cls: 'gf-sol-hist-num', text: String(number) });
+    const [theta, radius, height] = solSectorCoordParts(entry.angleRad, entry.distanceFromCentrePc, entry.distanceFromPlanePc);
+    row.createSpan({ cls: 'gf-sol-hist-field', text: theta });
+    row.createSpan({ cls: 'gf-sol-hist-field', text: radius });
+    row.createSpan({ cls: 'gf-sol-hist-field', text: height });
+    const load = row.createEl('button', {
+      cls: 'gf-sol-hist-load',
+      attr: { type: 'button', 'aria-label': 'Load this preview' },
+    });
+    load.innerHTML = ARROW_INTO_BOX_SVG;
+    load.onclick = () => { this.close(); this.onPick(entry); };
   }
 
   onClose(): void {

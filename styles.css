@@ -14,9 +14,7 @@
   color: var(--text-muted);
   transition: color 100ms ease-in-out;
 }
-.gf-shape-icon:hover {
-  color: var(--text-normal);
-}
+.gf-shape-icon:hover,
 .gf-shape-icon.is-selected {
   color: var(--interactive-accent);
 }
@@ -152,11 +150,27 @@
   border-radius: 4px;
 }
 
+/* "System at centre" sits in its own bounding box, matching the shape /
+ * size clusters above it. The min-height is sized to the taller state (two
+ * labelled dropdowns), so toggling the switch on does not resize the row -
+ * the dropdown labels appear into space already reserved. */
 .gf-sol-centre-row {
   display: flex;
   align-items: center;
   gap: 16px;
   margin: 8px 0 12px;
+  min-height: 72px;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  box-sizing: border-box;
+}
+
+/* Search icon: inside the box, pinned to its right edge, vertically centred
+ * (the row already centres its items). */
+.gf-sol-centre-search {
+  margin-left: auto;
 }
 
 .gf-sol-centre-label-col {
@@ -218,18 +232,76 @@
 
 .gf-sol-meta-row {
   display: flex;
-  align-items: stretch;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
   margin: 0 0 8px;
 }
 
+/* The four tape glyphs, clustered either side of the centre text with only
+ * a small gap between cluster and text (not flush against it). */
+.gf-sol-meta-nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* All four glyphs one height, ~90% of the two stacked centre-text lines
+ * (count + coordinates: ~1.5em + ~1.5em) - user follow-up 31 Aug 2026. The
+ * arrows' tightened viewBox makes them match the chevrons at this box
+ * size. em-based so it tracks the modal's UI font. */
+.gf-sol-meta-nav .gf-sol-nav-icon {
+  height: 2.65em;
+}
+
 .gf-sol-meta-text {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   justify-content: center;
   text-align: center;
   min-width: 0;
+}
+
+/* Sector-tape hover-icons (arrows + history). Colour-only, no button box:
+ * --text-muted at rest (an unselected shape/density icon), lifting to
+ * --interactive-accent on hover/focus (the shape selector's active tint). */
+.gf-sol-nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px; /* fallback; each context below sizes its own */
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 100ms ease-in-out;
+}
+
+.gf-sol-nav-icon:hover,
+.gf-sol-nav-icon:focus-visible {
+  color: var(--interactive-accent);
+  outline: none;
+}
+
+.gf-sol-nav-icon.is-disabled {
+  opacity: 0.28;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Glyph height is driven by the icon box; width follows the viewBox aspect
+ * so every glyph stays square. The double-arrows' tightened viewBox (see
+ * galaxyCreationModals.ts) makes them render at the chevrons' height. */
+.gf-sol-nav-icon svg {
+  display: block;
+  height: 100%;
+  width: auto;
+}
+
+/* History icon + centre-system search icon: matched to the height of the
+ * buttons they sit beside. */
+.gf-sol-nav-icon--btn-height {
+  height: var(--input-height, 30px);
 }
 
 .gf-sol-meta-text p {
@@ -242,8 +314,6 @@
   margin-top: 2px;
 }
 
-.gf-sol-hist-arrow,
-.gf-sol-hist-down,
 .gf-sol-hist-load {
   background-color: transparent !important;
   box-shadow: none !important;
@@ -252,70 +322,78 @@
   color: var(--text-muted);
 }
 
-.gf-sol-hist-arrow {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 2px;
-}
-
-.gf-sol-hist-arrow svg {
-  display: block;
-  height: 100%;
-  width: auto;
-  min-height: 2.6em;
-  aspect-ratio: 0.6 / 1;
-}
-
-.gf-sol-hist-arrow:hover:not(:disabled) {
-  color: var(--text-normal);
-}
-
-.gf-sol-hist-arrow:disabled {
-  opacity: 0.28;
-  cursor: default;
-}
-
 .gf-sol-generate-wrap {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 56px; /* history icon sits well clear of the Generate button */
   margin-left: auto;
 }
 
-.gf-sol-hist-down {
-  display: flex;
+/* Shrink-wrap the modal to its content - just the number, the three
+ * coordinate columns and the load control - so the load control sits a
+ * normal gap from the data, not miles away (user follow-up 31 Aug 2026). */
+.modal.gf-sol-hist-modal {
+  width: fit-content;
+  min-width: 300px;
+  max-width: 92vw;
+}
+
+/* Each block (the pinned current row, and the scroll pane) is its own grid
+ * with a shared column template (rows are display:contents), so the
+ * number, the θ / R / z fields and the load control line up as columns. No
+ * flexible track - the load control sits one column-gap past the last
+ * field. */
+.gf-sol-hist-grid {
+  display: grid;
+  grid-template-columns: min-content max-content max-content max-content min-content;
   align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  box-shadow: none;
-  padding: 4px;
-  cursor: pointer;
-  color: var(--text-muted);
+  column-gap: 10px;
+  row-gap: 4px;
 }
 
-.gf-sol-hist-down svg {
-  display: block;
-  width: 22px;
-  height: 22px;
+/* Current sector: always visible, directly above the scroll pane. The gap
+ * to the first scrolled row matches the list's own row-gap, so an
+ * unscrolled view reads as one continuous list. */
+.gf-sol-hist-pinned {
+  margin-bottom: 4px;
 }
 
-.gf-sol-hist-down:hover {
-  color: var(--text-normal);
+/* ~10 rows (each ≈ 1.5em text + 4px row-gap), then the pane scrolls. */
+.gf-sol-hist-list {
+  max-height: calc(10 * (1.5em + 4px));
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .gf-sol-hist-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
+  display: contents;
 }
 
-.gf-sol-hist-row span {
-  flex: 1 1 auto;
-  min-width: 0;
+.gf-sol-hist-num {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.gf-sol-hist-field {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Dot separator before the 2nd and 3rd fields - keeps the "· between each
+ * field" reading now that the fields are separate columns. */
+.gf-sol-hist-field + .gf-sol-hist-field::before {
+  content: "·";
+  margin-right: 10px;
+  opacity: 0.6;
+}
+
+/* Current sector: not bold - tinted with the same accent as the icons and
+ * highlighted buttons. */
+.gf-sol-hist-row.is-current,
+.gf-sol-hist-row.is-current .gf-sol-hist-num,
+.gf-sol-hist-row.is-current .gf-sol-hist-load {
+  color: var(--interactive-accent);
 }
 
 .gf-sol-hist-load {
